@@ -31,6 +31,7 @@ GROUP_UPLOAD_BUNDLE_ROOT_PRIORITY_FILES = (
     "comparison_summary.json",
     "process_manifest.json",
     "README.md",
+    "changed_lines.benchmark_comparison.jsonl",
     "changed_lines.codex_vs_vanilla.jsonl",
     "per_recipe_or_per_span_breakdown.json",
     "targeted_prompt_cases.md",

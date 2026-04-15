@@ -146,20 +146,20 @@ Interactive benchmark modes are still active and remain offline source-row workf
 Current interactive contracts:
 
 - `single_book` writes one session root under `data/golden/benchmark-vs-golden/<timestamp>/single-book-benchmark/<source_slug>/`
-- when Codex-backed recipe extraction is selected, paired runs are written under sibling `vanilla/` and `codex-exec/` roots in that session
-- paired benchmark variants now share the same selected `atomic_block_splitter`; benchmark helpers no longer hardcode `off` for `vanilla` and `atomic-v1` for `codex-exec`
+- interactive single-book now writes the selected benchmark variant only. Codex-backed runs default to a single Codex-oriented variant such as `codex-exec`; a deterministic `vanilla` run is still available when the operator explicitly chooses the vanilla profile, but it is no longer auto-added as a sibling leg.
+- benchmark comparisons should now be interpreted as baseline/candidate or prior/current Codex first. Vanilla is an explicit diagnostic canary, not the default optimization target.
 - warm reruns of the same interactive single-book target can now reuse finished prediction artifacts across sessions before comparison/report publication runs
 - benchmark prediction/import runs now resolve the same hidden runtime defaults as stage for EPUB segmentation, knowledge grouping caps, and workspace completion grace; support-only benchmark constants such as split-cache wait/poll, single-profile scheduler policy, and Oracle upload shard/poll budgets now live behind shared resolver helpers instead of scattered literals
 - benchmark knowledge runs now use the same single live product behavior as stage: first-pass classification is binary `keep_for_review` versus `other`, and the second pass emits contiguous split-and-tag groups with shared grounding/tagging for each accepted span. Benchmark readers should expect group-oriented knowledge counts rather than row-level proposal-candidate counts.
 - benchmark runtime contracts now preserve all three Codex Exec transport selections from `RunSettings` into `labelstudio-benchmark`: recipe, line-role, and knowledge. Interactive single-book and matched-book runs should keep those per-surface transport choices through prediction generation and manifests.
 - benchmark helper/adaptor calls now also pass the hidden `knowledge_inline_repair_transcript_mode` knob through `labelstudio-benchmark`, so helper-built kwargs stay signature-compatible when knowledge inline repair switches between `resume` and `fresh`
-- paired success can emit:
-  - `codex_vs_vanilla_comparison.json`
+- when a benchmark comparison artifact exists, current runs emit:
+  - `benchmark_comparison.json`
   - `single_book_summary.md`
-  - `single_book_summary.md` now renders per-label tables per variant; paired aggregate per-label stats stay in comparison metadata instead of being shown as if they were variant-local
+  - `single_book_summary.md` now renders per-label tables per variant; aggregate per-label stats stay in comparison metadata instead of being shown as if they were variant-local
   - `upload_bundle_v1/`
 - single-book `upload_bundle_v1` is now a curated first-pass packet by default, capped to about 30 MB via the existing high-level bundle mode instead of embedding the full lossless payload dump; deeper evidence is expected to move through `cf-debug` follow-up packets when needed
-- vanilla-only single-book `upload_bundle_v1` runs still leave pair-only sections empty, but they now preserve single-run recipe-span counts from `line-role-pipeline/telemetry_summary.json` / benchmark `manifest.json` and avoid misleading “no spans discovered” triage notes
+- single-run benchmark `upload_bundle_v1` packets still leave comparison-only sections empty, but they now preserve single-run recipe-span counts from `line-role-pipeline/telemetry_summary.json` / benchmark `manifest.json` and avoid misleading “no spans discovered” triage notes
 - paired single-book starter-pack / upload-bundle call inventory exports now retain `line_role` prompt rows and include row-level runtime/token/cost columns when `request_telemetry` provides them; stage-level fallback totals in `prompt_budget_summary.json` still backfill the summary when per-call rows are sparse
 - upload-bundle runtime/token summaries now also fall back stage-by-stage to `prompt_budget_summary.json` when the call inventory has the expected rows but a stage's per-call telemetry is blank; this keeps topline spend honest without inventing per-call values that were never recorded
 - `prompt_budget_summary.json` now also records recipe transport/policy labels from direct-exec telemetry. For recipe cost review, check `by_stage.recipe_refine.codex_transport`, `codex_policy_mode`, and `codex_shell_tool_enabled` before comparing semantic payload versus protocol overhead.

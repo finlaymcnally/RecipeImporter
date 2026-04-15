@@ -1237,8 +1237,10 @@ def _interactive_single_profile_all_matched_benchmark(
                 run_timestamp=benchmark_eval_output.name,
                 session_root=target_eval_output,
                 source_file=source_file_for_comparison or str(target.source_file),
-                codex_eval_output_dir=variant_eval_outputs["codex-exec"],
-                vanilla_eval_output_dir=variant_eval_outputs["vanilla"],
+                baseline_variant_slug="vanilla",
+                candidate_variant_slug="codex-exec",
+                baseline_eval_output_dir=variant_eval_outputs["vanilla"],
+                candidate_eval_output_dir=variant_eval_outputs["codex-exec"],
                 write_markdown=write_markdown,
                 write_starter_pack=False,
             )
@@ -1347,7 +1349,7 @@ def _interactive_single_profile_all_matched_benchmark(
             )
         if comparison_json_path is not None:
             typer.secho(
-                f"Codex-vs-vanilla comparison: {comparison_json_path}",
+                f"Benchmark comparison: {comparison_json_path}",
                 fg=typer.colors.CYAN,
             )
         if publication_target is not None and publication_target.publication_error:

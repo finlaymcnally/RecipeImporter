@@ -519,7 +519,9 @@ def test_load_deterministic_prep_bundle_normalizes_legacy_manifest_workbook_slug
     artifact_root = tmp_path / "prep-cache" / "entry"
     processed_run_root = artifact_root / "processed-output" / "2026-04-04_22.27.40"
     normalized_slug = "saltfatacidheatcutdown"
-    legacy_slug = "saltfatacidheatCUTDOWN"
+    # Use a non-case-only legacy slug so this normalization check stays portable
+    # on case-insensitive filesystems.
+    legacy_slug = "saltfatacidheatCUTDOWN!"
     (processed_run_root / "raw" / "source" / normalized_slug).mkdir(parents=True, exist_ok=True)
     conversion_result_path = artifact_root / "conversion_result.json"
     conversion_result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1338,50 +1340,29 @@ def test_interactive_single_book_codex_enabled_runs_only_codex_exec(
 
     assert completed is True
     assert len(prep_bundle_calls) == 1
-    assert len(benchmark_calls) == 2
-    assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-recipe-shard-v1",
-    ]
-    assert [call["line_role_pipeline"] for call in benchmark_calls] == [
-        "off",
-        "codex-line-role-route-v2",
-    ]
-    assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
-        "off",
-        "off",
-    ]
-    assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
-    assert [call["recipe_prompt_target_count"] for call in benchmark_calls] == [10, 10]
-    assert [call["knowledge_prompt_target_count"] for call in benchmark_calls] == [4, 4]
-    assert [call["line_role_prompt_target_count"] for call in benchmark_calls] == [5, 5]
-    assert [call["single_book_split_cache_mode"] for call in benchmark_calls] == [
-        "auto",
-        "auto",
-    ]
-    assert [call.get("deterministic_prep_manifest_path") for call in benchmark_calls] == [
-        prep_bundle.manifest_path,
-        None,
-    ]
-    assert [call["eval_output_dir"] for call in benchmark_calls] == [
-        benchmark_eval_output / "single-book-benchmark" / "book" / "vanilla",
-        benchmark_eval_output / "single-book-benchmark" / "book" / "codex-exec",
-    ]
-    assert [call["processed_output_dir"] for call in benchmark_calls] == [
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert benchmark_calls[0]["line_role_pipeline"] == "off"
+    assert benchmark_calls[0]["atomic_block_splitter"] == "off"
+    assert benchmark_calls[0]["allow_codex"] is True
+    assert benchmark_calls[0]["recipe_prompt_target_count"] == 10
+    assert benchmark_calls[0]["knowledge_prompt_target_count"] == 4
+    assert benchmark_calls[0]["line_role_prompt_target_count"] == 5
+    assert benchmark_calls[0].get("single_book_split_cache_mode") in {None, "auto"}
+    assert benchmark_calls[0].get("deterministic_prep_manifest_path") == prep_bundle.manifest_path
+    assert benchmark_calls[0]["eval_output_dir"] == (
+        benchmark_eval_output / "single-book-benchmark" / "book" / "recipe_only"
+    )
+    assert benchmark_calls[0]["processed_output_dir"] == (
         processed_output_root
         / benchmark_eval_output.name
         / "single-book-benchmark"
         / "book"
-        / "vanilla",
-        processed_output_root
-        / benchmark_eval_output.name
-        / "single-book-benchmark"
-        / "book"
-        / "codex-exec",
-    ]
+        / "recipe_only"
+    )
 
 
-def test_interactive_single_book_codex_enabled_writes_comparison_and_refreshes_dashboard(
+def test_interactive_single_book_codex_enabled_skips_default_comparison_and_refreshes_dashboard(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -1394,16 +1375,9 @@ def test_interactive_single_book_codex_enabled_writes_comparison_and_refreshes_d
         benchmark_eval_output
         / "single-book-benchmark"
         / "book"
-        / "codex_vs_vanilla_comparison.json"
+        / "benchmark_comparison.json"
     )
-    comparison_md = (
-        benchmark_eval_output
-        / "single-book-benchmark"
-        / "book"
-        / "codex_vs_vanilla_comparison.md"
-    )
-    assert comparison_json.exists()
-    assert not comparison_md.exists()
+    assert not comparison_json.exists()
     assert refresh_calls == []
 
 
@@ -1459,7 +1433,6 @@ def test_interactive_single_book_preserves_selected_codex_recipe_pipeline(
 
     assert completed is True
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
-        "off",
         "codex-recipe-shard-v1",
     ]
 
@@ -1519,7 +1492,6 @@ def test_interactive_single_book_preserves_selected_atomic_splitter_across_varia
     assert completed is True
     assert [call["atomic_block_splitter"] for call in benchmark_calls] == [
         "atomic-v1",
-        "atomic-v1",
     ]
 
 
@@ -1535,13 +1507,11 @@ def test_interactive_single_book_variants_ignore_persistence_only_metadata() -> 
 
     variants = cli._interactive_single_book_variants(selected_settings)
 
-    assert [slug for slug, _settings in variants] == ["vanilla", "codex-exec"]
+    assert [slug for slug, _settings in variants] == ["recipe_only"]
     assert [settings.llm_recipe_pipeline.value for _, settings in variants] == [
-        "off",
         "codex-recipe-shard-v1",
     ]
     assert [str(settings.codex_farm_model) for _, settings in variants] == [
-        "gpt-5.3-codex-spark",
         "gpt-5.3-codex-spark",
     ]
     assert [
@@ -1551,10 +1521,7 @@ def test_interactive_single_book_variants_ignore_persistence_only_metadata() -> 
             else None
         )
         for _, settings in variants
-    ] == [
-        "low",
-        "low",
-    ]
+    ] == ["low"]
 
 def test_interactive_single_book_uses_book_slug_in_session_root_when_source_selected(
     monkeypatch: pytest.MonkeyPatch,
@@ -1753,12 +1720,12 @@ def test_interactive_single_book_codex_disabled_runs_only_vanilla_and_skips_comp
     assert not (
         benchmark_eval_output
         / "single-book-benchmark"
-        / "codex_vs_vanilla_comparison.json"
+        / "benchmark_comparison.json"
     ).exists()
     assert not (
         benchmark_eval_output
         / "single-book-benchmark"
-        / "codex_vs_vanilla_comparison.md"
+        / "benchmark_comparison.md"
     ).exists()
     assert len(refresh_calls) == 1
     assert refresh_calls[0]["reason"] == "single-book benchmark variant batch append"
@@ -1912,7 +1879,7 @@ def test_interactive_single_book_hybrid_run_uses_profile_slug_not_vanilla(
     assert not (
         benchmark_eval_output
         / "single-book-benchmark"
-        / "codex_vs_vanilla_comparison.json"
+        / "benchmark_comparison.json"
     ).exists()
 
 def test_interactive_single_book_markdown_enabled_writes_one_top_level_summary(
@@ -1974,7 +1941,7 @@ def test_interactive_single_book_markdown_enabled_writes_one_top_level_summary(
     )
 
     assert completed is True
-    assert len(benchmark_calls) == 2
+    assert len(benchmark_calls) == 1
     assert all(call["write_markdown"] is False for call in benchmark_calls)
     session_root = benchmark_eval_output / "single-book-benchmark"
     summary_path = session_root / "single_book_summary.md"
@@ -1990,9 +1957,9 @@ def test_interactive_single_book_markdown_enabled_writes_one_top_level_summary(
     } == set(cli.BENCHMARK_UPLOAD_BUNDLE_FILE_NAMES)
     summary_text = summary_path.read_text(encoding="utf-8")
     assert "Single Book Benchmark Summary" in summary_text
-    assert "Codex vs Vanilla" in summary_text
-    assert "codex_vs_vanilla_comparison.json" in summary_text
-    assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
+    assert "Benchmark Comparison" not in summary_text
+    assert "benchmark_comparison.json" not in summary_text
+    assert not (session_root / "benchmark_comparison.md").exists()
 
 def test_interactive_single_book_vanilla_skips_background_oracle_upload(
     monkeypatch: pytest.MonkeyPatch,
@@ -2147,11 +2114,10 @@ def test_interactive_single_book_codex_failure_returns_unsuccessful_without_comp
     )
 
     assert completed is False
-    assert len(benchmark_calls) == 2
-    assert benchmark_calls[0]["llm_recipe_pipeline"] == "off"
-    assert benchmark_calls[1]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
     assert not (
         benchmark_eval_output
         / "single-book-benchmark"
-        / "codex_vs_vanilla_comparison.json"
+        / "benchmark_comparison.json"
     ).exists()

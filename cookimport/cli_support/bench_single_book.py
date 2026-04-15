@@ -3,6 +3,10 @@ from __future__ import annotations
 import importlib
 import sys
 
+from cookimport.bench.comparison_artifacts import (
+    PRIMARY_BENCHMARK_COMPARISON_JSON_FILE_NAME,
+    PRIMARY_BENCHMARK_COMPARISON_MD_FILE_NAME,
+)
 from cookimport.staging.import_session import (
     build_shard_recommendations_from_prep_bundle,
     resolve_or_build_deterministic_prep_bundle,
@@ -108,15 +112,7 @@ def _write_single_book_summary_markdown(
         "## Variant Results",
         "",
     ]
-    variant_order: list[str] = []
-    for preferred_slug in ("vanilla", "codex-exec"):
-        if preferred_slug in variant_results:
-            variant_order.append(preferred_slug)
-    variant_order.extend(
-        sorted(
-            slug for slug in variant_results.keys() if slug not in {"vanilla", "codex-exec"}
-        )
-    )
+    variant_order = list(variant_results.keys())
     for variant_slug in variant_order:
         row = variant_results.get(variant_slug)
         if not isinstance(row, dict):
@@ -185,7 +181,7 @@ def _write_single_book_summary_markdown(
         if isinstance(comparison_payload, dict):
             lines.extend(
                 [
-                    "## Codex vs Vanilla",
+                    "## Benchmark Comparison",
                     "",
                     f"- Comparison JSON: `{comparison_json_path.name}`",
                     "",
@@ -600,42 +596,44 @@ def _interactive_single_book_benchmark(
         fg=typer.colors.CYAN,
     )
 
-    comparison_written = False
     comparison_json_path: Path | None = None
-    codex_result = variant_results.get("codex-exec")
-    vanilla_result = variant_results.get("vanilla")
-    if (
-        isinstance(codex_result, dict)
-        and isinstance(vanilla_result, dict)
-        and codex_result.get("status") == "ok"
-        and vanilla_result.get("status") == "ok"
-    ):
+    successful_variant_results = [
+        (variant_slug, row)
+        for variant_slug, row in variant_results.items()
+        if isinstance(row, dict) and row.get("status") == "ok"
+    ]
+    if len(successful_variant_results) == 2:
+        baseline_variant_slug, baseline_result = successful_variant_results[0]
+        candidate_variant_slug, candidate_result = successful_variant_results[1]
         source_file = (
-            str(codex_result.get("source_file") or "").strip()
-            or str(vanilla_result.get("source_file") or "").strip()
+            str(candidate_result.get("source_file") or "").strip()
+            or str(baseline_result.get("source_file") or "").strip()
             or None
         )
         comparison_paths = _write_single_book_comparison_artifacts(
             run_timestamp=benchmark_eval_output.name,
             session_root=session_root,
             source_file=source_file,
-            codex_eval_output_dir=Path(str(codex_result["eval_output_dir"])),
-            vanilla_eval_output_dir=Path(str(vanilla_result["eval_output_dir"])),
+            baseline_variant_slug=baseline_variant_slug,
+            candidate_variant_slug=candidate_variant_slug,
+            baseline_eval_output_dir=Path(str(baseline_result["eval_output_dir"])),
+            candidate_eval_output_dir=Path(str(candidate_result["eval_output_dir"])),
             split_cache_metadata=_single_book_split_cache_summary(
-                vanilla_metadata=cast(
-                    dict[str, Any] | None,
-                    vanilla_result.get("single_book_split_cache"),
-                ),
-                codex_metadata=cast(
-                    dict[str, Any] | None,
-                    codex_result.get("single_book_split_cache"),
-                ),
+                variant_metadata={
+                    baseline_variant_slug: cast(
+                        dict[str, Any] | None,
+                        baseline_result.get("single_book_split_cache"),
+                    ),
+                    candidate_variant_slug: cast(
+                        dict[str, Any] | None,
+                        candidate_result.get("single_book_split_cache"),
+                    ),
+                },
             ),
             write_markdown=False,
             write_starter_pack=False,
         )
         if comparison_paths is not None:
-            comparison_written = True
             comparison_json_path, _comparison_md_path = comparison_paths
             typer.secho(
                 f"Comparison JSON: {comparison_json_path}",
@@ -643,15 +641,11 @@ def _interactive_single_book_benchmark(
             )
 
     summary_md_path: Path | None = None
-    if (
-        not comparison_written
-        and isinstance(codex_result, dict)
-        and isinstance(vanilla_result, dict)
-    ):
+    if len(successful_variant_results) > 1 and comparison_json_path is None:
         typer.secho(
             (
-                "Skipped codex-vs-vanilla comparison artifact: "
-                "both codex-exec and vanilla variant runs must succeed."
+                "Skipped benchmark comparison artifact: "
+                "exactly two successful variant runs are required."
             ),
             fg=typer.colors.YELLOW,
         )
@@ -708,42 +702,6 @@ def _interactive_single_book_benchmark(
 def _interactive_single_book_variants(
     selected_benchmark_settings: RunSettings,
 ) -> list[tuple[str, RunSettings]]:
-    run_config = project_run_config_payload(
-        selected_benchmark_settings.to_run_config_dict(),
-        contract=RUN_SETTING_CONTRACT_FULL,
-    )
-    current_pipeline = str(run_config.get("llm_recipe_pipeline") or "off").strip().lower()
-    if current_pipeline != "off":
-        baseline_payload = _all_method_apply_baseline_contract(run_config)
-        shared_atomic_block_splitter = _normalize_atomic_block_splitter(
-            str(
-                run_config.get("atomic_block_splitter")
-                or baseline_payload.get("atomic_block_splitter")
-                or "off"
-            )
-        )
-        baseline_payload["atomic_block_splitter"] = shared_atomic_block_splitter
-        codex_payload = _all_method_apply_codex_contract_from_baseline(
-            baseline_payload
-        )
-        codex_payload["llm_recipe_pipeline"] = current_pipeline
-        codex_payload["atomic_block_splitter"] = shared_atomic_block_splitter
-        return [
-            (
-                "vanilla",
-                RunSettings.from_dict(
-                    baseline_payload,
-                    warn_context="interactive benchmark vanilla variant",
-                ),
-            ),
-            (
-                "codex-exec",
-                RunSettings.from_dict(
-                    codex_payload,
-                    warn_context="interactive benchmark codex-exec variant",
-                ),
-            ),
-        ]
     return [
         (
             _single_book_variant_slug(selected_benchmark_settings),
@@ -762,7 +720,7 @@ def _single_book_variant_slug(settings: RunSettings) -> str:
         return "line_role_only"
     if line_role_pipeline == "off":
         return "recipe_only"
-    return "full_stack"
+    return "codex-exec"
 
 def _load_json_dict(path: Path) -> dict[str, Any] | None:
     if not path.exists() or not path.is_file():
@@ -1752,14 +1710,10 @@ def _resolve_single_book_split_cache_root(
 
 def _single_book_split_cache_summary(
     *,
-    vanilla_metadata: dict[str, Any] | None,
-    codex_metadata: dict[str, Any] | None,
+    variant_metadata: Mapping[str, dict[str, Any] | None],
 ) -> dict[str, Any] | None:
     variant_rows: dict[str, dict[str, Any]] = {}
-    for variant_slug, payload in (
-        ("vanilla", vanilla_metadata),
-        ("codex-exec", codex_metadata),
-    ):
+    for variant_slug, payload in variant_metadata.items():
         if not isinstance(payload, dict):
             continue
         variant_rows[variant_slug] = {
@@ -1776,11 +1730,15 @@ def _single_book_split_cache_summary(
     if not variant_rows:
         return None
     shared_key: str | None = None
-    if "vanilla" in variant_rows and "codex-exec" in variant_rows:
-        vanilla_key = str(variant_rows["vanilla"].get("key") or "").strip()
-        codex_key = str(variant_rows["codex-exec"].get("key") or "").strip()
-        if vanilla_key and vanilla_key == codex_key:
-            shared_key = vanilla_key
+    variant_keys = [
+        str(row.get("key") or "").strip()
+        for row in variant_rows.values()
+        if str(row.get("key") or "").strip()
+    ]
+    if variant_keys and len(variant_keys) == len(variant_rows):
+        first_key = variant_keys[0]
+        if all(key == first_key for key in variant_keys[1:]):
+            shared_key = first_key
     return {
         "schema_version": SINGLE_BOOK_SPLIT_CACHE_SCHEMA_VERSION,
         "shared_key": shared_key,
@@ -1790,17 +1748,17 @@ def _single_book_split_cache_summary(
 
 def _single_book_metric_deltas(
     *,
-    codex_metrics: dict[str, float | None],
-    vanilla_metrics: dict[str, float | None],
+    candidate_metrics: dict[str, float | None],
+    baseline_metrics: dict[str, float | None],
 ) -> dict[str, float | None]:
     deltas: dict[str, float | None] = {}
     for metric_name, _display_name in SINGLE_BOOK_COMPARISON_METRICS:
-        codex_value = _benchmark_report_metric_value(codex_metrics, metric_name)
-        vanilla_value = _benchmark_report_metric_value(vanilla_metrics, metric_name)
-        if codex_value is None or vanilla_value is None:
+        candidate_value = _benchmark_report_metric_value(candidate_metrics, metric_name)
+        baseline_value = _benchmark_report_metric_value(baseline_metrics, metric_name)
+        if candidate_value is None or baseline_value is None:
             deltas[metric_name] = None
         else:
-            deltas[metric_name] = codex_value - vanilla_value
+            deltas[metric_name] = candidate_value - baseline_value
     return deltas
 
 
@@ -1945,14 +1903,12 @@ def _single_book_eval_gold_adaptation_summary(
 
 def _build_single_book_variant_diagnostics(
     *,
-    codex_eval_report: dict[str, Any] | None,
-    vanilla_eval_report: dict[str, Any] | None,
+    eval_reports_by_variant: Mapping[str, dict[str, Any] | None],
+    baseline_variant_slug: str,
+    candidate_variant_slug: str,
 ) -> dict[str, Any]:
     variant_rows: dict[str, dict[str, Any]] = {}
-    for variant_slug, eval_report in (
-        ("vanilla", vanilla_eval_report),
-        ("codex-exec", codex_eval_report),
-    ):
+    for variant_slug, eval_report in eval_reports_by_variant.items():
         strict_accuracy = _benchmark_report_metric_value(
             eval_report if isinstance(eval_report, dict) else None,
             "strict_accuracy",
@@ -1983,99 +1939,99 @@ def _build_single_book_variant_diagnostics(
             "gold_adaptation": adaptation_summary,
         }
 
-    codex_row = variant_rows.get("codex-exec") or {}
-    vanilla_row = variant_rows.get("vanilla") or {}
-    codex_seg = codex_row.get("segmentation")
-    vanilla_seg = vanilla_row.get("segmentation")
-    codex_adaptation = codex_row.get("gold_adaptation")
-    vanilla_adaptation = vanilla_row.get("gold_adaptation")
-    codex_confidence_counts = (
-        codex_adaptation.get("confidence_counts")
-        if isinstance(codex_adaptation, dict)
-        and isinstance(codex_adaptation.get("confidence_counts"), dict)
+    candidate_row = variant_rows.get(candidate_variant_slug) or {}
+    baseline_row = variant_rows.get(baseline_variant_slug) or {}
+    candidate_seg = candidate_row.get("segmentation")
+    baseline_seg = baseline_row.get("segmentation")
+    candidate_adaptation = candidate_row.get("gold_adaptation")
+    baseline_adaptation = baseline_row.get("gold_adaptation")
+    candidate_confidence_counts = (
+        candidate_adaptation.get("confidence_counts")
+        if isinstance(candidate_adaptation, dict)
+        and isinstance(candidate_adaptation.get("confidence_counts"), dict)
         else {}
     )
-    vanilla_confidence_counts = (
-        vanilla_adaptation.get("confidence_counts")
-        if isinstance(vanilla_adaptation, dict)
-        and isinstance(vanilla_adaptation.get("confidence_counts"), dict)
+    baseline_confidence_counts = (
+        baseline_adaptation.get("confidence_counts")
+        if isinstance(baseline_adaptation, dict)
+        and isinstance(baseline_adaptation.get("confidence_counts"), dict)
         else {}
     )
 
     confidence_count_deltas: dict[str, int] = {}
     confidence_count_keys = sorted(
-        set(str(key) for key in codex_confidence_counts.keys())
-        | set(str(key) for key in vanilla_confidence_counts.keys())
+        set(str(key) for key in candidate_confidence_counts.keys())
+        | set(str(key) for key in baseline_confidence_counts.keys())
     )
     for key in confidence_count_keys:
-        codex_value = _single_book_nonnegative_int_or_none(
-            codex_confidence_counts.get(key)
+        candidate_value = _single_book_nonnegative_int_or_none(
+            candidate_confidence_counts.get(key)
         )
-        vanilla_value = _single_book_nonnegative_int_or_none(
-            vanilla_confidence_counts.get(key)
+        baseline_value = _single_book_nonnegative_int_or_none(
+            baseline_confidence_counts.get(key)
         )
-        if codex_value is None or vanilla_value is None:
+        if candidate_value is None or baseline_value is None:
             continue
-        confidence_count_deltas[key] = codex_value - vanilla_value
+        confidence_count_deltas[key] = candidate_value - baseline_value
 
     deltas: dict[str, Any] = {
         "classification_error_rate_delta": _single_book_optional_delta(
-            codex_row.get("classification_error_rate"),
-            vanilla_row.get("classification_error_rate"),
+            candidate_row.get("classification_error_rate"),
+            baseline_row.get("classification_error_rate"),
         ),
         "practical_error_rate_delta": _single_book_optional_delta(
-            codex_row.get("practical_error_rate"),
-            vanilla_row.get("practical_error_rate"),
+            candidate_row.get("practical_error_rate"),
+            baseline_row.get("practical_error_rate"),
         ),
         "segmentation_boundary_error_rate_delta": _single_book_optional_delta(
-            codex_row.get("segmentation_boundary_error_rate"),
-            vanilla_row.get("segmentation_boundary_error_rate"),
+            candidate_row.get("segmentation_boundary_error_rate"),
+            baseline_row.get("segmentation_boundary_error_rate"),
         ),
         "segmentation_boundary_f1_delta": _single_book_optional_delta(
             (
-                codex_seg.get("boundary_f1")
-                if isinstance(codex_seg, dict)
+                candidate_seg.get("boundary_f1")
+                if isinstance(candidate_seg, dict)
                 else None
             ),
             (
-                vanilla_seg.get("boundary_f1")
-                if isinstance(vanilla_seg, dict)
+                baseline_seg.get("boundary_f1")
+                if isinstance(baseline_seg, dict)
                 else None
             ),
         ),
         "gold_adaptation_coverage_ratio_delta": _single_book_optional_delta(
             (
-                codex_adaptation.get("coverage_ratio")
-                if isinstance(codex_adaptation, dict)
+                candidate_adaptation.get("coverage_ratio")
+                if isinstance(candidate_adaptation, dict)
                 else None
             ),
             (
-                vanilla_adaptation.get("coverage_ratio")
-                if isinstance(vanilla_adaptation, dict)
+                baseline_adaptation.get("coverage_ratio")
+                if isinstance(baseline_adaptation, dict)
                 else None
             ),
         ),
         "gold_adaptation_ambiguous_delta": _single_book_optional_delta(
             (
-                codex_adaptation.get("ambiguous_gold_blocks")
-                if isinstance(codex_adaptation, dict)
+                candidate_adaptation.get("ambiguous_gold_blocks")
+                if isinstance(candidate_adaptation, dict)
                 else None
             ),
             (
-                vanilla_adaptation.get("ambiguous_gold_blocks")
-                if isinstance(vanilla_adaptation, dict)
+                baseline_adaptation.get("ambiguous_gold_blocks")
+                if isinstance(baseline_adaptation, dict)
                 else None
             ),
         ),
         "gold_adaptation_unresolved_delta": _single_book_optional_delta(
             (
-                codex_adaptation.get("unresolved_gold_blocks")
-                if isinstance(codex_adaptation, dict)
+                candidate_adaptation.get("unresolved_gold_blocks")
+                if isinstance(candidate_adaptation, dict)
                 else None
             ),
             (
-                vanilla_adaptation.get("unresolved_gold_blocks")
-                if isinstance(vanilla_adaptation, dict)
+                baseline_adaptation.get("unresolved_gold_blocks")
+                if isinstance(baseline_adaptation, dict)
                 else None
             ),
         ),
@@ -2130,6 +2086,8 @@ def _build_single_book_variant_diagnostics(
 
     return {
         "schema_version": "single_book_variant_diagnostics.v1",
+        "baseline_variant_slug": baseline_variant_slug,
+        "candidate_variant_slug": candidate_variant_slug,
         "variants": variant_rows,
         "deltas": deltas,
         "likely_driver": likely_driver,
@@ -2142,32 +2100,47 @@ def _format_single_book_comparison_markdown(
 ) -> str:
     run_timestamp = str(payload.get("run_timestamp") or "").strip() or "unknown"
     source_file = str(payload.get("source_file") or "").strip() or "unknown"
+    comparison_payload = payload.get("comparison")
+    if isinstance(comparison_payload, dict):
+        baseline_variant_slug = (
+            str(comparison_payload.get("baseline_variant_slug") or "").strip()
+            or "baseline"
+        )
+        candidate_variant_slug = (
+            str(comparison_payload.get("candidate_variant_slug") or "").strip()
+            or "candidate"
+        )
+    else:
+        baseline_variant_slug = "vanilla"
+        candidate_variant_slug = "codex-exec"
 
     variants_payload = payload.get("variants")
     if isinstance(variants_payload, dict):
-        codex_dir = str(
-            ((variants_payload.get("codex-exec") or {}).get("eval_output_dir"))
+        candidate_dir = str(
+            ((variants_payload.get(candidate_variant_slug) or {}).get("eval_output_dir"))
             or ""
         ).strip()
-        vanilla_dir = str(
-            ((variants_payload.get("vanilla") or {}).get("eval_output_dir"))
+        baseline_dir = str(
+            ((variants_payload.get(baseline_variant_slug) or {}).get("eval_output_dir"))
             or ""
         ).strip()
     else:
-        codex_dir = ""
-        vanilla_dir = ""
+        candidate_dir = ""
+        baseline_dir = ""
 
     metrics_payload = payload.get("metrics")
     if isinstance(metrics_payload, dict):
-        codex_metrics = metrics_payload.get("codex-exec")
-        vanilla_metrics = metrics_payload.get("vanilla")
+        candidate_metrics = metrics_payload.get(candidate_variant_slug)
+        baseline_metrics = metrics_payload.get(baseline_variant_slug)
     else:
-        codex_metrics = None
-        vanilla_metrics = None
+        candidate_metrics = None
+        baseline_metrics = None
 
     deltas_payload = payload.get("deltas")
     if isinstance(deltas_payload, dict):
-        delta_metrics = deltas_payload.get("codex_minus_vanilla")
+        delta_metrics = deltas_payload.get("candidate_minus_baseline")
+        if not isinstance(delta_metrics, dict):
+            delta_metrics = deltas_payload.get("codex_minus_vanilla")
     else:
         delta_metrics = None
     metadata_payload = payload.get("metadata")
@@ -2193,65 +2166,71 @@ def _format_single_book_comparison_markdown(
 
     metric_rows: list[tuple[str, str, str, str]] = []
     for metric_name, display_name in SINGLE_BOOK_COMPARISON_METRICS:
-        codex_value = _benchmark_report_metric_value(
-            codex_metrics if isinstance(codex_metrics, dict) else None,
+        candidate_value = _benchmark_report_metric_value(
+            candidate_metrics if isinstance(candidate_metrics, dict) else None,
             metric_name,
         )
-        vanilla_value = _benchmark_report_metric_value(
-            vanilla_metrics if isinstance(vanilla_metrics, dict) else None,
+        baseline_value = _benchmark_report_metric_value(
+            baseline_metrics if isinstance(baseline_metrics, dict) else None,
             metric_name,
         )
         delta_value = _benchmark_report_metric_value(
             delta_metrics if isinstance(delta_metrics, dict) else None,
             metric_name,
         )
-        if delta_value is None and codex_value is not None and vanilla_value is not None:
-            delta_value = codex_value - vanilla_value
+        if (
+            delta_value is None
+            and candidate_value is not None
+            and baseline_value is not None
+        ):
+            delta_value = candidate_value - baseline_value
         metric_rows.append(
             (
                 f"`{display_name}`",
-                f"{codex_value:.6f}" if codex_value is not None else "null",
-                f"{vanilla_value:.6f}" if vanilla_value is not None else "null",
+                f"{candidate_value:.6f}" if candidate_value is not None else "null",
+                f"{baseline_value:.6f}" if baseline_value is not None else "null",
                 f"{delta_value:.6f}" if delta_value is not None else "null",
             )
         )
 
     metric_col_width = max(len("Metric"), *(len(row[0]) for row in metric_rows))
-    codex_col_width = max(len("Codex Exec"), *(len(row[1]) for row in metric_rows))
-    vanilla_col_width = max(len("Vanilla"), *(len(row[2]) for row in metric_rows))
+    candidate_col_width = max(len("Candidate"), *(len(row[1]) for row in metric_rows))
+    baseline_col_width = max(len("Baseline"), *(len(row[2]) for row in metric_rows))
     delta_col_width = max(
-        len("Codex - Vanilla"),
+        len("Candidate - Baseline"),
         *(len(row[3]) for row in metric_rows),
     )
     lines: list[str] = [
-        "# Codex Exec vs Vanilla Comparison",
+        "# Benchmark Comparison",
         "",
         f"- Schema version: {SINGLE_BOOK_COMPARISON_SCHEMA_VERSION}",
         f"- Run timestamp: {run_timestamp}",
         f"- Source file: {source_file}",
+        f"- Candidate variant: {candidate_variant_slug}",
+        f"- Baseline variant: {baseline_variant_slug}",
         f"- Codex model: {codex_model or 'unknown'}",
         f"- Codex reasoning effort: {codex_reasoning_effort or 'unknown'}",
-        f"- Codex eval directory: {codex_dir or 'unknown'}",
-        f"- Vanilla eval directory: {vanilla_dir or 'unknown'}",
+        f"- Candidate eval directory: {candidate_dir or 'unknown'}",
+        f"- Baseline eval directory: {baseline_dir or 'unknown'}",
         "",
         (
             f"| {'Metric':<{metric_col_width}}"
-            f" | {'Codex Exec':>{codex_col_width}}"
-            f" | {'Vanilla':>{vanilla_col_width}}"
-            f" | {'Codex - Vanilla':>{delta_col_width}} |"
+            f" | {'Candidate':>{candidate_col_width}}"
+            f" | {'Baseline':>{baseline_col_width}}"
+            f" | {'Candidate - Baseline':>{delta_col_width}} |"
         ),
         (
             f"| {'-' * max(metric_col_width, 3)}"
-            f" | {'-' * (max(codex_col_width, 3) - 1) + ':'}"
-            f" | {'-' * (max(vanilla_col_width, 3) - 1) + ':'}"
+            f" | {'-' * (max(candidate_col_width, 3) - 1) + ':'}"
+            f" | {'-' * (max(baseline_col_width, 3) - 1) + ':'}"
             f" | {'-' * (max(delta_col_width, 3) - 1) + ':'} |"
         ),
     ]
-    for metric_text, codex_text, vanilla_text, delta_text in metric_rows:
+    for metric_text, candidate_text, baseline_text, delta_text in metric_rows:
         lines.append(
             f"| {metric_text:<{metric_col_width}}"
-            f" | {codex_text:>{codex_col_width}}"
-            f" | {vanilla_text:>{vanilla_col_width}}"
+            f" | {candidate_text:>{candidate_col_width}}"
+            f" | {baseline_text:>{baseline_col_width}}"
             f" | {delta_text:>{delta_col_width}} |"
         )
     if isinstance(variant_diagnostics_payload, dict):
@@ -2279,7 +2258,7 @@ def _format_single_book_comparison_markdown(
                 "",
                 f"- Likely dominant driver: `{likely_driver}`",
                 f"- Rationale: {rationale}",
-                "- Deltas (`codex - vanilla`): "
+                "- Deltas (`candidate - baseline`): "
                 f"classification_error_rate={_format_optional_number(delta_rows.get('classification_error_rate_delta'))}, "
                 f"segmentation_boundary_error_rate={_format_optional_number(delta_rows.get('segmentation_boundary_error_rate_delta'))}, "
                 f"gold_adaptation_coverage_ratio={_format_optional_number(delta_rows.get('gold_adaptation_coverage_ratio_delta'))}",
@@ -2292,7 +2271,7 @@ def _format_single_book_comparison_markdown(
                 for key, value in sorted(confidence_deltas.items())
             )
             lines.append(
-                "- Gold adaptation confidence deltas (`codex - vanilla`): "
+                "- Gold adaptation confidence deltas (`candidate - baseline`): "
                 + confidence_summary
             )
 
@@ -2301,7 +2280,7 @@ def _format_single_book_comparison_markdown(
             if isinstance(variant_diagnostics_payload.get("variants"), dict)
             else {}
         )
-        for variant_slug in ("vanilla", "codex-exec"):
+        for variant_slug in (baseline_variant_slug, candidate_variant_slug):
             row = variant_rows.get(variant_slug)
             if not isinstance(row, dict):
                 continue
@@ -2361,8 +2340,7 @@ def _format_single_book_comparison_markdown(
             ]
         )
         if isinstance(variant_payload, dict):
-            for variant_slug in ("vanilla", "codex-exec"):
-                row = variant_payload.get(variant_slug)
+            for variant_slug, row in variant_payload.items():
                 if not isinstance(row, dict):
                     continue
                 mode = str(row.get("mode") or "").strip() or "off"
@@ -2385,49 +2363,59 @@ def _write_single_book_comparison_artifacts(
     run_timestamp: str,
     session_root: Path,
     source_file: str | None,
-    codex_eval_output_dir: Path,
-    vanilla_eval_output_dir: Path,
+    baseline_variant_slug: str,
+    candidate_variant_slug: str,
+    baseline_eval_output_dir: Path,
+    candidate_eval_output_dir: Path,
     split_cache_metadata: dict[str, Any] | None = None,
     write_markdown: bool = True,
     write_starter_pack: bool = False,
 ) -> tuple[Path, Path | None] | None:
-    codex_eval_report = _load_json_dict(codex_eval_output_dir / "eval_report.json")
-    vanilla_eval_report = _load_json_dict(vanilla_eval_output_dir / "eval_report.json")
-    if codex_eval_report is None or vanilla_eval_report is None:
+    candidate_eval_report = _load_json_dict(candidate_eval_output_dir / "eval_report.json")
+    baseline_eval_report = _load_json_dict(baseline_eval_output_dir / "eval_report.json")
+    if candidate_eval_report is None or baseline_eval_report is None:
         return None
-    codex_metrics = _single_book_eval_metrics_from_report(codex_eval_report)
-    vanilla_metrics = _single_book_eval_metrics_from_report(vanilla_eval_report)
+    candidate_metrics = _single_book_eval_metrics_from_report(candidate_eval_report)
+    baseline_metrics = _single_book_eval_metrics_from_report(baseline_eval_report)
 
     comparison_payload = {
         "schema_version": SINGLE_BOOK_COMPARISON_SCHEMA_VERSION,
         "run_timestamp": run_timestamp,
         "source_file": source_file,
+        "comparison": {
+            "baseline_variant_slug": baseline_variant_slug,
+            "candidate_variant_slug": candidate_variant_slug,
+        },
         "variants": {
-            "codex-exec": {"eval_output_dir": str(codex_eval_output_dir)},
-            "vanilla": {"eval_output_dir": str(vanilla_eval_output_dir)},
+            baseline_variant_slug: {"eval_output_dir": str(baseline_eval_output_dir)},
+            candidate_variant_slug: {"eval_output_dir": str(candidate_eval_output_dir)},
         },
         "metrics": {
-            "codex-exec": codex_metrics,
-            "vanilla": vanilla_metrics,
+            baseline_variant_slug: baseline_metrics,
+            candidate_variant_slug: candidate_metrics,
         },
         "deltas": {
-            "codex_minus_vanilla": _single_book_metric_deltas(
-                codex_metrics=codex_metrics,
-                vanilla_metrics=vanilla_metrics,
+            "candidate_minus_baseline": _single_book_metric_deltas(
+                candidate_metrics=candidate_metrics,
+                baseline_metrics=baseline_metrics,
             )
         },
     }
     metadata_payload: dict[str, Any] = {}
-    codex_runtime_payload = _load_single_book_codex_farm_runtime(codex_eval_output_dir)
+    codex_runtime_payload = _load_single_book_codex_farm_runtime(candidate_eval_output_dir)
     if isinstance(codex_runtime_payload, dict):
         metadata_payload["codex_farm_runtime"] = codex_runtime_payload
     per_label_breakdown = _build_single_book_per_label_breakdown(
         run_timestamp=run_timestamp,
-        eval_reports=(vanilla_eval_report, codex_eval_report),
+        eval_reports=(baseline_eval_report, candidate_eval_report),
     )
     variant_diagnostics = _build_single_book_variant_diagnostics(
-        codex_eval_report=codex_eval_report,
-        vanilla_eval_report=vanilla_eval_report,
+        eval_reports_by_variant={
+            baseline_variant_slug: baseline_eval_report,
+            candidate_variant_slug: candidate_eval_report,
+        },
+        baseline_variant_slug=baseline_variant_slug,
+        candidate_variant_slug=candidate_variant_slug,
     )
     metadata_payload["variant_diagnostics"] = variant_diagnostics
     if isinstance(per_label_breakdown, dict):
@@ -2450,8 +2438,8 @@ def _write_single_book_comparison_artifacts(
                 }
     if metadata_payload:
         comparison_payload["metadata"] = metadata_payload
-    comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
-    comparison_md_path = session_root / "codex_vs_vanilla_comparison.md"
+    comparison_json_path = session_root / PRIMARY_BENCHMARK_COMPARISON_JSON_FILE_NAME
+    comparison_md_path = session_root / PRIMARY_BENCHMARK_COMPARISON_MD_FILE_NAME
     comparison_json_path.write_text(
         json.dumps(comparison_payload, indent=2, sort_keys=True),
         encoding="utf-8",

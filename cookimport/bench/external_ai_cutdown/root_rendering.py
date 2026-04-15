@@ -6,6 +6,11 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable
 
+from cookimport.bench.comparison_artifacts import (
+    PRIMARY_BENCHMARK_COMPARISON_JSON_FILE_NAME,
+    resolve_existing_benchmark_comparison_json_path,
+)
+
 
 def _append_json_section(
     sections: list[str],
@@ -279,7 +284,9 @@ def write_flattened_summary_for_existing_runs(
     load_json: Callable[[Path], dict[str, Any]],
 ) -> Path:
     output_root = output_dir.resolve()
-    comparison_json_path = output_root / "codex_vs_vanilla_comparison.json"
+    comparison_json_path = resolve_existing_benchmark_comparison_json_path(output_root)
+    if comparison_json_path is None:
+        comparison_json_path = output_root / PRIMARY_BENCHMARK_COMPARISON_JSON_FILE_NAME
     starter_pack_dir = output_root / starter_pack_dir_name
     starter_readme_path = starter_pack_dir / starter_pack_readme_file_name
     starter_manifest_path = starter_pack_dir / starter_pack_manifest_file_name
@@ -302,7 +309,7 @@ def write_flattened_summary_for_existing_runs(
 
     _append_json_section(
         sections,
-        title="codex_vs_vanilla_comparison.json",
+        title=comparison_json_path.name,
         path=comparison_json_path,
         load_json=load_json,
     )

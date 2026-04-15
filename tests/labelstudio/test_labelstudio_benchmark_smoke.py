@@ -209,18 +209,15 @@ def test_interactive_benchmark_single_book_codex_shaped_smoke(
     with pytest.raises(cli.typer.Exit):
         cli._interactive_mode()
 
-    assert len(benchmark_calls) == 2
+    assert len(benchmark_calls) == 1
     assert [call["llm_recipe_pipeline"] for call in benchmark_calls] == [
-        "off",
         "codex-recipe-shard-v1",
     ]
-    assert [call["allow_codex"] for call in benchmark_calls] == [False, True]
+    assert [call["allow_codex"] for call in benchmark_calls] == [True]
     assert [call["codex_farm_model"] for call in benchmark_calls] == [
-        "gpt-5.3-codex-spark",
         "gpt-5.3-codex-spark",
     ]
     assert [call["codex_farm_reasoning_effort"] for call in benchmark_calls] == [
-        "low",
         "low",
     ]
 
@@ -518,36 +515,28 @@ def test_interactive_benchmark_single_book_codex_shaped_simulated_runtime(
     generate_calls = fixture["generate_calls"]
     benchmark_root = fixture["benchmark_root"]
 
-    assert len(generate_calls) == 2
+    assert len(generate_calls) == 1
     assert [call["llm_recipe_pipeline"] for call in generate_calls] == [
-        "off",
         "codex-recipe-shard-v1",
     ]
-    assert [call["allow_codex"] for call in generate_calls] == [False, True]
+    assert [call["allow_codex"] for call in generate_calls] == [True]
     assert [call["codex_farm_model"] for call in generate_calls] == [
-        "gpt-5.3-codex-spark",
         "gpt-5.3-codex-spark",
     ]
     assert [call["codex_farm_reasoning_effort"] for call in generate_calls] == [
         "low",
-        "low",
     ]
     assert [call["recipe_codex_exec_style"] for call in generate_calls] == [
         "inline-json-v1",
-        "inline-json-v1",
     ]
 
-    comparison_paths = list(benchmark_root.rglob("codex_vs_vanilla_comparison.json"))
-    assert len(comparison_paths) == 1
-    comparison_payload = json.loads(comparison_paths[0].read_text(encoding="utf-8"))
-    assert Path(comparison_payload["variants"]["codex-exec"]["eval_output_dir"]).name == "codex-exec"
-    assert Path(comparison_payload["variants"]["vanilla"]["eval_output_dir"]).name == "vanilla"
+    comparison_paths = list(benchmark_root.rglob("benchmark_comparison.json"))
+    assert comparison_paths == []
 
     summary_paths = list(benchmark_root.rglob("single_book_summary.md"))
     assert len(summary_paths) == 1
     summary_text = summary_paths[0].read_text(encoding="utf-8")
-    assert "### `vanilla`" in summary_text
-    assert "### `codex-exec`" in summary_text
+    assert "### `recipe_only`" in summary_text
 
 
 def _run_real_vanilla_single_book_runtime(

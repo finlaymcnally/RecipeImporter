@@ -181,7 +181,8 @@ def _build_project_context_digest(
             f"epub_unstructured_preprocess_mode={format_setting_values(epub_preprocess_modes)}."
         ),
         (
-            "- artifact_legend: root diagnosis artifacts are `changed_lines.codex_vs_vanilla.jsonl`, "
+            "- artifact_legend: root diagnosis artifacts are `changed_lines.benchmark_comparison.jsonl` "
+            "(legacy runs may still use `changed_lines.codex_vs_vanilla.jsonl`), "
             "`per_recipe_or_per_span_breakdown.json`, `targeted_prompt_cases.md`, and "
             "`label_policy_adjudication_notes.md`; blended starter-pack artifacts live under "
             "`starter_pack_v1/`; run folders retain `need_to_know_summary.json` plus codex trace "

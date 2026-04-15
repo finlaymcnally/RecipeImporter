@@ -8,6 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from cookimport.bench.comparison_artifacts import (
+    BENCHMARK_CHANGED_LINES_FILE_NAMES,
+)
 from cookimport.bench.external_ai_cutdown.artifact_paths import (
     _resolve_knowledge_manifest_path as _resolve_knowledge_manifest_path_impl,
     _resolve_recipe_manifest_path as _resolve_recipe_manifest_path_impl,
@@ -22,7 +25,10 @@ from cookimport.bench.line_role_artifact_lookup import LineRoleArtifactLookup
 from cookimport.bench.structure_label_report import build_structure_label_report
 from cookimport.llm.codex_farm_ids import sanitize_for_filename
 
-CHANGED_LINES_PAYLOAD_PATH = "_upload_bundle_derived/root/changed_lines.codex_vs_vanilla.jsonl"
+CHANGED_LINES_PAYLOAD_PATHS = tuple(
+    f"_upload_bundle_derived/root/{file_name}"
+    for file_name in BENCHMARK_CHANGED_LINES_FILE_NAMES
+)
 TRIAGE_PACKET_PAYLOAD_PATH = "_upload_bundle_derived/root/01_recipe_triage.packet.jsonl"
 PER_RECIPE_BREAKDOWN_PAYLOAD_PATH = "_upload_bundle_derived/root/per_recipe_or_per_span_breakdown.json"
 
@@ -688,7 +694,11 @@ class FollowupBundleContext:
         return locators
 
     def _load_changed_lines(self) -> list[dict[str, Any]]:
-        artifact = self.payload_by_path.get(CHANGED_LINES_PAYLOAD_PATH)
+        artifact = None
+        for candidate_path in CHANGED_LINES_PAYLOAD_PATHS:
+            artifact = self.payload_by_path.get(candidate_path)
+            if artifact is not None:
+                break
         if artifact is None:
             return []
         rows = artifact.row.get("content_jsonl_rows")

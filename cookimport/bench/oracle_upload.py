@@ -12,6 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from cookimport.bench.comparison_artifacts import (
+    resolve_existing_benchmark_comparison_json_path,
+)
 from cookimport.config.runtime_support import (
     resolve_oracle_background_session_poll_interval_seconds,
     resolve_oracle_background_session_poll_seconds,
@@ -617,7 +620,10 @@ def _format_int_metric(value: Any) -> str:
 
 
 def _read_comparison_payload(target: OracleBenchmarkBundleTarget) -> dict[str, Any]:
-    return _load_json_object_path(target.source_root / "codex_vs_vanilla_comparison.json")
+    comparison_path = resolve_existing_benchmark_comparison_json_path(target.source_root)
+    if comparison_path is None:
+        return {}
+    return _load_json_object_path(comparison_path)
 
 
 def _read_prompt_budget_payload(target: OracleBenchmarkBundleTarget) -> dict[str, Any]:

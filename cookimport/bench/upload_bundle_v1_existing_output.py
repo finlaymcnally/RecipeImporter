@@ -7,6 +7,10 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
+from cookimport.bench.comparison_artifacts import (
+    LEGACY_BENCHMARK_CHANGED_LINES_FILE_NAME,
+    PRIMARY_BENCHMARK_CHANGED_LINES_FILE_NAME,
+)
 from cookimport.bench.upload_bundle_v1_model import UploadBundleSourceModel
 from cookimport.config.run_settings import RECIPE_CODEX_FARM_PIPELINE_SHARD_V1
 from cookimport.runs.stage_observability import (
@@ -320,7 +324,7 @@ def build_upload_bundle_source_model_from_existing_root(
     comparison_summary_file_name: str = "comparison_summary.json",
     process_manifest_file_name: str = "process_manifest.json",
     per_recipe_breakdown_file_name: str = "per_recipe_or_per_span_breakdown.json",
-    changed_lines_file_name: str = "changed_lines.codex_vs_vanilla.jsonl",
+    changed_lines_file_name: str = PRIMARY_BENCHMARK_CHANGED_LINES_FILE_NAME,
     starter_pack_dir_name: str = "starter_pack_v1",
     starter_call_inventory_file_name: str = "02_call_inventory.jsonl",
     starter_selected_packets_file_name: str = "06_selected_recipe_packets.jsonl",
@@ -339,7 +343,12 @@ def build_upload_bundle_source_model_from_existing_root(
     comparison_pairs_from_root = comparison_pairs_from_root_raw if has_pairs_from_root else []
     pair_breakdown_from_root = per_recipe_payload.get("pairs")
     pair_breakdown_from_root = pair_breakdown_from_root if isinstance(pair_breakdown_from_root, list) else []
-    changed_lines_from_root = helpers.iter_jsonl(source_root / changed_lines_file_name)
+    changed_lines_path = source_root / changed_lines_file_name
+    if not changed_lines_path.is_file():
+        legacy_changed_lines_path = source_root / LEGACY_BENCHMARK_CHANGED_LINES_FILE_NAME
+        if legacy_changed_lines_path.is_file():
+            changed_lines_path = legacy_changed_lines_path
+    changed_lines_from_root = helpers.iter_jsonl(changed_lines_path)
 
     starter_pack_dir = source_root / starter_pack_dir_name
     starter_pack_present = starter_pack_dir.is_dir()

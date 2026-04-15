@@ -398,7 +398,7 @@ KNOWLEDGE_PROMPT_FILE_NAME = "prompt_nonrecipe_finalize.txt"
 KNOWLEDGE_MANIFEST_FILE_NAME = "knowledge_manifest.json"
 PROMPT_WARNING_AGGREGATE_FILE_NAME = "prompt_warning_aggregate.json"
 PROJECTION_TRACE_FILE_NAME = "projection_trace.codex_to_benchmark.json"
-CHANGED_LINES_FILE_NAME = "changed_lines.codex_vs_vanilla.jsonl"
+CHANGED_LINES_FILE_NAME = "changed_lines.benchmark_comparison.jsonl"
 PER_RECIPE_BREAKDOWN_FILE_NAME = "per_recipe_or_per_span_breakdown.json"
 TARGETED_PROMPT_CASES_FILE_NAME = "targeted_prompt_cases.md"
 LABEL_POLICY_NOTES_FILE_NAME = "label_policy_adjudication_notes.md"
@@ -6355,10 +6355,15 @@ def _write_upload_bundle_three_files(
             "comparison_summary_json": _payload_locator(
                 paths=(
                     "comparison_summary.json",
+                    "benchmark_comparison.json",
                     "codex_vs_vanilla_comparison.json",
                     derived_root_paths["comparison_summary_json"],
                 ),
-                basenames=("comparison_summary.json", "codex_vs_vanilla_comparison.json"),
+                basenames=(
+                    "comparison_summary.json",
+                    "benchmark_comparison.json",
+                    "codex_vs_vanilla_comparison.json",
+                ),
             ),
             "process_manifest_json": _payload_locator(
                 paths=("process_manifest.json", derived_root_paths["process_manifest_json"]),
@@ -6878,6 +6883,7 @@ def _write_upload_bundle_three_files(
                 "README.md",
                 "run_index.json",
                 "comparison_summary.json",
+                "benchmark_comparison.json",
                 "codex_vs_vanilla_comparison.json",
                 "process_manifest.json",
                 derived_root_paths["group_high_level_packet_json"],

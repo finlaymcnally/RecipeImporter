@@ -12,9 +12,13 @@ globals().update({
 })
 def test_single_book_comparison_markdown_table_columns_are_width_aligned() -> None:
     payload = {
-        "schema_version": "codex_vs_vanilla_comparison.v2",
+        "schema_version": "benchmark_comparison.v1",
         "run_timestamp": "2026-03-02_21.25.24",
         "source_file": "book.epub",
+        "comparison": {
+            "baseline_variant_slug": "vanilla",
+            "candidate_variant_slug": "codex-exec",
+        },
         "variants": {
             "codex-exec": {"eval_output_dir": "codex"},
             "vanilla": {"eval_output_dir": "vanilla"},
@@ -30,7 +34,7 @@ def test_single_book_comparison_markdown_table_columns_are_width_aligned() -> No
             },
         },
         "deltas": {
-            "codex_minus_vanilla": {
+            "candidate_minus_baseline": {
                 "strict_accuracy": 0.038674,
                 "macro_f1_excluding_other": 0.005404,
             }
@@ -47,22 +51,26 @@ def test_single_book_comparison_markdown_table_columns_are_width_aligned() -> No
     for line in table_lines[1:]:
         assert [idx for idx, char in enumerate(line) if char == "|"] == expected_pipes
 
-    assert table_lines[0] == "| Metric                     | Codex Exec |  Vanilla | Codex - Vanilla |"
-    assert table_lines[2] == "| `strict_accuracy`          |   0.438589 | 0.399915 |        0.038674 |"
-    assert table_lines[3] == "| `macro_f1_excluding_other` |   0.295998 | 0.290594 |        0.005404 |"
+    assert table_lines[0] == "| Metric                     | Candidate | Baseline | Candidate - Baseline |"
+    assert table_lines[2] == "| `strict_accuracy`          |  0.438589 | 0.399915 |             0.038674 |"
+    assert table_lines[3] == "| `macro_f1_excluding_other` |  0.295998 | 0.290594 |             0.005404 |"
     assert "Duplicate alias metrics in eval JSON" not in markdown
 
 def test_single_book_comparison_markdown_includes_per_label_breakdown() -> None:
     payload = {
-        "schema_version": "codex_vs_vanilla_comparison.v2",
+        "schema_version": "benchmark_comparison.v1",
         "run_timestamp": "2026-03-02_21.25.24",
         "source_file": "book.epub",
+        "comparison": {
+            "baseline_variant_slug": "vanilla",
+            "candidate_variant_slug": "codex-exec",
+        },
         "variants": {
             "codex-exec": {"eval_output_dir": "codex"},
             "vanilla": {"eval_output_dir": "vanilla"},
         },
         "metrics": {},
-        "deltas": {"codex_minus_vanilla": {}},
+        "deltas": {"candidate_minus_baseline": {}},
         "metadata": {
             "per_label_breakdown": {
                 "schema_version": "single_book_per_label_breakdown.v1",
@@ -143,19 +151,23 @@ def test_single_book_summary_markdown_uses_variant_local_per_label_tables(
         encoding="utf-8",
     )
 
-    comparison_json_path = session_root / "codex_vs_vanilla_comparison.json"
+    comparison_json_path = session_root / "benchmark_comparison.json"
     comparison_json_path.write_text(
         json.dumps(
             {
-                "schema_version": "codex_vs_vanilla_comparison.v2",
+                "schema_version": "benchmark_comparison.v1",
                 "run_timestamp": "2026-03-31_19.51.54",
                 "source_file": "book.epub",
+                "comparison": {
+                    "baseline_variant_slug": "vanilla",
+                    "candidate_variant_slug": "codex-exec",
+                },
                 "variants": {
                     "codex-exec": {"eval_output_dir": str(codex_dir)},
                     "vanilla": {"eval_output_dir": str(vanilla_dir)},
                 },
                 "metrics": {},
-                "deltas": {"codex_minus_vanilla": {}},
+                "deltas": {"candidate_minus_baseline": {}},
                 "metadata": {
                     "per_label_breakdown": {
                         "schema_version": "single_book_per_label_breakdown.v1",
@@ -251,8 +263,10 @@ def test_single_book_comparison_artifacts_include_per_label_breakdown(
         run_timestamp="2026-03-02_21.25.24",
         session_root=session_root,
         source_file="book.epub",
-        codex_eval_output_dir=codex_eval_output_dir,
-        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        baseline_variant_slug="vanilla",
+        candidate_variant_slug="codex-exec",
+        baseline_eval_output_dir=vanilla_eval_output_dir,
+        candidate_eval_output_dir=codex_eval_output_dir,
         write_markdown=True,
     )
 
@@ -328,8 +342,10 @@ def test_single_book_comparison_artifacts_include_variant_diagnostics(
         run_timestamp="2026-03-04_11.00.00",
         session_root=session_root,
         source_file="book.epub",
-        codex_eval_output_dir=codex_eval_output_dir,
-        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        baseline_variant_slug="vanilla",
+        candidate_variant_slug="codex-exec",
+        baseline_eval_output_dir=vanilla_eval_output_dir,
+        candidate_eval_output_dir=codex_eval_output_dir,
         write_markdown=True,
     )
     assert written is not None
@@ -377,8 +393,10 @@ def test_single_book_comparison_artifacts_markdown_toggle(tmp_path: Path) -> Non
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file="book.epub",
-        codex_eval_output_dir=codex_eval_output_dir,
-        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        baseline_variant_slug="vanilla",
+        candidate_variant_slug="codex-exec",
+        baseline_eval_output_dir=vanilla_eval_output_dir,
+        candidate_eval_output_dir=codex_eval_output_dir,
         write_markdown=False,
     )
 
@@ -386,14 +404,16 @@ def test_single_book_comparison_artifacts_markdown_toggle(tmp_path: Path) -> Non
     comparison_json_path, comparison_md_path = comparison_paths
     assert comparison_json_path.exists()
     assert comparison_md_path is None
-    assert not (session_root / "codex_vs_vanilla_comparison.md").exists()
+    assert not (session_root / "benchmark_comparison.md").exists()
 
     comparison_paths_markdown = cli._write_single_book_comparison_artifacts(
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file="book.epub",
-        codex_eval_output_dir=codex_eval_output_dir,
-        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        baseline_variant_slug="vanilla",
+        candidate_variant_slug="codex-exec",
+        baseline_eval_output_dir=vanilla_eval_output_dir,
+        candidate_eval_output_dir=codex_eval_output_dir,
         write_markdown=True,
     )
     assert comparison_paths_markdown is not None
@@ -438,8 +458,10 @@ def test_single_book_comparison_artifacts_trigger_starter_pack(
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file="book.epub",
-        codex_eval_output_dir=codex_eval_output_dir,
-        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        baseline_variant_slug="vanilla",
+        candidate_variant_slug="codex-exec",
+        baseline_eval_output_dir=vanilla_eval_output_dir,
+        candidate_eval_output_dir=codex_eval_output_dir,
         write_markdown=False,
         write_starter_pack=True,
     )
@@ -625,8 +647,10 @@ def test_single_book_comparison_includes_codex_runtime_from_llm_manifest_fallbac
         run_timestamp="2026-03-02_12.34.56",
         session_root=session_root,
         source_file=str(tmp_path / "book.epub"),
-        codex_eval_output_dir=codex_eval_output_dir,
-        vanilla_eval_output_dir=vanilla_eval_output_dir,
+        baseline_variant_slug="vanilla",
+        candidate_variant_slug="codex-exec",
+        baseline_eval_output_dir=vanilla_eval_output_dir,
+        candidate_eval_output_dir=codex_eval_output_dir,
     )
 
     assert written is not None

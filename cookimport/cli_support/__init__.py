@@ -313,7 +313,7 @@ QUALITYSUITE_AGENT_BRIDGE_OUTCOME_FIELDS: tuple[str, ...] = (
     "strict_accuracy",
     "macro_f1_excluding_other",
 )
-SINGLE_BOOK_COMPARISON_SCHEMA_VERSION = "codex_vs_vanilla_comparison.v2"
+SINGLE_BOOK_COMPARISON_SCHEMA_VERSION = "benchmark_comparison.v1"
 SINGLE_BOOK_COMPARISON_METRICS: tuple[tuple[str, str], ...] = (
     ("strict_accuracy", "strict_accuracy"),
     ("macro_f1_excluding_other", "macro_f1_excluding_other"),
