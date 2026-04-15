@@ -6,12 +6,18 @@ You will frequently encounter changes to the workspace not made by you. That is 
 
 All timestamps for files and such should be: YYYY-MM-DD_HH.MM.SS
 
+we dont actually care about vanilla runs. they are just a baseline.
+
 ## Processing logic, LLM vs derministic
   - Deterministic code should package evidence.
   - LLMs should make fuzzy semantic calls.
   - Deterministic code should validate outputs and keep authority boundaries clean.
   - Deterministic code should not try to “get smarter” about ambiguous cookbook semantics. IT IS VERY, VERY BAD AT THIS.
   - i do not want deterministic systems overwriting or correcting LLM outputs.
+
+   Things like the following DO NOT WORK AND SHOULD NOT BE DONE:
+      - section_type_guess or any other attempt to say "This paragraph looks like it has lots of X"
+      - any kind of hint derived from semantic clues
 
 ## DOCUMENTATION
 When you build stuff, leave a small relevant note in the folder explaining how it works. very short. if there is already documentation present, update as needed. Your audience for all documentation, unless otherwise noted, is other AI coding agents like you.
