@@ -4,7 +4,10 @@ import inspect
 import json
 from pathlib import Path
 
-from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
+from cookimport.llm.codex_farm_knowledge_jobs import (
+    build_knowledge_jobs,
+    resolve_default_knowledge_packet_char_budgets,
+)
 from cookimport.llm.knowledge_stage.stage_plan import build_knowledge_stage_phase_plan
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan
 from tests.nonrecipe_stage_helpers import make_recipe_ownership_result
@@ -57,8 +60,13 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
     assert report.packets_written == 1
     assert report.shards_written == 1
     assert report.requested_shard_count == 1
-    assert report.packet_input_char_budget == 18000
-    assert report.packet_output_char_budget == 6000
+    assert (
+        report.packet_input_char_budget,
+        report.packet_output_char_budget,
+    ) == resolve_default_knowledge_packet_char_budgets(
+        input_char_budget=None,
+        output_char_budget=None,
+    )
     payload = json.loads(
         (tmp_path / "knowledge" / "fixturebook.ks0000.nr.json").read_text(encoding="utf-8")
     )
@@ -143,6 +151,16 @@ def test_build_knowledge_jobs_splits_by_explicit_char_budgets_when_no_target_cou
     ]
     assert all(entry.metadata["input_char_budget"] == 320 for entry in report.shard_entries)
     assert all(entry.metadata["output_char_budget"] == 220 for entry in report.shard_entries)
+
+
+def test_default_knowledge_packet_budgets_are_rebased_on_survivability() -> None:
+    input_budget, output_budget = resolve_default_knowledge_packet_char_budgets(
+        input_char_budget=None,
+        output_char_budget=None,
+    )
+
+    assert input_budget == 264_000
+    assert output_budget == 72_000
 
 
 def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(

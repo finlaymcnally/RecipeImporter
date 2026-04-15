@@ -928,7 +928,7 @@ class RunSettings(BaseModel):
         ),
     )
     knowledge_packet_input_char_budget: int | None = Field(
-        default=18000,
+        default=None,
         ge=1,
         json_schema_extra=_ui_meta(
             group="LLM",
@@ -936,7 +936,9 @@ class RunSettings(BaseModel):
             order=115,
             description=(
                 "Approximate max characters for one leased knowledge packet input. "
-                "The planner splits before runtime when a shard would exceed this budget."
+                "Leave unset to derive a default from the knowledge survivability "
+                "budget with planner headroom; set a value to force a smaller or larger "
+                "packet input target."
             ),
             step=500,
             minimum=1,
@@ -945,7 +947,7 @@ class RunSettings(BaseModel):
         ),
     )
     knowledge_packet_output_char_budget: int | None = Field(
-        default=6000,
+        default=None,
         ge=1,
         json_schema_extra=_ui_meta(
             group="LLM",
@@ -953,7 +955,9 @@ class RunSettings(BaseModel):
             order=115,
             description=(
                 "Approximate max characters for one leased knowledge packet result. "
-                "The planner splits before runtime when the worst-case packet output would exceed this budget."
+                "Leave unset to derive a default from the knowledge survivability "
+                "budget with planner headroom; set a value to force a smaller or larger "
+                "packet output target."
             ),
             step=250,
             minimum=1,

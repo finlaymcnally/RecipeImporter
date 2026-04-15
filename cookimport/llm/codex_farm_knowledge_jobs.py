@@ -15,6 +15,7 @@ from cookimport.llm.shard_prompt_targets import (
     coerce_positive_int,
     partition_contiguous_items,
 )
+from cookimport.llm.shard_survivability import default_stage_survivability_budget
 
 from .codex_farm_knowledge_contracts import (
     KnowledgePacketBlockV1,
@@ -60,8 +61,9 @@ class _PreparedKnowledgePacket:
     estimated_pass2_output_chars: int
 
 
-_DEFAULT_KNOWLEDGE_PACKET_INPUT_CHAR_BUDGET = 18_000
-_DEFAULT_KNOWLEDGE_PACKET_OUTPUT_CHAR_BUDGET = 6_000
+_DEFAULT_KNOWLEDGE_PACKET_CHARS_PER_TOKEN = 3.0
+_DEFAULT_KNOWLEDGE_PACKET_INPUT_HEADROOM = 0.40
+_DEFAULT_KNOWLEDGE_PACKET_OUTPUT_HEADROOM = 0.30
 _PASS1_ROW_OUTPUT_ESTIMATE_CHARS = 48
 _PASS2_ROW_OUTPUT_ESTIMATE_CHARS = 88
 _PACKET_BASE_OUTPUT_ESTIMATE_CHARS = 96
@@ -112,13 +114,11 @@ def build_knowledge_jobs(
         key=lambda row: int(row.get("index") or 0),
     )
     table_hints_by_index = _table_hints_by_index(ordered_review_rows)
-    resolved_input_char_budget = _resolve_budget(
-        value=input_char_budget,
-        default=_DEFAULT_KNOWLEDGE_PACKET_INPUT_CHAR_BUDGET,
-    )
-    resolved_output_char_budget = _resolve_budget(
-        value=output_char_budget,
-        default=_DEFAULT_KNOWLEDGE_PACKET_OUTPUT_CHAR_BUDGET,
+    resolved_input_char_budget, resolved_output_char_budget = (
+        resolve_default_knowledge_packet_char_budgets(
+            input_char_budget=input_char_budget,
+            output_char_budget=output_char_budget,
+        )
     )
     budget_row_partitions = _partition_rows_by_budget(
         rows=ordered_review_rows,
@@ -284,6 +284,31 @@ def _resolve_budget(*, value: int | None, default: int) -> int:
     if value is None:
         return int(default)
     return max(1, int(value))
+
+
+def resolve_default_knowledge_packet_char_budgets(
+    *,
+    input_char_budget: int | None,
+    output_char_budget: int | None,
+) -> tuple[int, int]:
+    survivability_budget = default_stage_survivability_budget("nonrecipe_finalize")
+    resolved_input_char_budget = _resolve_budget(
+        value=input_char_budget,
+        default=int(
+            survivability_budget.max_input_tokens
+            * _DEFAULT_KNOWLEDGE_PACKET_CHARS_PER_TOKEN
+            * _DEFAULT_KNOWLEDGE_PACKET_INPUT_HEADROOM
+        ),
+    )
+    resolved_output_char_budget = _resolve_budget(
+        value=output_char_budget,
+        default=int(
+            survivability_budget.max_output_tokens
+            * _DEFAULT_KNOWLEDGE_PACKET_CHARS_PER_TOKEN
+            * _DEFAULT_KNOWLEDGE_PACKET_OUTPUT_HEADROOM
+        ),
+    )
+    return resolved_input_char_budget, resolved_output_char_budget
 
 
 def _estimate_row_input_chars(row: Mapping[str, Any]) -> int:

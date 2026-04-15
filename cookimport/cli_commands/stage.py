@@ -529,18 +529,18 @@ def register(app: typer.Typer) -> dict[str, object]:
             help="Internal: preferred knowledge shard count for Codex-backed stage runs.",
         ),
         knowledge_packet_input_char_budget: int | None = typer.Option(
-            18000,
+            None,
             "--knowledge-packet-input-char-budget",
             min=1,
             hidden=True,
-            help="Internal: maximum prompt-side character budget per knowledge packet.",
+            help="Internal: maximum prompt-side character budget per knowledge packet. Blank uses the survivability-derived auto default.",
         ),
         knowledge_packet_output_char_budget: int | None = typer.Option(
-            12000,
+            None,
             "--knowledge-packet-output-char-budget",
             min=1,
             hidden=True,
-            help="Internal: maximum response-side character budget per knowledge packet.",
+            help="Internal: maximum response-side character budget per knowledge packet. Blank uses the survivability-derived auto default.",
         ),
         allow_codex: bool = typer.Option(
             False,

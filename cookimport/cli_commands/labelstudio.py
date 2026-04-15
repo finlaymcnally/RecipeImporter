@@ -1498,14 +1498,14 @@ def register(app: typer.Typer) -> dict[str, object]:
             "--knowledge-packet-input-char-budget",
             min=1,
             hidden=True,
-            help="Internal: maximum prompt-side character budget per knowledge packet.",
-        )] = 18000,
+            help="Internal: maximum prompt-side character budget per knowledge packet. Blank uses the survivability-derived auto default.",
+        )] = None,
         knowledge_packet_output_char_budget: Annotated[int | None, typer.Option(
             "--knowledge-packet-output-char-budget",
             min=1,
             hidden=True,
-            help="Internal: maximum response-side character budget per knowledge packet.",
-        )] = 12000,
+            help="Internal: maximum response-side character budget per knowledge packet. Blank uses the survivability-derived auto default.",
+        )] = None,
         knowledge_group_task_max_units: Annotated[int, typer.Option(
             "--knowledge-group-task-max-units",
             min=1,

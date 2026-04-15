@@ -119,8 +119,8 @@ def run_labelstudio_import(
         serialized_run_setting_default("recipe_codex_exec_style")
     ),
     knowledge_prompt_target_count: int = 5,
-    knowledge_packet_input_char_budget: int | None = 18000,
-    knowledge_packet_output_char_budget: int | None = 12000,
+    knowledge_packet_input_char_budget: int | None = None,
+    knowledge_packet_output_char_budget: int | None = None,
     knowledge_group_task_max_units: int = int(
         serialized_run_setting_default("knowledge_group_task_max_units")
     ),
