@@ -396,6 +396,9 @@ def _interactive_single_book_benchmark(
     split_cache_root: Path | None = None
     split_cache_source_hash: str | None = None
     deterministic_prep_bundle = None
+    deterministic_prep_settings = _interactive_single_book_preview_baseline_settings(
+        selected_benchmark_settings
+    )
     if len(variants) > 1 and selected_split_cache_mode != "off":
         split_cache_root = _resolve_single_book_split_cache_root(
             session_root=session_root,
@@ -430,7 +433,7 @@ def _interactive_single_book_benchmark(
     if selected_source is not None:
         deterministic_prep_bundle = resolve_or_build_deterministic_prep_bundle(
             source_file=selected_source,
-            run_settings=variants[0][1],
+            run_settings=deterministic_prep_settings,
             processed_output_root=processed_output_root,
         )
         typer.secho(
@@ -486,7 +489,7 @@ def _interactive_single_book_benchmark(
         if (
             deterministic_prep_bundle is not None
             and _variant_can_reuse_deterministic_prep_bundle(
-                bundle_settings=variants[0][1],
+                bundle_settings=deterministic_prep_settings,
                 variant_settings=variant_settings,
             )
         ):

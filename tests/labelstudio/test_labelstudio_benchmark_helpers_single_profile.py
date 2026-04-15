@@ -488,6 +488,77 @@ def test_interactive_single_profile_all_matched_codex_runs_vanilla_then_codex_ex
     ]
 
 
+def test_interactive_single_profile_codex_prep_uses_baseline_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "Book A.epub"
+    source.write_text("a", encoding="utf-8")
+    gold = tmp_path / "gold-a" / "exports" / "freeform_span_labels.jsonl"
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    gold.write_text("{}\n", encoding="utf-8")
+
+    target = cli.AllMethodTarget(
+        gold_spans_path=gold,
+        source_file=source,
+        source_file_name=source.name,
+        gold_display="gold-a",
+    )
+    _patch_cli_attr(monkeypatch, "_resolve_all_method_targets", lambda _output_dir: ([target], []))
+    _patch_cli_attr(monkeypatch, "_prompt_confirm", lambda *_args, **_kwargs: True)
+
+    prep_bundle = SimpleNamespace(
+        manifest_path=tmp_path / "prep-cache" / "bundle.json",
+        prep_key="prep-key-123",
+        cache_hit=False,
+    )
+    prep_run_settings: list[cli.RunSettings] = []
+    benchmark_calls: list[dict[str, object]] = []
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        lambda **kwargs: prep_run_settings.append(kwargs["run_settings"]) or prep_bundle,
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "labelstudio_benchmark",
+        lambda **kwargs: benchmark_calls.append(dict(kwargs)),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_write_benchmark_upload_bundle",
+        lambda **kwargs: kwargs.get("output_dir"),
+    )
+
+    selected_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+        },
+        warn_context="test single-profile codex prep baseline",
+    )
+
+    completed = cli._interactive_single_profile_all_matched_benchmark(
+        selected_benchmark_settings=selected_settings,
+        benchmark_eval_output=tmp_path / "golden" / "2026-04-15_12.35.00",
+        processed_output_root=tmp_path / "processed",
+        write_markdown=False,
+        write_label_studio_tasks=False,
+    )
+
+    assert completed is True
+    assert len(prep_run_settings) == 1
+    assert prep_run_settings[0].llm_recipe_pipeline.value == "off"
+    assert prep_run_settings[0].line_role_pipeline.value == "off"
+    assert prep_run_settings[0].llm_knowledge_pipeline.value == "off"
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["allow_codex"] is True
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert benchmark_calls[0]["line_role_pipeline"] == "codex-line-role-route-v2"
+    assert benchmark_calls[0]["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
+
+
 def test_interactive_single_profile_all_matched_benchmark_writes_group_upload_bundle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

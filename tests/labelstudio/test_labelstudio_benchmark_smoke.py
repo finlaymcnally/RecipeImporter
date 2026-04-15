@@ -680,3 +680,122 @@ def test_interactive_single_book_vanilla_real_runtime_hits_deterministic_prep_ca
     assert fixture["completed_results"] == [True, True]
     assert fixture["cache_hits"] == [False, True]
     assert second_run_manifest["run_config"]["llm_recipe_pipeline"] == "off"
+
+
+def test_interactive_single_book_codex_shaped_real_prep_smoke(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import cookimport.staging.deterministic_prep as deterministic_prep
+
+    monkeypatch.setenv("COOKIMPORT_BOOK_CACHE_ROOT", str(tmp_path / ".book-cache"))
+
+    source_file = tmp_path / "book.txt"
+    source_file.write_text("Toast\n\n1 slice bread\nToast the bread.\n", encoding="utf-8")
+    gold_root = tmp_path / "golden" / "book" / "exports"
+    gold_root.mkdir(parents=True, exist_ok=True)
+    gold_spans = gold_root / "freeform_span_labels.jsonl"
+    gold_spans.write_text("{}\n", encoding="utf-8")
+
+    original_resolve = deterministic_prep.resolve_or_build_deterministic_prep_bundle
+    prep_run_settings: list[cli.RunSettings] = []
+    benchmark_calls: list[dict[str, object]] = []
+
+    def _tracking_resolve(**kwargs):
+        prep_run_settings.append(kwargs["run_settings"])
+        return original_resolve(**kwargs)
+
+    def _fake_labelstudio_benchmark(**kwargs):
+        benchmark_calls.append(dict(kwargs))
+        eval_output_dir = kwargs["eval_output_dir"]
+        processed_output_dir = kwargs["processed_output_dir"]
+        assert isinstance(eval_output_dir, Path)
+        assert isinstance(processed_output_dir, Path)
+        eval_output_dir.mkdir(parents=True, exist_ok=True)
+        processed_output_dir.mkdir(parents=True, exist_ok=True)
+        (eval_output_dir / "run_manifest.json").write_text(
+            json.dumps(
+                {
+                    "run_kind": "labelstudio_benchmark",
+                    "source": {"path": str(source_file)},
+                    "run_config": {
+                        "llm_recipe_pipeline": kwargs.get("llm_recipe_pipeline"),
+                        "line_role_pipeline": kwargs.get("line_role_pipeline"),
+                        "llm_knowledge_pipeline": kwargs.get("llm_knowledge_pipeline"),
+                    },
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (eval_output_dir / "eval_report.json").write_text(
+            json.dumps(_simulated_canonical_eval_report(eval_output_dir=eval_output_dir))
+            + "\n",
+            encoding="utf-8",
+        )
+
+    _patch_cli_attr(
+        monkeypatch,
+        "resolve_or_build_deterministic_prep_bundle",
+        _tracking_resolve,
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_run_prediction_with_reuse",
+        lambda *, execute_prediction, **_kwargs: (
+            execute_prediction() or {"prediction_result_source": "fresh"}
+        ),
+    )
+    _patch_cli_attr(
+        monkeypatch,
+        "_labelstudio_benchmark_command",
+        lambda: _fake_labelstudio_benchmark,
+    )
+
+    publisher, publication_capture = _make_lightweight_single_book_publisher()
+    selected_benchmark_settings = cli.RunSettings.from_dict(
+        {
+            "llm_recipe_pipeline": "codex-recipe-shard-v1",
+            "line_role_pipeline": "codex-line-role-route-v2",
+            "llm_knowledge_pipeline": "codex-knowledge-candidate-v2",
+            "codex_farm_model": "gpt-5.4-mini",
+            "codex_farm_reasoning_effort": "low",
+            "recipe_prompt_target_count": 4,
+            "line_role_prompt_target_count": 6,
+            "knowledge_prompt_target_count": 7,
+        },
+        warn_context="single-book codex-shaped real prep smoke",
+    )
+    benchmark_eval_output = (
+        tmp_path / "golden" / "benchmark-vs-golden" / "2026-04-15_12.22.26"
+    )
+
+    completed = bench_single_book._interactive_single_book_benchmark(
+        selected_benchmark_settings=selected_benchmark_settings,
+        benchmark_eval_output=benchmark_eval_output,
+        processed_output_root=tmp_path / "processed-output",
+        write_markdown=True,
+        write_label_studio_tasks=False,
+        preselected_gold_spans=gold_spans,
+        preselected_source_file=source_file,
+        publisher=publisher,
+    )
+
+    session_root = benchmark_eval_output / "single-book-benchmark" / "book"
+    summary_text = (session_root / "single_book_summary.md").read_text(encoding="utf-8")
+
+    assert completed is True
+    assert publication_capture["results"]
+    assert len(prep_run_settings) == 1
+    assert prep_run_settings[0].llm_recipe_pipeline.value == "off"
+    assert prep_run_settings[0].line_role_pipeline.value == "off"
+    assert prep_run_settings[0].llm_knowledge_pipeline.value == "off"
+    assert len(benchmark_calls) == 1
+    assert benchmark_calls[0]["allow_codex"] is True
+    assert benchmark_calls[0]["llm_recipe_pipeline"] == "codex-recipe-shard-v1"
+    assert benchmark_calls[0]["line_role_pipeline"] == "codex-line-role-route-v2"
+    assert benchmark_calls[0]["llm_knowledge_pipeline"] == "codex-knowledge-candidate-v2"
+    assert "### `codex-exec`" in summary_text
+    assert "- Status: `ok`" in summary_text

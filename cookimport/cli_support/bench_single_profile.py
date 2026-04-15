@@ -29,6 +29,20 @@ def _labelstudio_benchmark_command():
     )
 
 
+def _interactive_single_profile_prep_baseline_settings(
+    selected_settings: RunSettings,
+) -> RunSettings:
+    run_config = project_run_config_payload(
+        selected_settings.to_run_config_dict(),
+        contract=RUN_SETTING_CONTRACT_FULL,
+    )
+    baseline_payload = _all_method_apply_baseline_contract(run_config)
+    return RunSettings.from_dict(
+        baseline_payload,
+        warn_context="interactive single-profile prep baseline",
+    )
+
+
 def _variant_can_reuse_deterministic_prep_bundle(
     *,
     bundle_settings: RunSettings,
@@ -1031,9 +1045,12 @@ def _interactive_single_profile_all_matched_benchmark(
         variant_eval_outputs: dict[str, Path] = {}
         variant_errors: list[str] = []
         source_file_for_comparison: str | None = None
+        deterministic_prep_settings = _interactive_single_profile_prep_baseline_settings(
+            selected_benchmark_settings
+        )
         deterministic_prep_bundle = resolve_or_build_deterministic_prep_bundle(
             source_file=target.source_file,
-            run_settings=variants[0][1],
+            run_settings=deterministic_prep_settings,
             processed_output_root=processed_output_root,
             progress_callback=update_progress,
         )
@@ -1076,7 +1093,7 @@ def _interactive_single_profile_all_matched_benchmark(
                 }
             )
             if _variant_can_reuse_deterministic_prep_bundle(
-                bundle_settings=variants[0][1],
+                bundle_settings=deterministic_prep_settings,
                 variant_settings=variants[variant_index - 1][1],
             ):
                 variant_kwargs["deterministic_prep_manifest_path"] = (
