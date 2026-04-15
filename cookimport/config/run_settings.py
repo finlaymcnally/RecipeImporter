@@ -970,8 +970,9 @@ class RunSettings(BaseModel):
             label="Knowledge Group Task Max Units",
             order=115,
             description=(
-                "Legacy grouping metadata hint. The active runtime groups one shard in one "
-                "pass rather than splitting runtime grouping into several batches."
+                "Max units per knowledge grouping batch. The runtime may split one shard's "
+                "grouping follow-up into several batches at this cap, and packet budgeting "
+                "uses the same cap for worst-case grouping-output estimates."
             ),
             step=1,
             minimum=1,
@@ -988,8 +989,8 @@ class RunSettings(BaseModel):
             label="Knowledge Group Task Max Evidence",
             order=115,
             description=(
-                "Legacy grouping metadata hint. The active runtime groups one shard in one "
-                "pass rather than splitting runtime grouping into several batches."
+                "Max evidence payload per knowledge grouping batch. The runtime may split one "
+                "shard's grouping follow-up into several batches to stay under this cap."
             ),
             step=250,
             minimum=1,

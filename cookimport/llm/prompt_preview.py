@@ -789,6 +789,9 @@ def _build_knowledge_preview_rows(
         prompt_target_count=prompt_target_count,
         input_char_budget=input_char_budget,
         output_char_budget=output_char_budget,
+        group_task_max_units=(
+            _coerce_int(context.run_config.get("knowledge_group_task_max_units")) or 40
+        ),
     )
     rows: list[dict[str, Any]] = []
     for input_path in sorted(in_dir.glob("*.json"), key=lambda path: path.name):

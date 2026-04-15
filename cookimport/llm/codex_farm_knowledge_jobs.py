@@ -26,6 +26,7 @@ from .codex_farm_knowledge_contracts import (
     KnowledgeTableHintV1,
 )
 
+_DEFAULT_KNOWLEDGE_GROUP_TASK_MAX_UNITS = 40
 @dataclass(frozen=True, slots=True)
 class KnowledgeJobBuildReport:
     seed_nonrecipe_span_count: int
@@ -78,6 +79,7 @@ def build_knowledge_jobs(
     prompt_target_count: int | None = None,
     input_char_budget: int | None = None,
     output_char_budget: int | None = None,
+    group_task_max_units: int = _DEFAULT_KNOWLEDGE_GROUP_TASK_MAX_UNITS,
 ) -> KnowledgeJobBuildReport:
     out_dir.mkdir(parents=True, exist_ok=True)
     for stale_path in sorted(out_dir.glob("*.json")):
@@ -122,6 +124,7 @@ def build_knowledge_jobs(
         rows=ordered_review_rows,
         input_char_budget=resolved_input_char_budget,
         output_char_budget=resolved_output_char_budget,
+        group_task_max_units=group_task_max_units,
     )
     packet_count_before_partition = len(budget_row_partitions)
     configured_prompt_target = coerce_positive_int(prompt_target_count)
@@ -190,7 +193,8 @@ def build_knowledge_jobs(
                     full_blocks_by_index=full_blocks_by_index,
                 ),
                 estimated_pass2_output_chars=_estimate_pass2_output_chars(
-                    owned_row_count=len(absolute_indices)
+                    owned_row_count=len(absolute_indices),
+                    group_task_max_units=group_task_max_units,
                 ),
             )
         )
@@ -291,11 +295,20 @@ def _estimate_row_output_chars(*, row_count: int, per_row_chars: int) -> int:
     return _PACKET_BASE_OUTPUT_ESTIMATE_CHARS + (max(0, int(row_count)) * per_row_chars)
 
 
+def _grouping_batch_output_row_count(
+    *,
+    owned_row_count: int,
+    group_task_max_units: int,
+) -> int:
+    return min(max(0, int(owned_row_count)), max(1, int(group_task_max_units)))
+
+
 def _partition_rows_by_budget(
     *,
     rows: Sequence[Mapping[str, Any]],
     input_char_budget: int,
     output_char_budget: int,
+    group_task_max_units: int,
 ) -> list[list[dict[str, Any]]]:
     partitions: list[list[dict[str, Any]]] = []
     current_rows: list[dict[str, Any]] = []
@@ -311,7 +324,10 @@ def _partition_rows_by_budget(
                 per_row_chars=_PASS1_ROW_OUTPUT_ESTIMATE_CHARS,
             ),
             _estimate_row_output_chars(
-                row_count=next_count,
+                row_count=_grouping_batch_output_row_count(
+                    owned_row_count=next_count,
+                    group_task_max_units=group_task_max_units,
+                ),
                 per_row_chars=_PASS2_ROW_OUTPUT_ESTIMATE_CHARS,
             ),
         )
@@ -428,9 +444,16 @@ def _estimate_pass2_input_chars(
     )
 
 
-def _estimate_pass2_output_chars(*, owned_row_count: int) -> int:
+def _estimate_pass2_output_chars(
+    *,
+    owned_row_count: int,
+    group_task_max_units: int,
+) -> int:
     return _estimate_row_output_chars(
-        row_count=owned_row_count,
+        row_count=_grouping_batch_output_row_count(
+            owned_row_count=owned_row_count,
+            group_task_max_units=group_task_max_units,
+        ),
         per_row_chars=_PASS2_ROW_OUTPUT_ESTIMATE_CHARS,
     )
 

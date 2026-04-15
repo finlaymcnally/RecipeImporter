@@ -20,7 +20,6 @@ Interactive run-settings UI helpers.
   - unavailable mode cells render blank instead of placeholder dashes, and row notes still surface deterministic shard recommendations and survivability hints when available
   - those prompts map directly to `recipe_prompt_target_count`, `line_role_prompt_target_count`, and `knowledge_prompt_target_count`
   - line-role transport now persists through `line_role_codex_exec_style` and knowledge through `knowledge_codex_exec_style`
-  - budget-native shard counts for knowledge still show up as planner context, but the planner warning badge now defers to survivability: once the chosen count already meets `minimum_safe_shard_count`, the raw packet-budget split estimate is no longer treated as its own warning
 - Any non-`off` choice also prompts for codex AI settings for that run:
   - `Codex Exec model override` (menu-only: `Pipeline default`, optional `Keep current override`, discovered models only)
   - `Codex Exec reasoning effort override` (`Pipeline default` plus only the efforts supported by the selected discovered model when that metadata is available)

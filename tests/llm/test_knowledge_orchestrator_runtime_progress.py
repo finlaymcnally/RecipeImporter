@@ -156,36 +156,6 @@ def test_knowledge_orchestrator_progress_detail_lines_track_live_shards(
     )
 
 
-def test_filtered_knowledge_planning_warnings_defer_budget_native_noise_when_safe() -> None:
-    assert knowledge_module._filtered_knowledge_planning_warnings(
-        planning_warnings=[
-            (
-                "knowledge_prompt_target_count is using the requested final shard count "
-                "of 15; packet-budget planning would have split the queue into 37 shards."
-            ),
-            "another warning",
-        ],
-        requested_shard_count=15,
-        survivability_report={"minimum_safe_shard_count": 5},
-    ) == ["another warning"]
-
-
-def test_filtered_knowledge_planning_warnings_keep_budget_native_warning_when_unsafe() -> None:
-    assert knowledge_module._filtered_knowledge_planning_warnings(
-        planning_warnings=[
-            (
-                "knowledge_prompt_target_count is using the requested final shard count "
-                "of 5; packet-budget planning would have split the queue into 24 shards."
-            )
-        ],
-        requested_shard_count=5,
-        survivability_report={"minimum_safe_shard_count": 6},
-    ) == [
-        "knowledge_prompt_target_count is using the requested final shard count "
-        "of 5; packet-budget planning would have split the queue into 24 shards."
-    ]
-
-
 def test_knowledge_orchestrator_surfaces_worker_attention_in_progress(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

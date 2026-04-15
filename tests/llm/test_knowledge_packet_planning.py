@@ -27,6 +27,7 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
         "prompt_target_count",
         "input_char_budget",
         "output_char_budget",
+        "group_task_max_units",
     ]
 
     report = build_knowledge_jobs(
@@ -183,6 +184,40 @@ def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(
         "knowledge_prompt_target_count is using the requested final shard count "
         "of 1; packet-budget planning would have split the queue into 4 shards."
     ]
+
+
+def test_build_knowledge_jobs_caps_grouping_output_budget_by_group_task_max_units(
+    tmp_path: Path,
+) -> None:
+    report = build_knowledge_jobs(
+        full_blocks=[
+            {"index": index, "text": f"Technique {index}"}
+            for index in range(80)
+        ],
+        candidate_spans=[
+            NonRecipeSpan(
+                span_id=f"nr.{index}.{index + 1}",
+                category="knowledge",
+                block_start_index=index,
+                block_end_index=index + 1,
+                block_indices=[index],
+                block_ids=[f"b{index}"],
+            )
+            for index in range(80)
+        ],
+        recipe_ownership_result=_ownership(all_indices=list(range(80))),
+        workbook_slug="fixturebook",
+        out_dir=tmp_path / "knowledge",
+        context_blocks=0,
+        input_char_budget=50_000,
+        output_char_budget=6_000,
+        group_task_max_units=40,
+    )
+
+    assert report.packet_count_before_partition == 1
+    assert report.shards_written == 1
+    assert report.shard_entries[0].metadata["estimated_pass1_output_chars"] == 3_936
+    assert report.shard_entries[0].metadata["estimated_pass2_output_chars"] == 3_616
 
 
 def test_build_knowledge_jobs_keeps_review_order_inside_each_shard(tmp_path: Path) -> None:
