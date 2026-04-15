@@ -457,6 +457,60 @@ def test_labelstudio_export_uses_source_slug_for_default_run_root(
     assert not (output_dir / "my_book_2").exists()
 
 
+def test_labelstudio_export_row_gold_project_name_reuses_original_book_slug(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        def find_project_by_title(self, title: str) -> dict[str, object]:
+            return {"id": 52, "title": title}
+
+        def export_tasks(self, _project_id: int) -> list[dict[str, object]]:
+            return [
+                {
+                    "id": 1,
+                    "data": {
+                        "segment_id": "seg-1",
+                        "source_hash": "hash-1",
+                        "source_file": "source_rows.jsonl",
+                        "book_id": "source_rows",
+                        "segment_text": "Hello",
+                        "source_map": {
+                            "rows": [
+                                {
+                                    "row_id": "row-0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
+                                    "row_ordinal": 0,
+                                    "text": "Hello",
+                                    "segment_start": 0,
+                                    "segment_end": 5,
+                                }
+                            ]
+                        },
+                    },
+                    "annotations": [],
+                }
+            ]
+
+    monkeypatch.setattr("cookimport.labelstudio.export.LabelStudioClient", FakeClient)
+
+    output_dir = tmp_path / "pulled-from-labelstudio"
+    result = run_labelstudio_export(
+        project_name="saltfatacidheatCUTDOWN source_rows_gold",
+        output_dir=output_dir,
+        label_studio_url="http://localhost:8080",
+        label_studio_api_key="token",
+        run_dir=None,
+    )
+
+    assert result["export_root"] == output_dir / "saltfatacidheatcutdown" / "exports"
+    assert not (output_dir / "source_rows").exists()
+
+
 def test_labelstudio_export_reuses_existing_run_root_for_same_source(
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,

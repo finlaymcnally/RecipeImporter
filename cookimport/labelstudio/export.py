@@ -20,6 +20,7 @@ from cookimport.runs import RunManifest, RunSource, write_run_manifest
 logger = logging.getLogger(__name__)
 _RECIPE_HEADER_LABEL = "RECIPE_TITLE"
 _SUPPORTED_SCOPE = "freeform-spans"
+_ROW_GOLD_PROJECT_SUFFIX = "source_rows_gold"
 
 
 def _find_latest_manifest(output_root: Path, project_name: str) -> Path | None:
@@ -78,6 +79,21 @@ def _slugify_source_file(source_file: str | None) -> str | None:
     if not source_stem:
         return None
     return _slugify_name(source_stem)
+
+
+def _slugify_row_gold_project_name(project_name: str) -> str | None:
+    normalized_name = str(project_name or "").strip()
+    if not normalized_name:
+        return None
+    suffix = f" {_ROW_GOLD_PROJECT_SUFFIX}"
+    if normalized_name == _ROW_GOLD_PROJECT_SUFFIX:
+        return None
+    if not normalized_name.endswith(suffix):
+        return None
+    original_name = normalized_name[: -len(suffix)].strip()
+    if not original_name:
+        return None
+    return _slugify_name(original_name)
 
 
 def _infer_source_identity_from_export_payload(
@@ -185,7 +201,9 @@ def _resolve_export_run_root(
     )
     source_hash = payload_source_hash or _normalize_source_hash(manifest_source_hash)
     source_file = payload_source_file or _normalize_source_file(manifest_source_file)
-    preferred_slug = _slugify_source_file(source_file)
+    preferred_slug = _slugify_row_gold_project_name(project_name) or _slugify_source_file(
+        source_file
+    )
     if preferred_slug:
         preferred_path = output_dir / preferred_slug
         if preferred_path.exists() and preferred_path.is_dir():

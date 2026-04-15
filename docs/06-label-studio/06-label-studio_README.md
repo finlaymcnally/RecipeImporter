@@ -346,6 +346,7 @@ When source-row benchmark eval runs with `line_role_pipeline != off`, eval roots
 
 - Default: `<export_output_root>/<source_slug_or_project_slug>/exports/...`
 - If export payload/source metadata resolves to one source file, its filename stem is used as slug so repeated pulls overwrite the same folder even when project names are deduped with suffixes (`-2`, `-3`, ...).
+- Row-gold replacement projects ending in `source_rows_gold` are a special case: export should route back to the original project/book slug from the project title instead of writing into a generic `source_rows/` folder.
 - `--run-dir` overrides destination.
 - Run root also carries `run_manifest.json`.
 
