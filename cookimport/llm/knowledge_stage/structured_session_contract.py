@@ -673,6 +673,7 @@ def build_knowledge_structured_prompt(
             "Do not think about tags during classification. Tagging happens only in the second pass.\n"
             "If the row looks like reusable cooking knowledge worth carrying forward, return `keep_for_review`; otherwise return `other`.\n"
             "Memoir, book framing, navigation, decorative headings, and true-but-low-utility prose belong in `other` even if they mention cooking.\n"
+            "Contrast examples: `Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what.` => `other`; `It was a revelation.` => `other`; `My pursuit of flavor has continued to lead me around the world.` => `other`; `Taste constantly as you cook, and adjust seasoning before serving.` => `keep_for_review`.\n"
             "Treat category labels and heading shape as weak hints only, but do use row order and nearby rows to understand the local run.\n"
         )
     ordered_rows_note = (

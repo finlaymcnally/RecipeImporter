@@ -181,6 +181,7 @@ def _build_knowledge_taskfile_prompt(
             "- Short heading rows can still help later grouping as context, so do not force them into `keep_for_review` just to preserve structure.",
             "- If a short heading is the semantic key for the following owned explanatory row, keep the heading itself `other` and let the explanatory body carry the knowledge.",
             "- If a heading is decorative, thesis-like, or unsupported by reusable explanatory body text in the owned packet, answer `other`.",
+            "- Contrast examples: `Salt, Fat, Acid, and Heat were the four elements that guided basic decision making in every single dish, no matter what.` => `other`; `It was a revelation.` => `other`; `My pursuit of flavor has continued to lead me around the world.` => `other`; `Taste constantly as you cook, and adjust seasoning before serving.` => `keep_for_review`.",
             "- Do not compress the packet into one global keep/drop rule, one heading rule, or one candidate-tag rule.",
             "- Do not invent `group_key`, `topic_label`, packet summaries, or cross-unit grouping notes in this step.",
             "- The owned block rows are authoritative. Nearby context is informational only.",

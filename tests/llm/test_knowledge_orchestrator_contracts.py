@@ -101,6 +101,10 @@ def test_worker_prompt_describes_task_file_contract() -> None:
     assert "Short heading rows can still help later grouping as context" in prompt
     assert "let the explanatory body carry the knowledge" in prompt
     assert "unsupported by reusable explanatory body text in the owned packet" in prompt
+    assert "Salt, Fat, Acid, and Heat were the four elements" in prompt
+    assert "It was a revelation." in prompt
+    assert "My pursuit of flavor has continued to lead me around the world." in prompt
+    assert "Taste constantly as you cook, and adjust seasoning before serving." in prompt
     assert "Final categories must be exactly one of `keep_for_review` or `other`." in prompt
     assert "Do not think about tags in this step." in prompt
     assert "answer `proposal_candidate` with empty grounding" not in prompt
@@ -204,6 +208,20 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
         "let the explanatory body carry the knowledge" in row.lower()
         for row in (review_contract.get("decision_policy") or [])
     )
+    contrast_examples = review_contract.get("contrast_examples")
+    assert isinstance(contrast_examples, list)
+    assert any(
+        example.get("text") == "It was a revelation."
+        and example.get("category") == "other"
+        for example in contrast_examples
+        if isinstance(example, dict)
+    )
+    assert any(
+        example.get("text") == "Taste constantly as you cook, and adjust seasoning before serving."
+        and example.get("category") == "keep_for_review"
+        for example in contrast_examples
+        if isinstance(example, dict)
+    )
 
     summary = summarize_task_file(payload=task_file)
     summary_contract = summary.get("review_contract")
@@ -216,10 +234,7 @@ def test_knowledge_task_file_summary_surfaces_semantic_review_contract() -> None
         "weak hints" in row.lower()
         for row in (summary_contract.get("decision_policy") or [])
     )
-    assert any(
-        "local runs of adjacent rows" in row.lower()
-        for row in (summary_contract.get("decision_policy") or [])
-    )
+    assert summary_contract.get("decision_policy_truncated") is True
     assert any(
         "decide by local span, emit by row" in row.lower()
         for row in (summary_contract.get("decision_policy") or [])

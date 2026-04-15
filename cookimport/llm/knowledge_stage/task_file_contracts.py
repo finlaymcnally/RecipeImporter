@@ -618,6 +618,31 @@ def _knowledge_classification_review_contract() -> dict[str, Any]:
             "Navigation, decorative headings, book framing, memoir scene-setting, and true-but-low-utility filler belong in `other` even when you can imagine a plausible tag.",
             "If you feel tempted to batch or script the decision, stop and reread the actual owned block text instead.",
         ],
+        "contrast_examples": [
+            {
+                "text": (
+                    "Salt, Fat, Acid, and Heat were the four elements that guided "
+                    "basic decision making in every single dish, no matter what."
+                ),
+                "category": "other",
+                "why": "Broad book philosophy is not the same as a standalone retrieval-grade lesson.",
+            },
+            {
+                "text": "It was a revelation.",
+                "category": "other",
+                "why": "Reaction or framing prose is not reusable cooking guidance.",
+            },
+            {
+                "text": "My pursuit of flavor has continued to lead me around the world.",
+                "category": "other",
+                "why": "Memoir and travel framing stay other even when the surrounding chapter is about cooking.",
+            },
+            {
+                "text": "Taste constantly as you cook, and adjust seasoning before serving.",
+                "category": "keep_for_review",
+                "why": "This stands on its own as direct reusable cooking guidance.",
+            },
+        ],
     }
 
 
