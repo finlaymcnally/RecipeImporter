@@ -44,6 +44,15 @@ Owning docs map:
   - Schemas / field inventories / reference artifacts -> `docs/11-reference/11-reference_README.md`
   - Tests / test layout / low-noise pytest behavior -> `docs/12-testing/12-testing_README.md`
 
+Beads setup note:
+  - Repo-level Beads/Dolt setup, shared-server policy, and divergence recovery -> `docs/2026-04-14_beads-shared-server-setup.md`
+
+Beads default on this machine:
+  - Prefer `bd init --server --shared-server` for new repos.
+  - If a repo already has Beads history on its remote, use `bd bootstrap` instead of a fresh `bd init`.
+  - If a repo has a git remote, use that repo remote for Beads.
+  - If a repo has no git remote, use a local filesystem Beads remote.
+
 Do not go rampant hunting through the codebase. The docs are the intended index. Read the smallest relevant doc slice first, then do targeted code search only where the docs point.
 
 # ExecPlans
