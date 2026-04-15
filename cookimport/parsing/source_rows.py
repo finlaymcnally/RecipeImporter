@@ -159,12 +159,12 @@ _YIELD_LEAD_NUMBER_WORDS = {
     "twelve",
 }
 
-_PROSE_KEEP_MAX_CHARS = 220
-_PROSE_FORCE_SPLIT_MAX_CHARS = 320
-_PROSE_REPAIR_FRAGMENT_MAX_CHARS = 70
-_PROSE_COMFORTABLE_MIN_CHARS = 120
-_PROSE_MAX_SENTENCES = 2
-_PROSE_FORCE_SPLIT_SENTENCES = 3
+_PROSE_KEEP_MAX_CHARS = 360
+_PROSE_FORCE_SPLIT_MAX_CHARS = 560
+_PROSE_MAX_SENTENCES = 4
+_PROSE_FORCE_SPLIT_SENTENCES = 6
+_PROSE_GROUP_TARGET_MAX_CHARS = 520
+_PROSE_SHORT_SENTENCE_SERIES_AVG_MAX_CHARS = 45
 _ABSURDLY_LONG_ROW_CHARS = 450
 _SENTENCE_END_CHARS = ".?!"
 _CLOSING_SENTENCE_CHARS = "\"')]}”’"
@@ -532,11 +532,30 @@ def _split_oversized_prose_row(text: str) -> list[str]:
 
 def _row_needs_prose_cleanup(text: str) -> bool:
     sentence_count = _sentence_count(text)
+    if _looks_like_dense_short_sentence_series(text):
+        return False
+    if _looks_like_question_ladder(text):
+        return False
     if len(text) > _PROSE_FORCE_SPLIT_MAX_CHARS:
         return True
     if sentence_count >= _PROSE_FORCE_SPLIT_SENTENCES:
         return True
     return len(text) > _PROSE_KEEP_MAX_CHARS and sentence_count >= 2
+
+
+def _looks_like_dense_short_sentence_series(text: str) -> bool:
+    spans = _sentence_spans(text)
+    if len(spans) < 5 or len(text) >= 500:
+        return False
+    lengths = [len(text[start:end].strip()) for start, end in spans]
+    if not lengths:
+        return False
+    average_length = sum(lengths) / len(lengths)
+    return average_length <= _PROSE_SHORT_SENTENCE_SERIES_AVG_MAX_CHARS
+
+
+def _looks_like_question_ladder(text: str) -> bool:
+    return len(text) < 800 and text.count("?") >= 3
 
 
 def _sentence_count(text: str) -> int:
@@ -616,18 +635,10 @@ def _merge_small_sentence_spans(
     current_start, current_end = spans[0]
     current_count = 1
     for next_start, next_end in spans[1:]:
-        current_text = text[current_start:current_end].strip()
-        next_text = text[next_start:next_end].strip()
         merged_text = text[current_start:next_end].strip()
         if (
             current_count < _PROSE_MAX_SENTENCES
-            and len(merged_text) <= _PROSE_KEEP_MAX_CHARS
-            and len(current_text) < _PROSE_COMFORTABLE_MIN_CHARS
-            and len(next_text) < _PROSE_COMFORTABLE_MIN_CHARS
-            and (
-                len(current_text) <= _PROSE_REPAIR_FRAGMENT_MAX_CHARS
-                or len(next_text) <= _PROSE_REPAIR_FRAGMENT_MAX_CHARS
-            )
+            and len(merged_text) <= _PROSE_GROUP_TARGET_MAX_CHARS
         ):
             current_end = next_end
             current_count += 1
