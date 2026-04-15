@@ -699,7 +699,32 @@ def test_knowledge_orchestrator_grouping_repairs_preserve_first_root_cause_summa
     assert "unknown_grounding_category_key" in second_repair_packet[
         "repair_root_cause_summary"
     ]["validation_errors"]
-    assert "previous_groups" not in second_repair_packet
+    assert second_repair_packet["previous_groups"] == [
+        {
+            "start_row_id": "r01",
+            "end_row_id": "r01",
+            "row_ids": ["r01"],
+            "validation_errors": ["knowledge_block_missing_group"],
+            "error_details": [
+                {
+                    "path": "/units/knowledge::0/answer/group_id",
+                    "code": "knowledge_block_missing_group",
+                    "message": "group_id must be a non-empty string",
+                },
+                {
+                    "path": "/units/knowledge::0/answer/topic_label",
+                    "code": "knowledge_block_missing_group",
+                    "message": "topic_label must be a non-empty string",
+                }
+            ],
+            "group_id": "g01",
+            "grounding": {
+                "tag_keys": ["saute"],
+                "category_keys": ["cooking-method"],
+                "proposed_tags": [],
+            },
+        }
+    ]
 
 
 def test_knowledge_orchestrator_inline_json_populates_top_level_telemetry_and_survivability(

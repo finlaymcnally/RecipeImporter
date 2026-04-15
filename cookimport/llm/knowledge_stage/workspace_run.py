@@ -96,6 +96,23 @@ def _knowledge_inline_repair_should_resume(settings: Mapping[str, Any]) -> bool:
     ) == "resume"
 
 
+def _knowledge_answers_from_task_file(
+    task_file_payload: Mapping[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    answers_by_unit_id: dict[str, dict[str, Any]] = {}
+    if not isinstance(task_file_payload, Mapping):
+        return answers_by_unit_id
+    for unit in task_file_payload.get("units") or []:
+        if not isinstance(unit, Mapping):
+            continue
+        unit_id = str(unit.get("unit_id") or "").strip()
+        answer = unit.get("answer")
+        if not unit_id or not isinstance(answer, Mapping) or not answer:
+            continue
+        answers_by_unit_id[unit_id] = dict(answer)
+    return answers_by_unit_id
+
+
 _KNOWLEDGE_FINAL_VALIDATION_BLOCK_METADATA_KEYS: tuple[tuple[str, str], ...] = (
     (
         "knowledge_blocks_missing_group",
@@ -1330,10 +1347,14 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                     )
                 )
                 grouping_batch_answers_by_unit_id: dict[str, dict[str, Any]] = {}
+                grouping_repair_context_answers_by_unit_id: dict[str, dict[str, Any]] = {}
                 if grouping_edited_task_file is None:
                     grouping_validation_errors = tuple(grouping_parse_errors)
                     grouping_validation_metadata = dict(grouping_parse_metadata)
                 else:
+                    grouping_repair_context_answers_by_unit_id = (
+                        _knowledge_answers_from_task_file(grouping_edited_task_file)
+                    )
                     (
                         grouping_batch_answers_by_unit_id,
                         grouping_validation_errors,
@@ -1378,7 +1399,7 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                                 task_file_payload=grouping_task_file,
                                 validation_metadata=grouping_validation_metadata,
                             ),
-                            previous_answers_by_unit_id=grouping_batch_answers_by_unit_id,
+                            previous_answers_by_unit_id=grouping_repair_context_answers_by_unit_id,
                             validation_feedback_by_unit_id=build_task_file_answer_feedback(
                                 validation_errors=grouping_validation_errors,
                                 validation_metadata=grouping_validation_metadata,
@@ -1511,6 +1532,12 @@ def _run_phase_knowledge_structured_worker_assignment_v1(
                             grouping_validation_errors = tuple(repair_grouping_parse_errors)
                             grouping_validation_metadata = dict(repair_grouping_parse_metadata)
                             continue
+                        grouping_repair_context_answers_by_unit_id = _knowledge_merge_answers(
+                            grouping_repair_context_answers_by_unit_id,
+                            _knowledge_answers_from_task_file(
+                                repair_grouping_edited_task_file
+                            ),
+                        )
                         (
                             repair_grouping_answers_by_unit_id,
                             _repair_grouping_errors,
