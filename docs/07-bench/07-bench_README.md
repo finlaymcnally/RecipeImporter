@@ -29,7 +29,7 @@ Current owner note for large benchmark helpers:
 Current scoring modes:
 
 - `stage-blocks`: compare stage evidence labels against freeform gold block labels
-- `source-rows`: compare authoritative row predictions against `row_gold_labels.jsonl` by shared ordered row identity. Current scorer behavior is: prefer exact `row_id`, fall back to gold `row_index` when row ids drift across source-row rebuilds, and overlay `09_nonrecipe_authority.json` when the benchmark manifest exposes a processed-output run dir so final nonrecipe authority still wins over intermediate route labels.
+- `source-rows`: compare authoritative row predictions against `row_gold_labels.jsonl` by shared ordered row identity. Current scorer behavior is: use `row_index` whenever `row_id` and `row_index` disagree, because `row_id` can drift or collide when source block indices change across source-row rebuilds; only trust direct `row_id` matches when they are consistent with the current row payload, and overlay `09_nonrecipe_authority.json` when the benchmark manifest exposes a processed-output run dir so final nonrecipe authority still wins over intermediate route labels.
 
 Current benchmark handoff model:
 

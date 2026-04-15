@@ -14,6 +14,7 @@ Current scoring contract:
 - Gold can include multiple labels per block; eval accepts any matching gold label and logs multi-label diagnostics to `gold_conflicts.jsonl`.
 - Missing gold rows for predicted blocks are defaulted to `OTHER` and logged in `gold_conflicts.jsonl`.
 - Source-row eval reads `row_gold_labels.jsonl` directly; active scoring no longer depends on canonical export artifacts.
+- Source-row eval now treats `row_index` as the safer identity whenever a direct `row_id` match points at a different gold text/row. This avoids stale `row_id` collisions after source-block or row-id rebuilds.
 - Run-level prediction-stage replay uses `cookimport/bench/prediction_records.py` (`PredictionRecord` JSONL schema v1) for `labelstudio-benchmark --predictions-out/--predictions-in`.
 - Public `labelstudio-benchmark` runs always use pipelined execution; all-method orchestration keeps a private skip-evaluation prediction pass for prediction-record generation/reuse.
 - `bench eval-stage` evaluates existing stage outputs against freeform gold and writes stage-block diagnostics (`eval_report.*`, `missed_gold_blocks.jsonl`, `wrong_label_blocks.jsonl`, boundary mismatch JSONL artifacts).

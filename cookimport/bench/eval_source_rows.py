@@ -28,6 +28,7 @@ def evaluate_source_rows(
 
     gold_by_row_id: dict[str, dict[str, Any]] = {}
     gold_row_id_by_row_index: dict[int, str] = {}
+    gold_by_row_index: dict[int, dict[str, Any]] = {}
     for row in gold_rows:
         row_id = str(row.get("row_id") or "").strip()
         if not row_id:
@@ -36,26 +37,49 @@ def evaluate_source_rows(
         row_index = _coerce_int(row.get("row_index"))
         if row_index is not None and row_index not in gold_row_id_by_row_index:
             gold_row_id_by_row_index[row_index] = row_id
+        if row_index is not None and row_index not in gold_by_row_index:
+            gold_by_row_index[row_index] = row
 
     prediction_by_row_id: dict[str, dict[str, Any]] = {}
     direct_row_id_match_rows = 0
     row_index_fallback_match_rows = 0
+    row_identity_conflict_rows = 0
     for row in prediction_rows:
         original_row_id = str(row.get("row_id") or "").strip()
         row_index = _coerce_int(row.get("row_index", row.get("atomic_index")))
-        resolved_row_id = ""
+        resolved_gold_row: dict[str, Any] | None = None
         match_mode = ""
-        if original_row_id and original_row_id in gold_by_row_id:
-            resolved_row_id = original_row_id
-            match_mode = "row_id"
-        elif row_index is not None:
-            resolved_row_id = gold_row_id_by_row_index.get(row_index, "")
-            if resolved_row_id:
-                match_mode = "row_index"
+        direct_gold_row = gold_by_row_id.get(original_row_id) if original_row_id else None
+        row_index_gold_row = gold_by_row_index.get(row_index) if row_index is not None else None
+        if direct_gold_row is not None and row_index_gold_row is not None:
+            if direct_gold_row is row_index_gold_row:
+                resolved_gold_row = direct_gold_row
+                match_mode = "row_id"
+            else:
+                row_identity_conflict_rows += 1
+                resolved_gold_row, match_mode = _resolve_conflicting_gold_rows(
+                    prediction_row=row,
+                    direct_gold_row=direct_gold_row,
+                    row_index_gold_row=row_index_gold_row,
+                )
+        elif direct_gold_row is not None:
+            if _prediction_matches_gold_row(
+                prediction_row=row,
+                gold_row=direct_gold_row,
+                require_row_index_match=False,
+            ):
+                resolved_gold_row = direct_gold_row
+                match_mode = "row_id"
+        elif row_index_gold_row is not None:
+            resolved_gold_row = row_index_gold_row
+            match_mode = "row_index"
+        if resolved_gold_row is None:
+            continue
+        resolved_row_id = str(resolved_gold_row.get("row_id") or "").strip()
         if not resolved_row_id:
             continue
         existing = prediction_by_row_id.get(resolved_row_id)
-        if existing is not None and existing.get("_match_mode") == "row_id" and match_mode != "row_id":
+        if existing is not None and _match_mode_rank(existing.get("_match_mode")) >= _match_mode_rank(match_mode):
             continue
         row_payload = dict(row)
         row_payload["_match_mode"] = match_mode
@@ -207,6 +231,7 @@ def evaluate_source_rows(
             "missing_prediction_rows": missing_prediction_count,
             "direct_row_id_match_rows": direct_row_id_match_rows,
             "row_index_fallback_match_rows": row_index_fallback_match_rows,
+            "row_identity_conflict_rows": row_identity_conflict_rows,
             "authority_override_rows": authority_override_rows,
         },
         "metrics": {
@@ -259,6 +284,7 @@ def format_source_row_eval_report_md(report: dict[str, Any]) -> str:
         f"- Missing prediction rows: {counts.get('missing_prediction_rows', 0)}",
         f"- Direct row-id matches: {counts.get('direct_row_id_match_rows', 0)}",
         f"- Row-index fallback matches: {counts.get('row_index_fallback_match_rows', 0)}",
+        f"- Row identity conflicts: {counts.get('row_identity_conflict_rows', 0)}",
         f"- Authority overrides: {counts.get('authority_override_rows', 0)}",
         f"- Overall line accuracy: {float(report.get('overall_line_accuracy') or 0.0):.3f}",
         (
@@ -377,6 +403,64 @@ def _authority_category_to_label(category: str | None) -> str | None:
     if category == "other":
         return "OTHER"
     return None
+
+
+def _resolve_conflicting_gold_rows(
+    *,
+    prediction_row: dict[str, Any],
+    direct_gold_row: dict[str, Any],
+    row_index_gold_row: dict[str, Any],
+) -> tuple[dict[str, Any], str]:
+    direct_text_match = _prediction_matches_gold_row(
+        prediction_row=prediction_row,
+        gold_row=direct_gold_row,
+        require_row_index_match=False,
+    )
+    row_index_text_match = _prediction_matches_gold_row(
+        prediction_row=prediction_row,
+        gold_row=row_index_gold_row,
+        require_row_index_match=True,
+    )
+    if row_index_text_match and not direct_text_match:
+        return row_index_gold_row, "row_index"
+    if direct_text_match and not row_index_text_match:
+        return direct_gold_row, "row_id"
+    return row_index_gold_row, "row_index"
+
+
+def _prediction_matches_gold_row(
+    *,
+    prediction_row: dict[str, Any],
+    gold_row: dict[str, Any],
+    require_row_index_match: bool,
+) -> bool:
+    pred_row_index = _coerce_int(
+        prediction_row.get("row_index", prediction_row.get("atomic_index"))
+    )
+    gold_row_index = _coerce_int(gold_row.get("row_index"))
+    if require_row_index_match and pred_row_index is not None and gold_row_index is not None:
+        if pred_row_index != gold_row_index:
+            return False
+    prediction_text = _normalize_match_text(prediction_row.get("text"))
+    gold_text = _normalize_match_text(gold_row.get("text"))
+    if prediction_text and gold_text:
+        return prediction_text == gold_text
+    if require_row_index_match and pred_row_index is not None and gold_row_index is not None:
+        return pred_row_index == gold_row_index
+    return True
+
+
+def _normalize_match_text(value: Any) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _match_mode_rank(value: Any) -> int:
+    mode = str(value or "").strip().lower()
+    if mode == "row_id":
+        return 1
+    if mode == "row_index":
+        return 2
+    return 0
 
 
 def _normalize_labels(value: Any) -> list[str]:

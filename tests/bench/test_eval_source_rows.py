@@ -66,6 +66,78 @@ def test_evaluate_source_rows_falls_back_to_row_index_when_row_ids_drift(tmp_pat
     assert report["counts"]["row_index_fallback_match_rows"] == 2
 
 
+def test_evaluate_source_rows_prefers_row_index_when_row_id_collides_with_wrong_text(
+    tmp_path: Path,
+) -> None:
+    gold_export_root = tmp_path / "gold"
+    _write_jsonl(
+        gold_export_root / "row_gold_labels.jsonl",
+        [
+            {
+                "row_id": "gold:stale",
+                "row_index": 0,
+                "labels": ["OTHER"],
+                "text": "Think about making a grilled cheese sandwich.",
+            },
+            {
+                "row_id": "gold:r1",
+                "row_index": 1,
+                "labels": ["KNOWLEDGE"],
+                "text": "Olive oil is produced seasonally.",
+            },
+        ],
+    )
+
+    eval_root = tmp_path / "eval"
+    line_role_dir = eval_root / "line-role-pipeline"
+    stage_predictions_json = line_role_dir / "stage_block_predictions.json"
+    _write_json(stage_predictions_json, {"stage": "fixture"})
+    _write_jsonl(
+        line_role_dir / "row_label_predictions.jsonl",
+        [
+            {
+                "row_id": "gold:stale",
+                "atomic_index": 1,
+                "block_index": 728,
+                "label": "KNOWLEDGE",
+                "text": "Olive oil is produced seasonally.",
+            },
+            {
+                "row_id": "pred:new",
+                "atomic_index": 0,
+                "block_index": 1692,
+                "label": "OTHER",
+                "reason_tags": ["nonrecipe_authority:preserved_exclude"],
+                "text": "Think about making a grilled cheese sandwich.",
+            },
+        ],
+    )
+
+    result = evaluate_source_rows(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_json,
+        extracted_blocks_json=tmp_path / "unused.json",
+        out_dir=eval_root / "source-rows-eval",
+    )
+
+    report = result["report"]
+    assert report["overall_line_accuracy"] == 1.0
+    assert report["counts"]["direct_row_id_match_rows"] == 0
+    assert report["counts"]["row_index_fallback_match_rows"] == 2
+    assert report["counts"]["row_identity_conflict_rows"] == 1
+    aligned_rows = [
+        json.loads(line)
+        for line in (
+            eval_root / "source-rows-eval" / "aligned_prediction_blocks.jsonl"
+        ).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert aligned_rows[0]["line_text"] == "Think about making a grilled cheese sandwich."
+    assert aligned_rows[0]["pred_label"] == "OTHER"
+    assert aligned_rows[1]["line_text"] == "Olive oil is produced seasonally."
+    assert aligned_rows[1]["pred_label"] == "KNOWLEDGE"
+
+
 def test_evaluate_source_rows_overlays_nonrecipe_authority_labels(tmp_path: Path) -> None:
     gold_export_root = tmp_path / "gold"
     _write_jsonl(
