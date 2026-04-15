@@ -29,6 +29,9 @@ class NonRecipeRoutingResult:
 class NonRecipeAuthorityResult:
     authoritative_block_indices: list[int]
     authoritative_block_category_by_index: dict[int, str]
+    authoritative_row_indices: list[int]
+    authoritative_row_category_by_index: dict[int, str]
+    authoritative_row_source_block_index_by_index: dict[int, int]
     authoritative_nonrecipe_spans: list[NonRecipeSpan]
     authoritative_knowledge_spans: list[NonRecipeSpan]
     authoritative_other_spans: list[NonRecipeSpan]
@@ -54,6 +57,8 @@ class NonRecipeSeedResult:
 class NonRecipeScoringView:
     authoritative_block_indices: list[int]
     authoritative_block_category_by_index: dict[int, str]
+    authoritative_row_indices: list[int]
+    authoritative_row_category_by_index: dict[int, str]
     unresolved_candidate_block_indices: list[int]
     unresolved_candidate_route_by_index: dict[int, str]
 
@@ -80,12 +85,15 @@ class NonRecipeStageResult:
     def authoritative_block_category_by_index(self) -> dict[int, str]:
         return dict(self.authority.authoritative_block_category_by_index)
 
+    def authoritative_row_category_by_index(self) -> dict[int, str]:
+        return dict(self.authority.authoritative_row_category_by_index)
+
     def unresolved_candidate_route_by_index(self) -> dict[int, str]:
         return dict(self.candidate_status.unresolved_candidate_route_by_index)
 
     def candidate_block_route_by_index(self) -> dict[int, str]:
         routes: dict[int, str] = {}
-        authoritative = self.authority.authoritative_block_category_by_index
+        authoritative = self.authority.authoritative_row_category_by_index
         unresolved = self.candidate_status.unresolved_candidate_route_by_index
         for raw_index in self.routing.candidate_block_indices:
             index = int(raw_index)

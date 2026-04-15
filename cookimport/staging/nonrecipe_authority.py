@@ -21,6 +21,7 @@ def build_nonrecipe_authority_result(
     block_category_by_index: Mapping[int, str],
     authoritative_block_indices: Sequence[int],
     excluded_block_indices: Sequence[int] | None = None,
+    row_source_block_index_by_index: Mapping[int, int] | None = None,
 ) -> NonRecipeAuthorityResult:
     excluded_index_set = {
         int(index) for index in (excluded_block_indices or ()) if int(index) in full_blocks_by_index
@@ -29,7 +30,7 @@ def build_nonrecipe_authority_result(
         int(index) for index in authoritative_block_indices if int(index) in full_blocks_by_index
     }
     authoritative_index_set.update(excluded_index_set)
-    authoritative_block_category_by_index = {
+    authoritative_row_category_by_index = {
         int(index): (
             "other"
             if int(index) in excluded_index_set
@@ -38,13 +39,36 @@ def build_nonrecipe_authority_result(
         for index in sorted(authoritative_index_set)
         if int(index) in excluded_index_set or int(index) in block_category_by_index
     }
+    authoritative_row_source_block_index_by_index = {
+        int(index): int(
+            (
+                row_source_block_index_by_index or {}
+            ).get(
+                int(index),
+                full_blocks_by_index.get(int(index), {}).get("source_block_index", index),
+            )
+        )
+        for index in sorted(authoritative_row_category_by_index)
+    }
+    authoritative_block_category_by_index: dict[int, str] = {}
+    for index, category in sorted(authoritative_row_category_by_index.items()):
+        source_block_index = authoritative_row_source_block_index_by_index.get(int(index), int(index))
+        prior = authoritative_block_category_by_index.get(source_block_index)
+        if prior == "knowledge" or category == "knowledge":
+            authoritative_block_category_by_index[source_block_index] = "knowledge"
+        else:
+            authoritative_block_category_by_index[source_block_index] = "other"
+
     authoritative_nonrecipe_spans = build_nonrecipe_spans_from_categories(
         full_blocks_by_index=full_blocks_by_index,
-        block_category_by_index=authoritative_block_category_by_index,
+        block_category_by_index=authoritative_row_category_by_index,
     )
     return NonRecipeAuthorityResult(
         authoritative_block_indices=sorted(authoritative_block_category_by_index),
         authoritative_block_category_by_index=authoritative_block_category_by_index,
+        authoritative_row_indices=sorted(authoritative_row_category_by_index),
+        authoritative_row_category_by_index=authoritative_row_category_by_index,
+        authoritative_row_source_block_index_by_index=authoritative_row_source_block_index_by_index,
         authoritative_nonrecipe_spans=authoritative_nonrecipe_spans,
         authoritative_knowledge_spans=[
             span for span in authoritative_nonrecipe_spans if span.category == "knowledge"
@@ -83,8 +107,8 @@ def build_nonrecipe_authority_contract(
     full_blocks_by_index = prepare_nonrecipe_full_blocks_by_index(full_blocks)
     final_blocks = _block_rows_for_indices(
         full_blocks_by_index=full_blocks_by_index,
-        block_indices=stage_result.authority.authoritative_block_indices,
-        block_category_by_index=stage_result.authority.authoritative_block_category_by_index,
+        block_indices=stage_result.authority.authoritative_row_indices,
+        block_category_by_index=stage_result.authority.authoritative_row_category_by_index,
     )
     candidate_queue_blocks = _block_rows_for_indices(
         full_blocks_by_index=full_blocks_by_index,
@@ -94,7 +118,7 @@ def build_nonrecipe_authority_contract(
     excluded_blocks = _block_rows_for_indices(
         full_blocks_by_index=full_blocks_by_index,
         block_indices=stage_result.routing.excluded_block_indices,
-        block_category_by_index=stage_result.authority.authoritative_block_category_by_index,
+        block_category_by_index=stage_result.authority.authoritative_row_category_by_index,
     )
     has_finalized_candidates = bool(
         stage_result.candidate_status.finalized_candidate_block_indices
@@ -109,6 +133,10 @@ def build_nonrecipe_authority_contract(
             authoritative_block_indices=list(stage_result.authority.authoritative_block_indices),
             authoritative_block_category_by_index=dict(
                 stage_result.authority.authoritative_block_category_by_index
+            ),
+            authoritative_row_indices=list(stage_result.authority.authoritative_row_indices),
+            authoritative_row_category_by_index=dict(
+                stage_result.authority.authoritative_row_category_by_index
             ),
             unresolved_candidate_block_indices=list(
                 stage_result.candidate_status.unresolved_candidate_block_indices

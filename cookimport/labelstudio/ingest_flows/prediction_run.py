@@ -163,6 +163,7 @@ from cookimport.staging.nonrecipe_stage import (
     NonRecipeStageResult,
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
+    build_nonrecipe_stage_result_from_labeled_rows,
 )
 from cookimport.staging.recipe_ownership import build_recipe_ownership_result
 
@@ -180,6 +181,12 @@ def _build_prediction_nonrecipe_stage_result(
             recipes=result.recipes,
             ownership_mode="recipe_boundary",
         )
+        if authoritative_label_result.source_rows and authoritative_label_result.labeled_lines:
+            return build_nonrecipe_stage_result_from_labeled_rows(
+                source_rows=authoritative_label_result.source_rows,
+                labeled_lines=authoritative_label_result.labeled_lines,
+                recipe_ownership_result=recipe_ownership_result,
+            )
         return build_nonrecipe_stage_result(
             full_blocks=authoritative_label_result.archive_blocks,
             final_block_labels=authoritative_label_result.block_labels,

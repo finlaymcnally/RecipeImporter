@@ -14,6 +14,7 @@ from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_late_outputs,
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
+    build_nonrecipe_stage_result_from_labeled_rows,
     refine_nonrecipe_stage_result,
 )
 from cookimport.staging.recipe_ownership import build_recipe_ownership_result
@@ -136,6 +137,85 @@ def test_nonrecipe_stage_normalizes_divested_recipe_local_labels_to_candidates()
     assert result.routing.warnings == [
         "block 1: divested recipe-local label 'RECIPE_NOTES' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
     ]
+
+
+def test_nonrecipe_stage_from_labeled_rows_keeps_mixed_rows_from_same_source_block_separate() -> None:
+    source_rows = [
+        {
+            "row_id": "row:0",
+            "row_index": 0,
+            "block_id": "b10",
+            "block_index": 10,
+            "text": "Think about making a grilled cheese sandwich.",
+        },
+        {
+            "row_id": "row:1",
+            "row_index": 1,
+            "block_id": "b10",
+            "block_index": 10,
+            "text": "Slow, even heat melts the cheese before the bread burns.",
+        },
+    ]
+    labeled_lines = [
+        AuthoritativeLabeledLine(
+            row_id="row:0",
+            source_block_id="b10",
+            source_block_index=10,
+            atomic_index=0,
+            row_ordinal=0,
+            text="Think about making a grilled cheese sandwich.",
+            deterministic_label="NONRECIPE_EXCLUDE",
+            final_label="NONRECIPE_EXCLUDE",
+            decided_by="codex",
+        ),
+        AuthoritativeLabeledLine(
+            row_id="row:1",
+            source_block_id="b10",
+            source_block_index=10,
+            atomic_index=1,
+            row_ordinal=1,
+            text="Slow, even heat melts the cheese before the bread burns.",
+            deterministic_label="NONRECIPE_CANDIDATE",
+            final_label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+        ),
+    ]
+
+    seed = build_nonrecipe_stage_result_from_labeled_rows(
+        source_rows=source_rows,
+        labeled_lines=labeled_lines,
+        recipe_ownership_result=_ownership_result(
+            full_blocks=[{"index": 10, "block_id": "b10", "text": "parent"}]
+        ),
+    )
+    refined = refine_nonrecipe_stage_result(
+        stage_result=seed,
+        full_blocks=[
+            {
+                "index": 0,
+                "block_id": "row:0",
+                "source_block_index": 10,
+                "text": "Think about making a grilled cheese sandwich.",
+            },
+            {
+                "index": 1,
+                "block_id": "row:1",
+                "source_block_index": 10,
+                "text": "Slow, even heat melts the cheese before the bread burns.",
+            },
+        ],
+        block_category_updates={1: "knowledge"},
+    )
+
+    assert seed.routing.excluded_block_indices == [0]
+    assert seed.routing.candidate_block_indices == [1]
+    assert refined.authority.authoritative_row_category_by_index == {
+        0: "other",
+        1: "knowledge",
+    }
+    assert refined.authority.authoritative_block_category_by_index == {
+        10: "knowledge",
+    }
 
 
 def test_nonrecipe_stage_routes_rejected_recipe_boundary_span_to_candidate_queue() -> None:
@@ -432,19 +512,21 @@ def test_nonrecipe_stage_rejects_invalid_final_nonrecipe_labels() -> None:
         )
 
 
-def test_nonrecipe_stage_rejects_recipe_only_labels_outside_recipe() -> None:
+def test_nonrecipe_stage_normalizes_recipe_only_labels_outside_recipe() -> None:
     full_blocks = [
         {"index": 0, "block_id": "b0", "text": "Heading"},
     ]
-    with pytest.raises(
-        ValueError,
-        match="Invalid non-recipe route label at block 0: unexpected route label 'RECIPE_TITLE'",
-    ):
-        build_nonrecipe_stage_result(
-            full_blocks=full_blocks,
-            final_block_labels=[_block_label(0, "RECIPE_TITLE")],
-            recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
-        )
+    result = build_nonrecipe_stage_result(
+        full_blocks=full_blocks,
+        final_block_labels=[_block_label(0, "RECIPE_TITLE")],
+        recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
+    )
+
+    assert result.seed.seed_route_by_index == {0: "candidate"}
+    assert result.routing.candidate_block_indices == [0]
+    assert result.routing.warnings == [
+        "block 0: available recipe-local label 'RECIPE_TITLE' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
+    ]
 
 
 def test_nonrecipe_late_output_rows_use_candidate_queue_before_review() -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Sequence
 
 from cookimport.parsing.canonical_line_roles.contracts import RECIPE_LOCAL_LINE_ROLE_LABELS
-from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
+from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, AuthoritativeLabeledLine
 
 from .nonrecipe_authority import (
     block_rows_for_nonrecipe_authority,
@@ -51,13 +51,15 @@ def _resolve_available_nonrecipe_route_label(
 ) -> str:
     raw_label = getattr(block_label, "final_label", None)
     normalized_label = str(raw_label or "").strip().upper()
-    if (
-        int(block_index) in divested_block_indices
-        and normalized_label in _DIVESTED_RECIPE_LOCAL_ROUTE_LABELS
-    ):
+    if normalized_label in _DIVESTED_RECIPE_LOCAL_ROUTE_LABELS:
+        normalization_reason = (
+            "divested recipe-local label"
+            if int(block_index) in divested_block_indices
+            else "available recipe-local label"
+        )
         warnings.append(
             "block "
-            f"{block_index}: divested recipe-local label '{normalized_label}' "
+            f"{block_index}: {normalization_reason} '{normalized_label}' "
             "normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
         )
         return "candidate"
@@ -96,6 +98,64 @@ def _default_nonrecipe_refinement_report(
         "ignored_block_indices": [],
         "scored_effect": "route_only",
     }
+
+
+def _normalize_nonrecipe_source_rows(
+    source_rows: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized_rows: list[dict[str, Any]] = []
+    for raw_row in source_rows:
+        if not isinstance(raw_row, Mapping):
+            continue
+        try:
+            row_index = int(raw_row.get("row_index", raw_row.get("index")))
+        except (TypeError, ValueError):
+            continue
+        source_block_index = raw_row.get("source_block_index", raw_row.get("block_index"))
+        try:
+            normalized_source_block_index = int(source_block_index)
+        except (TypeError, ValueError):
+            normalized_source_block_index = row_index
+        block_id = str(
+            raw_row.get("row_id")
+            or raw_row.get("id")
+            or raw_row.get("block_id")
+            or f"row:{row_index}"
+        ).strip() or f"row:{row_index}"
+        normalized_rows.append(
+            {
+                **dict(raw_row),
+                "index": row_index,
+                "block_id": block_id,
+                "row_id": str(raw_row.get("row_id") or block_id),
+                "source_block_index": normalized_source_block_index,
+                "source_block_id": str(
+                    raw_row.get("source_block_id")
+                    or raw_row.get("block_id")
+                    or f"b{normalized_source_block_index}"
+                ).strip()
+                or f"b{normalized_source_block_index}",
+            }
+        )
+    return normalized_rows
+
+
+def _row_level_block_labels_from_labeled_lines(
+    labeled_lines: Sequence[AuthoritativeLabeledLine],
+) -> list[AuthoritativeBlockLabel]:
+    return [
+        AuthoritativeBlockLabel(
+            source_block_id=str(row.row_id),
+            source_block_index=int(row.atomic_index),
+            supporting_atomic_indices=[int(row.atomic_index)],
+            deterministic_label=str(row.deterministic_label),
+            final_label=str(row.final_label),
+            decided_by=row.decided_by,
+            reason_tags=list(row.reason_tags),
+            escalation_reasons=list(row.escalation_reasons),
+        )
+        for row in sorted(labeled_lines, key=lambda value: int(value.atomic_index))
+    ]
 
 
 def build_nonrecipe_stage_result(
@@ -196,6 +256,99 @@ def build_nonrecipe_stage_result(
     )
 
 
+def build_nonrecipe_stage_result_from_labeled_rows(
+    *,
+    source_rows: Sequence[Mapping[str, Any]],
+    labeled_lines: Sequence[AuthoritativeLabeledLine],
+    recipe_ownership_result: RecipeOwnershipResult,
+    overrides: Any | None = None,
+) -> NonRecipeStageResult:
+    del overrides
+
+    normalized_rows = _normalize_nonrecipe_source_rows(source_rows)
+    full_blocks_by_index = prepare_nonrecipe_full_blocks_by_index(normalized_rows)
+    row_labels = _row_level_block_labels_from_labeled_lines(labeled_lines)
+    labels_by_index = {int(row.source_block_index): row for row in row_labels}
+    owned_source_block_indices = set(recipe_ownership_result.owned_block_indices)
+    divested_source_block_indices = set(recipe_ownership_result.divested_block_indices)
+
+    route_by_index: dict[int, str] = {}
+    warnings: list[str] = []
+    block_preview_by_index: dict[int, str] = {}
+
+    for row_index, row_payload in sorted(full_blocks_by_index.items()):
+        source_block_index = int(row_payload.get("source_block_index", row_index))
+        if (
+            source_block_index in owned_source_block_indices
+            and source_block_index not in divested_source_block_indices
+        ):
+            continue
+        row_label = labels_by_index.get(int(row_index))
+        if row_label is None:
+            raise ValueError(
+                f"Missing final row label for non-recipe row {row_index}."
+            )
+        route = _resolve_available_nonrecipe_route_label(
+            block_index=int(row_index),
+            block_label=row_label,
+            divested_block_indices={
+                int(index)
+                for index, payload in full_blocks_by_index.items()
+                if int(payload.get("source_block_index", index)) in divested_source_block_indices
+            },
+            warnings=warnings,
+        )
+        route_by_index[int(row_index)] = route
+        block_preview_by_index[int(row_index)] = preview_nonrecipe_text(row_payload.get("text"))
+
+    seed = build_nonrecipe_seed_result(
+        full_blocks_by_index=full_blocks_by_index,
+        route_by_index=route_by_index,
+    )
+    routing = build_nonrecipe_routing_result(
+        full_blocks_by_index=full_blocks_by_index,
+        candidate_block_indices=[
+            index for index, route in sorted(route_by_index.items()) if route == "candidate"
+        ],
+        excluded_block_indices=[
+            index for index, route in sorted(route_by_index.items()) if route == "exclude"
+        ],
+        block_preview_by_index=block_preview_by_index,
+        warnings=warnings,
+    )
+    authority = build_nonrecipe_authority_result(
+        full_blocks_by_index=full_blocks_by_index,
+        block_category_by_index={
+            int(block_index): "other"
+            for block_index in routing.excluded_block_indices
+        },
+        authoritative_block_indices=routing.excluded_block_indices,
+        excluded_block_indices=routing.excluded_block_indices,
+        row_source_block_index_by_index={
+            int(index): int(payload.get("source_block_index", index))
+            for index, payload in full_blocks_by_index.items()
+        },
+    )
+    candidate_status = build_nonrecipe_finalize_status_result(
+        full_blocks_by_index=full_blocks_by_index,
+        candidate_block_indices=routing.candidate_block_indices,
+        authoritative_block_indices=authority.authoritative_row_indices,
+        excluded_block_indices=routing.excluded_block_indices,
+    )
+    return NonRecipeStageResult(
+        seed=seed,
+        routing=routing,
+        authority=authority,
+        candidate_status=candidate_status,
+        refinement_report=_default_nonrecipe_refinement_report(
+            seed=seed,
+            routing=routing,
+            authority=authority,
+            candidate_status=candidate_status,
+        ),
+    )
+
+
 def refine_nonrecipe_stage_result(
     *,
     stage_result: NonRecipeStageResult,
@@ -253,11 +406,15 @@ def refine_nonrecipe_stage_result(
         block_category_by_index=final_block_category_by_index,
         authoritative_block_indices=sorted(final_block_category_by_index),
         excluded_block_indices=stage_result.routing.excluded_block_indices,
+        row_source_block_index_by_index={
+            int(index): int(payload.get("source_block_index", index))
+            for index, payload in full_blocks_by_index.items()
+        },
     )
     candidate_status = build_nonrecipe_finalize_status_result(
         full_blocks_by_index=full_blocks_by_index,
         candidate_block_indices=stage_result.routing.candidate_block_indices,
-        authoritative_block_indices=authority.authoritative_block_indices,
+        authoritative_block_indices=authority.authoritative_row_indices,
         excluded_block_indices=stage_result.routing.excluded_block_indices,
     )
     scored_effect = (
@@ -318,5 +475,6 @@ __all__ = [
     "block_rows_for_nonrecipe_candidate_queue", "block_rows_for_nonrecipe_late_outputs",
     "block_rows_for_nonrecipe_span", "block_rows_for_nonrecipe_stage",
     "build_nonrecipe_authority_contract", "build_nonrecipe_stage_result",
+    "build_nonrecipe_stage_result_from_labeled_rows",
     "refine_nonrecipe_stage_result",
 ]

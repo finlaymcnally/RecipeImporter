@@ -1078,6 +1078,59 @@ def test_nonrecipe_authority_projection_preserves_row_level_exclude_inside_knowl
     assert "nonrecipe_authority:knowledge" not in adjusted[0].reason_tags
 
 
+def test_nonrecipe_authority_projection_uses_row_level_authority_inside_mixed_source_block() -> None:
+    predictions = [
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:10",
+            block_index=10,
+            atomic_index=10,
+            text="Think about making a grilled cheese sandwich.",
+            within_recipe_span=False,
+            label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+            reason_tags=["codex_line_role"],
+        ),
+        CanonicalLineRolePrediction(
+            recipe_id=None,
+            block_id="block:10",
+            block_index=10,
+            atomic_index=11,
+            text="Slow, even heat melts the cheese before the bread burns.",
+            within_recipe_span=False,
+            label="NONRECIPE_CANDIDATE",
+            decided_by="codex",
+            reason_tags=["codex_line_role"],
+        ),
+    ]
+    nonrecipe_stage_result = make_stage_result(
+        seed=make_seed_result({10: "candidate", 11: "candidate"}),
+        routing=make_routing_result(candidate_block_indices=[10, 11]),
+        authority=make_authority_result(
+            {10: "knowledge"},
+            row_category_by_index={10: "other", 11: "knowledge"},
+            row_source_block_index_by_index={10: 10, 11: 10},
+        ),
+        candidate_status=make_finalize_status_result(
+            reviewed_block_indices=[10, 11],
+            unreviewed_block_category_by_index={},
+        ),
+        refinement_report={
+            "authority_mode": "knowledge_refined_final",
+            "scored_effect": "final_authority",
+            "changed_blocks": [{"block_index": 11}],
+        },
+    )
+
+    adjusted, _summary = _apply_nonrecipe_authority_to_predictions(
+        predictions=predictions,
+        nonrecipe_stage_result=nonrecipe_stage_result,
+    )
+
+    assert adjusted[0].label == "OTHER"
+    assert adjusted[1].label == "KNOWLEDGE"
+
+
 def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_recipe(
     tmp_path: Path,
 ) -> None:

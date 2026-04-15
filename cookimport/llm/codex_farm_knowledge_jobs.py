@@ -392,7 +392,12 @@ def _estimate_pass1_input_chars(
     context_indices = [
         idx
         for idx in [*before_indices, *after_indices]
-        if idx in full_blocks_by_index and idx not in owned_block_indices
+        if idx in full_blocks_by_index
+        and not _row_or_source_block_is_recipe_owned(
+            idx,
+            full_blocks_by_index=full_blocks_by_index,
+            owned_block_indices=owned_block_indices,
+        )
     ]
     owned_chars = sum(
         _estimate_row_input_chars(full_blocks_by_index.get(index) or {})
@@ -464,7 +469,11 @@ def _build_packet_job_payload(
     context_recipe_block_indices = sorted(
         idx
         for idx in [*before_indices, *after_indices]
-        if idx in owned_block_indices
+        if _row_or_source_block_is_recipe_owned(
+            idx,
+            full_blocks_by_index=full_blocks_by_index,
+            owned_block_indices=owned_block_indices,
+        )
     )
     blocks_before = [
         _to_knowledge_context_block(
@@ -472,7 +481,12 @@ def _build_packet_job_payload(
             fallback_index=idx,
         )
         for idx in before_indices
-        if idx in full_blocks_by_index and idx not in owned_block_indices
+        if idx in full_blocks_by_index
+        and not _row_or_source_block_is_recipe_owned(
+            idx,
+            full_blocks_by_index=full_blocks_by_index,
+            owned_block_indices=owned_block_indices,
+        )
     ]
     blocks_after = [
         _to_knowledge_context_block(
@@ -480,7 +494,12 @@ def _build_packet_job_payload(
             fallback_index=idx,
         )
         for idx in after_indices
-        if idx in full_blocks_by_index and idx not in owned_block_indices
+        if idx in full_blocks_by_index
+        and not _row_or_source_block_is_recipe_owned(
+            idx,
+            full_blocks_by_index=full_blocks_by_index,
+            owned_block_indices=owned_block_indices,
+        )
     ]
     context_payload = KnowledgePacketContextPayloadV1(
         blocks_before=blocks_before,
@@ -541,6 +560,22 @@ def _to_knowledge_context_block(
         t=str(block.get("text") or ""),
         hl=_resolve_heading_level(block),
     )
+
+
+def _row_or_source_block_is_recipe_owned(
+    index: int,
+    *,
+    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+    owned_block_indices: set[int],
+) -> bool:
+    if int(index) in owned_block_indices:
+        return True
+    payload = full_blocks_by_index.get(int(index), {})
+    try:
+        source_block_index = int(payload.get("source_block_index"))
+    except (TypeError, ValueError):
+        return False
+    return source_block_index in owned_block_indices
 
 
 def _resolve_heading_level(block: Mapping[str, Any]) -> int | None:

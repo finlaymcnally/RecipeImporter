@@ -33,10 +33,12 @@ Staging is the boundary between importer/parsing internals and persisted artifac
   - Builds the canonical `AuthoritativeRecipeSemantics` payload from a deterministic recipe or recipe-Codex correction result, then projects cookbook3 from that payload without re-running semantic note/variant/link decisions later in writer code.
 - `cookimport/staging/nonrecipe_authority_contract.py`
   - Canonical non-recipe contract/result types, including the strict-authority vs late-output split now read by stage and Label Studio flows.
+  - Outside-recipe authority is now row-authoritative for row-facing outputs: the contract carries `authoritative_row_category_by_index` for source-row semantics and keeps block/source-block summaries only as derived reporting/debug views.
 - `cookimport/staging/nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_finalize_status.py`
   - Small owners for seed spans, review-queue routing, final authority, late-output/scoring views, and reviewed/unreviewed bookkeeping.
 - `cookimport/staging/nonrecipe_stage.py`
   - Thin public seam that assembles the owner modules above into the non-recipe route/final-authority runtime result.
+  - When `LabelFirstStageResult.source_rows` is available, live routing/finalize works on source-row units and only uses source-block ownership as a guardrail for recipe-owned/divested regions.
 - `cookimport/staging/recipe_ownership.py`
   - Canonical recipe-owned block contract/result types, explicit divestment helpers, and the persisted `recipe_block_ownership.json` artifact shape.
 - `cookimport/staging/pipeline_runtime.py`
@@ -193,12 +195,14 @@ Stage-block `KNOWLEDGE` label contract:
 - One explicit divestment bridge remains active at that seam: if recipe refine divests a block that still carries a recipe-local authoritative label such as `RECIPE_NOTES`, the nonrecipe router normalizes it to `NONRECIPE_CANDIDATE` so the block can re-enter outside-recipe review instead of failing contract validation. Recipe-boundary coherence rejects now do the same thing earlier: incoherent recipe-shaped spans hand back to `NONRECIPE_CANDIDATE`, never `NONRECIPE_EXCLUDE`.
 - `build_nonrecipe_authority_result(...)` now hard-enforces that excluded block indices stay final `other` even if a later refine/projection map tries to leak them back into final `knowledge`.
 - `09_nonrecipe_authority.json` is the only final-truth artifact for outside-recipe `knowledge` versus `other`. It contains only authoritative spans, categories, and block indices.
+- `09_nonrecipe_authority.json` now also carries row-authoritative fields (`authoritative_row_category_by_index`, `authoritative_row_source_block_index_by_index`, and `final_authority_row_indices`). Use those for any row-facing benchmark or Label Studio output; treat the source-block summary map as compatibility/reporting only.
 - `09_nonrecipe_knowledge_groups.json` is the explicit promoted-group artifact for packet-reviewed related ideas. It is reviewer/debug context, not the category-authority file.
 - `09_nonrecipe_finalize_status.json` is the runtime-status artifact for finalized and unresolved candidate rows. It keeps unresolved candidate metadata out of the authority file while still making incompleteness visible.
 - `08_nonrecipe_exclusions.jsonl` is the row-level explanation ledger for the upstream obvious-junk veto. When knowledge input looks too large or a row seems to have disappeared before review, inspect this file before changing scorer math or knowledge prompts.
 - Knowledge groups are now the primary semantic artifact from the always-on second pass. Pass 1 only decides `keep_for_review` versus `other`; pass 2 assigns one shared grounding story per group, and staging projects that group grounding back onto each kept row's final `KNOWLEDGE` decision.
 - Candidate rows that remain unresolved now stay explicit in benchmark/Label Studio metadata as `unresolved_candidate_*`; semantic scoring excludes them instead of flattening them into `OTHER`.
 - `NonrecipeFinalizeResult.authoritative_nonrecipe_blocks` is the strict final outside-recipe authority carried through the stage runtime.
+- `NonrecipeFinalizeResult.authoritative_nonrecipe_blocks` is now the row-facing final outside-recipe authority set. Those rows may still roll up to a source-block summary for reporting, but mixed source blocks must remain mixed in row-facing outputs and source-row scoring.
 - Table extraction and deterministic knowledge-off chunk generation use `NonrecipeFinalizeResult.late_output_nonrecipe_blocks`. When non-recipe finalize runs and produces reviewed authority, that late-output list is the authoritative outside-recipe rows; when non-recipe finalize is off or falls back, it is the surviving outside-recipe candidate queue.
 - Final semantic `KNOWLEDGE` evidence still comes only from `09_nonrecipe_authority.json`.
 

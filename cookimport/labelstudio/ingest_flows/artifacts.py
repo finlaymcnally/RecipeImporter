@@ -283,6 +283,9 @@ def _build_scored_line_role_projection_spans(
     authoritative_categories = dict(
         nonrecipe_stage_result.authority.authoritative_block_category_by_index
     )
+    authoritative_row_categories = dict(
+        nonrecipe_stage_result.authority.authoritative_row_category_by_index
+    )
     unresolved_candidate_block_index_set = {
         int(index)
         for index in nonrecipe_stage_result.candidate_status.unresolved_candidate_block_indices
@@ -297,7 +300,10 @@ def _build_scored_line_role_projection_spans(
             continue
         block_index = int(span.block_index)
         line_index = int(span.line_index)
-        authoritative_category = authoritative_categories.get(block_index)
+        atomic_index = int(span.atomic_index)
+        authoritative_category = authoritative_row_categories.get(atomic_index)
+        if authoritative_category is None:
+            authoritative_category = authoritative_categories.get(block_index)
         if authoritative_category in {"knowledge", "other"}:
             target_label = (
                 "KNOWLEDGE" if authoritative_category == "knowledge" else "OTHER"
@@ -306,14 +312,14 @@ def _build_scored_line_role_projection_spans(
                 span = span.model_copy(update={"label": target_label})
             scored_spans.append(span)
             continue
-        if block_index in unresolved_candidate_block_index_set:
+        if atomic_index in unresolved_candidate_block_index_set:
             unresolved_line_indices.add(line_index)
-            unresolved_stage_block_indices.add(line_index)
+            unresolved_stage_block_indices.add(atomic_index)
             raw_route = nonrecipe_stage_result.candidate_status.unresolved_candidate_route_by_index.get(
-                block_index
+                atomic_index
             )
             if raw_route is not None:
-                unresolved_route_by_stage_block_index[line_index] = str(raw_route)
+                unresolved_route_by_stage_block_index[atomic_index] = str(raw_route)
         scored_spans.append(span)
     return scored_spans, {
         "unresolved_candidate_line_count": len(unresolved_line_indices),
@@ -341,6 +347,9 @@ def _apply_nonrecipe_authority_to_predictions(
 
     final_categories = dict(
         nonrecipe_stage_result.authority.authoritative_block_category_by_index
+    )
+    final_row_categories = dict(
+        nonrecipe_stage_result.authority.authoritative_row_category_by_index
     )
     reviewed_candidate_block_indices = sorted(
         int(index)
@@ -381,13 +390,15 @@ def _apply_nonrecipe_authority_to_predictions(
                 )
             )
             continue
-        category = final_categories.get(int(block_index))
+        atomic_index = int(getattr(prediction, "atomic_index", block_index) or block_index)
+        category = final_row_categories.get(atomic_index)
+        if category is None:
+            category = final_categories.get(int(block_index))
         if category not in {"knowledge", "other"}:
             adjusted_predictions.append(prediction)
             continue
         target_label = "KNOWLEDGE" if category == "knowledge" else "OTHER"
-        block_index_int = int(block_index)
-        reviewed_by_nonrecipe_authority = block_index_int in reviewed_candidate_index_set
+        reviewed_by_nonrecipe_authority = atomic_index in reviewed_candidate_index_set
         reason_tags = list(getattr(prediction, "reason_tags", []) or [])
         authority_reason_tag = f"nonrecipe_authority:{category}"
         if authority_reason_tag not in reason_tags and reviewed_by_nonrecipe_authority:

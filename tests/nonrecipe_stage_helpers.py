@@ -111,15 +111,34 @@ def make_routing_result(
 
 def make_authority_result(
     block_category_by_index: Mapping[int, str],
+    *,
+    row_category_by_index: Mapping[int, str] | None = None,
+    row_source_block_index_by_index: Mapping[int, int] | None = None,
 ) -> NonRecipeAuthorityResult:
     authoritative_map = {
         int(index): str(category)
         for index, category in block_category_by_index.items()
     }
-    authoritative_spans = spans_from_category_map(authoritative_map)
+    authoritative_row_map = (
+        {
+            int(index): str(category)
+            for index, category in row_category_by_index.items()
+        }
+        if row_category_by_index is not None
+        else dict(authoritative_map)
+    )
+    authoritative_spans = spans_from_category_map(authoritative_row_map)
     return NonRecipeAuthorityResult(
         authoritative_block_indices=sorted(authoritative_map),
         authoritative_block_category_by_index=authoritative_map,
+        authoritative_row_indices=sorted(authoritative_row_map),
+        authoritative_row_category_by_index=authoritative_row_map,
+        authoritative_row_source_block_index_by_index={
+            int(index): int(
+                (row_source_block_index_by_index or {}).get(int(index), int(index))
+            )
+            for index in authoritative_row_map
+        },
         authoritative_nonrecipe_spans=authoritative_spans,
         authoritative_knowledge_spans=[
             span for span in authoritative_spans if span.category == "knowledge"

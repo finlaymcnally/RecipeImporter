@@ -1206,6 +1206,7 @@ def write_nonrecipe_authority_artifact(
             "authoritative_knowledge_spans": len(authority.authoritative_knowledge_spans),
             "authoritative_other_spans": len(authority.authoritative_other_spans),
             "final_authority_blocks": len(authority.authoritative_block_indices),
+            "final_authority_rows": len(authority.authoritative_row_indices),
             **_knowledge_counts_for_block_map(authority.authoritative_block_category_by_index),
             "kept_for_review_block_count": int(
                 grounding_counts.get("kept_for_review_block_count") or 0
@@ -1232,9 +1233,20 @@ def write_nonrecipe_authority_artifact(
             "warnings": len(stage_result.routing.warnings),
         },
         "final_authority_block_indices": list(authority.authoritative_block_indices),
+        "final_authority_row_indices": list(authority.authoritative_row_indices),
         "authoritative_block_category_by_index": {
             str(index): category
             for index, category in sorted(authority.authoritative_block_category_by_index.items())
+        },
+        "authoritative_row_category_by_index": {
+            str(index): category
+            for index, category in sorted(authority.authoritative_row_category_by_index.items())
+        },
+        "authoritative_row_source_block_index_by_index": {
+            str(index): source_block_index
+            for index, source_block_index in sorted(
+                authority.authoritative_row_source_block_index_by_index.items()
+            )
         },
         "knowledge_grounding_by_block": grounding_by_block,
         "authoritative_spans": [

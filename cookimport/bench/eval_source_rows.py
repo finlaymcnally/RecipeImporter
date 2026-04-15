@@ -22,7 +22,7 @@ def evaluate_source_rows(
     prediction_rows_path = _resolve_prediction_rows_path(stage_predictions_json)
     gold_rows = _read_jsonl(row_gold_path)
     prediction_rows = _read_jsonl(prediction_rows_path)
-    authority_by_block_index, authority_path = _load_nonrecipe_authority_by_block_index(
+    authority_by_row_index, authority_by_block_index, authority_path = _load_nonrecipe_authority_by_block_index(
         stage_predictions_json
     )
 
@@ -93,6 +93,7 @@ def evaluate_source_rows(
         )
         pred_label = normalize_freeform_label(raw_pred_label)
         pred_block_index = _coerce_int((prediction or {}).get("block_index"))
+        pred_row_index = _coerce_int((prediction or {}).get("atomic_index", (prediction or {}).get("row_index")))
         reason_tags = {
             str(tag or "").strip()
             for tag in ((prediction or {}).get("reason_tags") or [])
@@ -104,9 +105,11 @@ def evaluate_source_rows(
         )
         authority_label = None
         if not preserve_row_level_other:
-            authority_label = _authority_category_to_label(
-                authority_by_block_index.get(pred_block_index)
-            )
+            authority_label = _authority_category_to_label(authority_by_row_index.get(pred_row_index))
+            if authority_label is None:
+                authority_label = _authority_category_to_label(
+                    authority_by_block_index.get(pred_block_index)
+                )
         if authority_label is not None and authority_label != pred_label:
             pred_label = authority_label
             authority_override_rows += 1
@@ -308,16 +311,16 @@ def _resolve_prediction_rows_path(stage_predictions_json: Path) -> Path:
 
 def _load_nonrecipe_authority_by_block_index(
     stage_predictions_json: Path,
-) -> tuple[dict[int, str], Path | None]:
+) -> tuple[dict[int, str], dict[int, str], Path | None]:
     manifest_path = stage_predictions_json.parent.parent / "run_manifest.json"
     if not manifest_path.exists() or not manifest_path.is_file():
-        return {}, None
+        return {}, {}, None
     try:
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {}, None
+        return {}, {}, None
     if not isinstance(manifest_payload, dict):
-        return {}, None
+        return {}, {}, None
     artifacts = manifest_payload.get("artifacts")
     if not isinstance(artifacts, dict):
         return {}, None
@@ -340,8 +343,20 @@ def _load_nonrecipe_authority_by_block_index(
             continue
         if not isinstance(payload, dict):
             continue
+        row_map = payload.get("authoritative_row_category_by_index")
         block_map = payload.get("authoritative_block_category_by_index")
+        normalized_rows: dict[int, str] = {}
+        if isinstance(row_map, dict):
+            for key, value in row_map.items():
+                row_index = _coerce_int(key)
+                if row_index is None:
+                    continue
+                category = str(value or "").strip().lower()
+                if category in {"knowledge", "other"}:
+                    normalized_rows[row_index] = category
         if not isinstance(block_map, dict):
+            if normalized_rows:
+                return normalized_rows, {}, authority_path
             continue
         normalized: dict[int, str] = {}
         for key, value in block_map.items():
@@ -351,9 +366,9 @@ def _load_nonrecipe_authority_by_block_index(
             category = str(value or "").strip().lower()
             if category in {"knowledge", "other"}:
                 normalized[block_index] = category
-        if normalized:
-            return normalized, authority_path
-    return {}, None
+        if normalized or normalized_rows:
+            return normalized_rows, normalized, authority_path
+    return {}, {}, None
 
 
 def _authority_category_to_label(category: str | None) -> str | None:

@@ -37,6 +37,7 @@ from cookimport.staging.nonrecipe_stage import (
     block_rows_for_nonrecipe_span,
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
+    build_nonrecipe_stage_result_from_labeled_rows,
 )
 from cookimport.staging.recipe_authority_decisions import (
     RecipeAuthorityDecision,
@@ -98,6 +99,29 @@ def _block_rows_for_indices(
             continue
         rows.append(dict(payload))
     return rows
+
+
+def _nonrecipe_row_payloads(recipe_boundary_result: "RecipeBoundaryResult") -> list[dict[str, Any]]:
+    source_rows = list(recipe_boundary_result.label_first_result.source_rows or [])
+    if not source_rows:
+        return []
+    return [
+        {
+            **dict(row),
+            "index": int(row.get("row_index", row.get("index", 0)) or 0),
+            "block_id": str(
+                row.get("row_id")
+                or row.get("id")
+                or row.get("block_id")
+                or f"row:{int(row.get('row_index', row.get('index', 0)) or 0)}"
+            ).strip(),
+            "source_block_index": int(
+                row.get("source_block_index", row.get("block_index", row.get("index", 0))) or 0
+            ),
+        }
+        for row in source_rows
+        if isinstance(row, Mapping)
+    ]
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,26 +394,36 @@ def run_nonrecipe_route_stage(
     recipe_refine_result: RecipeRefineResult,
     overrides: Any | None = None,
 ) -> NonrecipeRouteResult:
-    stage_result = build_nonrecipe_stage_result(
-        full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
-        final_block_labels=recipe_boundary_result.label_first_result.block_labels,
-        recipe_ownership_result=recipe_refine_result.recipe_ownership_result,
-        overrides=overrides,
-    )
+    nonrecipe_rows = _nonrecipe_row_payloads(recipe_boundary_result)
+    if nonrecipe_rows and recipe_boundary_result.label_first_result.labeled_lines:
+        stage_result = build_nonrecipe_stage_result_from_labeled_rows(
+            source_rows=nonrecipe_rows,
+            labeled_lines=recipe_boundary_result.label_first_result.labeled_lines,
+            recipe_ownership_result=recipe_refine_result.recipe_ownership_result,
+            overrides=overrides,
+        )
+    else:
+        stage_result = build_nonrecipe_stage_result(
+            full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
+            final_block_labels=recipe_boundary_result.label_first_result.block_labels,
+            recipe_ownership_result=recipe_refine_result.recipe_ownership_result,
+            overrides=overrides,
+        )
+        nonrecipe_rows = list(recipe_boundary_result.extracted_bundle.archive_blocks)
     return NonrecipeRouteResult(
         recipe_boundary_result=recipe_boundary_result,
         recipe_refine_result=recipe_refine_result,
         stage_result=stage_result,
         routing=stage_result.routing,
         candidate_queue_nonrecipe_blocks=_block_rows_for_indices(
-            recipe_boundary_result.extracted_bundle.archive_blocks,
+            nonrecipe_rows,
             stage_result.routing.candidate_block_indices,
         ),
         excluded_final_other_blocks=[
             row
             for span in stage_result.routing.excluded_nonrecipe_spans
             for row in block_rows_for_nonrecipe_span(
-                full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
+                full_blocks=nonrecipe_rows,
                 span=span,
             )
         ],
@@ -413,6 +447,9 @@ def run_nonrecipe_finalize_stage(
 
     if run_settings.llm_knowledge_pipeline.value != "off":
         try:
+            nonrecipe_rows = _nonrecipe_row_payloads(recipe_boundary_result)
+            if not nonrecipe_rows:
+                nonrecipe_rows = list(recipe_boundary_result.extracted_bundle.archive_blocks)
             nonrecipe_finalize_apply_result = run_codex_farm_nonrecipe_finalize(
                 conversion_result=recipe_refine_result.conversion_result,
                 nonrecipe_stage_result=stage_result,
@@ -421,7 +458,7 @@ def run_nonrecipe_finalize_stage(
                 run_root=run_root,
                 workbook_slug=recipe_boundary_result.extracted_bundle.workbook_slug,
                 overrides=overrides,
-                full_blocks=list(recipe_boundary_result.extracted_bundle.archive_blocks),
+                full_blocks=nonrecipe_rows,
                 progress_callback=progress_callback,
             )
         except CodexFarmRunnerError as exc:
@@ -443,12 +480,15 @@ def run_nonrecipe_finalize_stage(
             llm_report = dict(nonrecipe_finalize_apply_result.llm_report)
             nonrecipe_finalize_write_report = nonrecipe_finalize_apply_result.write_report
 
+    nonrecipe_rows = _nonrecipe_row_payloads(recipe_boundary_result)
+    if not nonrecipe_rows:
+        nonrecipe_rows = list(recipe_boundary_result.extracted_bundle.archive_blocks)
     authority_contract = build_nonrecipe_authority_contract(
-        full_blocks=recipe_boundary_result.extracted_bundle.archive_blocks,
+        full_blocks=nonrecipe_rows,
         stage_result=stage_result,
     )
     unresolved_candidate_blocks = _block_rows_for_indices(
-        recipe_boundary_result.extracted_bundle.archive_blocks,
+        nonrecipe_rows,
         stage_result.candidate_status.unresolved_candidate_block_indices,
         stage_result.candidate_status.unresolved_candidate_route_by_index,
     )
