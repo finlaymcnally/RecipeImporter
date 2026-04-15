@@ -28,11 +28,17 @@ from cookimport.llm.codex_farm_orchestrator import (
     _build_recipe_correction_input,
     render_recipe_direct_prompt,
 )
-from cookimport.llm.codex_farm_knowledge_jobs import build_knowledge_jobs
+from cookimport.llm.codex_farm_knowledge_jobs import (
+    KnowledgeJobBuildReport,
+    build_knowledge_jobs,
+)
 from cookimport.llm.codex_farm_knowledge_contracts import (
     knowledge_input_blocks,
     knowledge_input_bundle_id,
     knowledge_input_packet_ids,
+)
+from cookimport.llm.knowledge_stage.stage_plan import (
+    build_knowledge_stage_phase_plan,
 )
 from cookimport.llm.knowledge_prompt_builder import build_knowledge_direct_prompt
 from cookimport.llm.phase_plan import (
@@ -281,7 +287,7 @@ def write_prompt_preview_for_existing_run(
         counts["recipe_interaction_count"] = len(recipe_rows)
 
     if str(llm_knowledge_pipeline or "").strip().lower() != "off":
-        knowledge_rows, knowledge_plan_context = _build_knowledge_preview_rows(
+        knowledge_rows, knowledge_build_report = _build_knowledge_preview_rows(
             context=context,
             out_dir=out_dir,
             pipeline_root=pipeline_root,
@@ -294,19 +300,14 @@ def write_prompt_preview_for_existing_run(
             input_char_budget=resolved_knowledge_packet_input_char_budget,
             output_char_budget=resolved_knowledge_packet_output_char_budget,
         )
-        stage_plans["nonrecipe_finalize"] = _build_direct_shard_phase_plan(
-            stage_key="nonrecipe_finalize",
-            stage_label=stage_label("nonrecipe_finalize"),
-            stage_order=4,
+        stage_plans["nonrecipe_finalize"] = build_knowledge_stage_phase_plan(
+            build_report=knowledge_build_report,
             surface_pipeline=llm_knowledge_pipeline,
-            runtime_pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
-            rows=knowledge_rows,
+            pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
             worker_count=knowledge_worker_count
             if knowledge_worker_count is not None
             else _coerce_int(context.run_config.get("knowledge_worker_count")),
-            requested_shard_count=knowledge_plan_context.get("requested_shard_count"),
-            budget_native_shard_count=knowledge_plan_context.get("budget_native_shard_count"),
-            planning_warnings=knowledge_plan_context.get("planning_warnings"),
+            requested_shard_count=resolved_knowledge_prompt_target_count,
         )
         phase_plan_stage_dirs["nonrecipe_finalize"] = (
             out_dir
@@ -762,7 +763,7 @@ def _build_knowledge_preview_rows(
     prompt_target_count: int | None,
     input_char_budget: int | None,
     output_char_budget: int | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], KnowledgeJobBuildReport]:
     pipeline_assets = _load_pipeline_assets(
         pipeline_root=pipeline_root,
         pipeline_id=_DEFAULT_KNOWLEDGE_PIPELINE_ID,
@@ -824,16 +825,7 @@ def _build_knowledge_preview_rows(
                 prompt_input_mode_override="inline",
             )
         )
-    requested_shard_count = (
-        max(1, int(prompt_target_count))
-        if prompt_target_count is not None
-        else len(rows)
-    )
-    return rows, {
-        "requested_shard_count": requested_shard_count,
-        "budget_native_shard_count": int(build_report.packet_count_before_partition),
-        "planning_warnings": list(build_report.planning_warnings),
-    }
+    return rows, build_report
 
 
 def _knowledge_preview_row_id(

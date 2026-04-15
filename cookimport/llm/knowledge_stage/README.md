@@ -2,6 +2,7 @@ Private knowledge-stage package.
 
 Start with:
 - `planning.py` for shard planning and packet budgets
+- `stage_plan.py` for the shared knowledge phase-plan builder that preview and runtime both consume
 - `workspace_run.py` for the live inline-json/taskfile worker loop
 - `structured_session_contract.py` for worker-visible packet/prompt/response shaping
 - `task_file_contracts.py` for taskfile validation and grouping task construction
