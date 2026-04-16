@@ -42,12 +42,12 @@ def _build_pair_diagnostics(
     build_preprocess_trace_failure_rows: Callable[..., tuple[list[dict[str, Any]], str]],
     coerce_int: Callable[[Any], int | None],
     nearest_recipe_id_for_line_index: Callable[..., str | None],
-    build_intermediate_selected_blocks: Callable[
+    build_intermediate_selected_rows: Callable[
         [dict[str, Any]], tuple[list[dict[str, Any]], int | None, int | None]
     ],
     upload_bundle_recipe_stages_for_row: Callable[..., list[dict[str, str]]],
     upload_bundle_recipe_correction_output_for_recipe: Callable[..., dict[str, Any]],
-    upload_bundle_recipe_correction_input_block_count: Callable[..., int],
+    upload_bundle_recipe_correction_input_row_count: Callable[..., int],
     warning_buckets: Callable[[list[str]], list[str]],
     final_recipe_step_count: Callable[[dict[str, Any]], int],
     mapping_count: Callable[[Any], int],
@@ -403,18 +403,18 @@ def _build_pair_diagnostics(
         manifest_diagnostics = manifest_diagnostics_by_recipe.get(recipe_id, {})
         build_intermediate_start_row_index: int | None = None
         build_intermediate_end_row_index: int | None = None
-        build_intermediate_selected_block_count = 0
-        build_intermediate_blocks: list[dict[str, Any]] = []
+        build_intermediate_selected_row_count = 0
+        build_intermediate_rows: list[dict[str, Any]] = []
 
         if isinstance(build_intermediate_row, dict):
             (
-                build_intermediate_blocks,
+                build_intermediate_rows,
                 build_intermediate_start_row_index,
                 build_intermediate_end_row_index,
-            ) = build_intermediate_selected_blocks(
+            ) = build_intermediate_selected_rows(
                 build_intermediate_row
             )
-            build_intermediate_selected_block_count = len(build_intermediate_blocks)
+            build_intermediate_selected_row_count = len(build_intermediate_rows)
         correction_call_id = (
             str(correction_row.get("call_id") or "") if isinstance(correction_row, dict) else ""
         )
@@ -434,9 +434,9 @@ def _build_pair_diagnostics(
             if isinstance(correction_row, dict)
             else {}
         )
-        correction_input_block_count = int(
-            coerce_int(manifest_diagnostics.get("correction_input_block_count"))
-            or upload_bundle_recipe_correction_input_block_count(
+        correction_input_row_count = int(
+            coerce_int(manifest_diagnostics.get("correction_input_row_count"))
+            or upload_bundle_recipe_correction_input_row_count(
                 correction_input_payload,
                 recipe_id=recipe_id,
             )
@@ -513,7 +513,7 @@ def _build_pair_diagnostics(
         line_total_effective = (
             line_total
             if line_total > 0
-            else (correction_input_block_count or build_intermediate_selected_block_count)
+            else (correction_input_row_count or build_intermediate_selected_row_count)
         )
         short_title = recipe_short_title(
             recipe_id=recipe_id,
@@ -537,7 +537,7 @@ def _build_pair_diagnostics(
                 "baseline_accuracy": baseline_accuracy,
                 "delta_codex_minus_baseline": delta_codex_minus_baseline,
                 "correction_call_id": correction_call_id,
-                "correction_input_block_count": correction_input_block_count,
+                "correction_input_row_count": correction_input_row_count,
                 "correction_warning_count": correction_warning_count,
                 "correction_warning_buckets": correction_warning_buckets,
                 "correction_ingredient_count": correction_ingredient_count,
@@ -563,17 +563,17 @@ def _build_pair_diagnostics(
                 else "",
                 "build_intermediate_start_row_index": build_intermediate_start_row_index,
                 "build_intermediate_end_row_index": build_intermediate_end_row_index,
-                "build_intermediate_selected_block_count": build_intermediate_selected_block_count,
-                "correction_input_block_count": correction_input_block_count,
-                "build_intermediate_missing_block_count": 0,
-                "build_intermediate_extra_block_count": 0,
+                "build_intermediate_selected_row_count": build_intermediate_selected_row_count,
+                "correction_input_row_count": correction_input_row_count,
+                "build_intermediate_missing_row_count": 0,
+                "build_intermediate_extra_row_count": 0,
                 "final_recipe_step_count": final_recipe_step_count_value,
                 "final_recipe_mapping_count": final_recipe_mapping_count,
                 "final_recipe_empty_mapping": final_recipe_empty_mapping,
                 "final_recipe_warning_count": final_recipe_warning_count,
                 "final_recipe_warning_buckets": final_recipe_warning_buckets,
-                "build_intermediate_clamped_block_loss_count": 0,
-                "build_intermediate_clamped_block_loss_ratio": None,
+                "build_intermediate_clamped_row_loss_count": 0,
+                "build_intermediate_clamped_row_loss_ratio": None,
                 "correction_degradation_reasons": [],
                 "correction_degradation_severity": "",
                 "correction_promotion_policy": "",
@@ -619,7 +619,7 @@ def _build_pair_diagnostics(
         warnings = coerce_str_list(parsed_response.get("warnings"))
         row_warning_buckets = warning_buckets(warnings)
 
-        input_block_count = 0
+        input_row_count = 0
         extracted_ingredient_count = 0
         step_count = 0
         mapping_count_value = 0
@@ -629,7 +629,7 @@ def _build_pair_diagnostics(
         )
         if stage_key == "recipe_refine":
             correction_outputs = upload_bundle_recipe_correction_output_rows(parsed_response)
-            input_block_count = upload_bundle_recipe_correction_input_block_count(
+            input_row_count = upload_bundle_recipe_correction_input_row_count(
                 request_input_payload
             )
             if correction_outputs:
@@ -655,7 +655,7 @@ def _build_pair_diagnostics(
                 mapping_count_value = mapping_count(parsed_response.get("ingredient_step_mapping"))
         elif stage_key == "line_role":
             row_payload = request_input_payload.get("rows")
-            input_block_count = len(row_payload) if isinstance(row_payload, list) else 0
+            input_row_count = len(row_payload) if isinstance(row_payload, list) else 0
         elif stage_key == "recipe_build_final":
             draft_payload = parse_json_like(parsed_response.get("draft_v1"))
             draft_payload = draft_payload if isinstance(draft_payload, dict) else {}
@@ -686,7 +686,7 @@ def _build_pair_diagnostics(
                 "call_id": str(row.get("call_id") or ""),
                 "timestamp_utc": str(row.get("timestamp_utc") or ""),
                 "model": str(row.get("model") or ""),
-                "input_block_count": input_block_count,
+                "input_row_count": input_row_count,
                 "warning_count": len(warnings),
                 "warning_buckets": row_warning_buckets,
                 "extracted_ingredient_count": extracted_ingredient_count,
@@ -1139,7 +1139,7 @@ def _build_warning_and_trace_summary(
     build_intermediate_clamped_loss_recipe_count = sum(
         1
         for row in recipe_triage_rows
-        if int(coerce_int(row.get("build_intermediate_clamped_block_loss_count")) or 0) > 0
+        if int(coerce_int(row.get("build_intermediate_clamped_row_loss_count")) or 0) > 0
     )
     correction_degraded_recipe_count = sum(
         1
@@ -1168,12 +1168,12 @@ def _build_warning_and_trace_summary(
             correction_status = raw_correction_status
         elif bool(row.get("correction_empty_output")) and (
             bool(row.get("correction_call_id"))
-            or int(coerce_int(row.get("correction_input_block_count")) or 0) > 0
+            or int(coerce_int(row.get("correction_input_row_count")) or 0) > 0
         ):
             correction_status = "empty_output_without_manifest_status"
         elif (
             bool(row.get("correction_call_id"))
-            or int(coerce_int(row.get("correction_input_block_count")) or 0) > 0
+            or int(coerce_int(row.get("correction_input_row_count")) or 0) > 0
             or int(coerce_int(row.get("correction_ingredient_count")) or 0) > 0
             or int(coerce_int(row.get("correction_step_count")) or 0) > 0
             or int(coerce_int(row.get("correction_mapping_count")) or 0) > 0

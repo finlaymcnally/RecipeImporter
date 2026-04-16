@@ -37,12 +37,12 @@ def _select_starter_pack_recipe_cases(
     float_or_zero: Callable[[Any], float],
     selection_policy: dict[str, int],
 ) -> list[dict[str, Any]]:
-    def _block_loss_count(row: dict[str, Any]) -> int:
+    def _row_loss_count(row: dict[str, Any]) -> int:
         return int(
             coerce_int(
-                row.get("build_intermediate_missing_block_count")
-                if row.get("build_intermediate_missing_block_count") is not None
-                else row.get("build_intermediate_clamped_block_loss_count")
+                row.get("build_intermediate_missing_row_count")
+                if row.get("build_intermediate_missing_row_count") is not None
+                else row.get("build_intermediate_clamped_row_loss_count")
             )
             or 0
         )
@@ -55,9 +55,9 @@ def _select_starter_pack_recipe_cases(
     def _upstream_input_count(row: dict[str, Any]) -> int:
         return int(
             coerce_int(
-                row.get("build_intermediate_selected_block_count")
-                if row.get("build_intermediate_selected_block_count") is not None
-                else row.get("correction_input_block_count")
+                row.get("build_intermediate_selected_row_count")
+                if row.get("build_intermediate_selected_row_count") is not None
+                else row.get("correction_input_row_count")
             )
             or 0
         )
@@ -111,17 +111,17 @@ def _select_starter_pack_recipe_cases(
     top_warning_burden = sorted(
         recipe_triage_rows,
         key=lambda row: (
-            -_block_loss_count(row),
+            -_row_loss_count(row),
             -abs(float_or_zero(row.get("delta_codex_minus_baseline"))),
             -int(coerce_int(row.get("changed_lines_codex_vs_baseline")) or 0),
             str(row.get("recipe_id") or ""),
         ),
     )
-    top_warning_burden = [row for row in top_warning_burden if _block_loss_count(row) > 0]
+    top_warning_burden = [row for row in top_warning_burden if _row_loss_count(row) > 0]
     add_rows(
         top_warning_burden,
-        limit=selection_policy["top_block_loss"],
-        reason="top_block_loss",
+        limit=selection_policy["top_row_loss"],
+        reason="top_row_loss",
     )
 
     empty_mapping_candidates = [
@@ -311,19 +311,19 @@ def _build_selected_recipe_packets(
         intermediate_summary = {
             "call_id": str(row.get("build_intermediate_call_id") or ""),
             "status": str(row.get("build_intermediate_status") or ""),
-            "input_block_count": int(coerce_int(row.get("correction_input_block_count")) or 0),
+            "input_row_count": int(coerce_int(row.get("correction_input_row_count")) or 0),
             "deterministic_stage": True,
-            "clamped_block_loss_count": int(
-                coerce_int(row.get("build_intermediate_clamped_block_loss_count")) or 0
+            "clamped_row_loss_count": int(
+                coerce_int(row.get("build_intermediate_clamped_row_loss_count")) or 0
             ),
-            "clamped_block_loss_ratio": coerce_float(
-                row.get("build_intermediate_clamped_block_loss_ratio")
+            "clamped_row_loss_ratio": coerce_float(
+                row.get("build_intermediate_clamped_row_loss_ratio")
             ),
         }
         correction_summary = {
             "call_id": str(row.get("correction_call_id") or ""),
             "status": str(row.get("correction_status") or ""),
-            "input_block_count": int(coerce_int(row.get("correction_input_block_count")) or 0),
+            "input_row_count": int(coerce_int(row.get("correction_input_row_count")) or 0),
             "warning_count": int(coerce_int(row.get("correction_warning_count")) or 0),
             "warning_buckets": coerce_str_list(row.get("correction_warning_buckets")),
             "ingredient_count": int(coerce_int(row.get("correction_ingredient_count")) or 0),
@@ -456,7 +456,7 @@ def _render_starter_pack_casebook(
                     "- recipe_build_intermediate: "
                     f"status={packet.get('build_intermediate_summary', {}).get('status')} "
                     "deterministic_stage=yes "
-                    f"input_block_count={packet.get('build_intermediate_summary', {}).get('input_block_count')}"
+                    f"input_row_count={packet.get('build_intermediate_summary', {}).get('input_row_count')}"
                 ),
                 (
                     "- recipe_quality: "
@@ -480,7 +480,7 @@ def _render_starter_pack_casebook(
                 lines.append(
                     f"- {stage_label}: call_id={recipe_stage.get('call_id')} "
                     f"status={recipe_stage.get('status')} "
-                    f"input_block_count={recipe_stage.get('input_block_count')} "
+                    f"input_row_count={recipe_stage.get('input_row_count')} "
                     f"warning_count={recipe_stage.get('warning_count')} "
                     f"ingredient_count={recipe_stage.get('ingredient_count')} "
                     f"step_count={recipe_stage.get('step_count')} "

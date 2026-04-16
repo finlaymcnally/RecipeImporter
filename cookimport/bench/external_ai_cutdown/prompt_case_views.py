@@ -57,29 +57,29 @@ def _count_list_entries(
     return 0
 
 
-def _blocks_from_request_payload(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
+def _rows_from_request_payload(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
     rows = payload.get(key)
     if not isinstance(rows, list):
         return []
     return [row for row in rows if isinstance(row, dict)]
 
 
-def _block_id_from_row(
-    block: dict[str, Any],
+def _row_id_from_row(
+    row: dict[str, Any],
     *,
     coerce_int: Callable[[Any], int | None],
 ) -> str | None:
     for key in ("block_id", "stable_key"):
-        value = block.get(key)
+        value = row.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    index_value = coerce_int(block.get("index"))
+    index_value = coerce_int(row.get("index"))
     if index_value is not None:
         return f"index:{index_value}"
     return None
 
 
-def _build_intermediate_selected_blocks(
+def _build_intermediate_selected_rows(
     row: dict[str, Any],
     *,
     parse_json_like: Callable[[Any], Any],
@@ -90,8 +90,8 @@ def _build_intermediate_selected_blocks(
     request_payload = request_payload if isinstance(request_payload, dict) else {}
     parsed_response = parse_json_like(row.get("parsed_response"))
     parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-    blocks_candidate = _blocks_from_request_payload(request_payload, "blocks_candidate")
-    if not blocks_candidate:
+    candidate_rows = _rows_from_request_payload(request_payload, "blocks_candidate")
+    if not candidate_rows:
         return [], None, None
 
     start = coerce_int(parsed_response.get("start_row_index"))
@@ -103,16 +103,16 @@ def _build_intermediate_selected_blocks(
     }
 
     selected: list[dict[str, Any]] = []
-    for fallback_index, block in enumerate(blocks_candidate):
-        block_index = coerce_int(block.get("index"))
-        if block_index is None:
-            block_index = fallback_index
-        if start is not None and end is not None and not (start <= block_index <= end):
+    for fallback_index, candidate_row in enumerate(candidate_rows):
+        row_index = coerce_int(candidate_row.get("index"))
+        if row_index is None:
+            row_index = fallback_index
+        if start is not None and end is not None and not (start <= row_index <= end):
             continue
-        block_id = _block_id_from_row(block, coerce_int=coerce_int)
-        if block_id and block_id in excluded_ids:
+        row_id = _row_id_from_row(candidate_row, coerce_int=coerce_int)
+        if row_id and row_id in excluded_ids:
             continue
-        selected.append(block)
+        selected.append(candidate_row)
 
     if start is not None and end is not None and end >= start and not selected:
         selected_count = end - start + 1
@@ -128,7 +128,7 @@ def _correction_input_blocks(
 ) -> list[dict[str, Any]]:
     request_payload = parse_json_like(row.get("request_input_payload"))
     request_payload = request_payload if isinstance(request_payload, dict) else {}
-    return _blocks_from_request_payload(request_payload, "blocks")
+    return _rows_from_request_payload(request_payload, "blocks")
 
 
 def _final_recipe_step_count(

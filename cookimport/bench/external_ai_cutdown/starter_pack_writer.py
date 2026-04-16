@@ -42,8 +42,8 @@ def _bridge_summary_rows(
             "baseline_run_id": str(row.get("baseline_run_id") or ""),
             "recipe_id": str(row.get("recipe_id") or ""),
             "correction_call_id": str(row.get("correction_call_id") or ""),
-            "correction_input_block_count": int(
-                coerce_int(row.get("correction_input_block_count")) or 0
+            "correction_input_row_count": int(
+                coerce_int(row.get("correction_input_row_count")) or 0
             ),
             "correction_warning_count": int(
                 coerce_int(row.get("correction_warning_count")) or 0

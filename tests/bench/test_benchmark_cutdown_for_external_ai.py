@@ -714,14 +714,14 @@ def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_rec
     triage_by_id = {
         str(row["recipe_id"]): row for row in diagnostics.recipe_triage_rows
     }
-    assert triage_by_id["recipe:a0"]["correction_input_block_count"] == 3
+    assert triage_by_id["recipe:a0"]["correction_input_row_count"] == 3
     assert triage_by_id["recipe:a0"]["correction_ingredient_count"] == 1
     assert triage_by_id["recipe:a0"]["correction_step_count"] == 1
     assert triage_by_id["recipe:a0"]["correction_mapping_count"] == 1
     assert triage_by_id["recipe:a0"]["correction_empty_mapping"] is False
     assert triage_by_id["recipe:a0"]["correction_empty_output"] is False
 
-    assert triage_by_id["recipe:b0"]["correction_input_block_count"] == 3
+    assert triage_by_id["recipe:b0"]["correction_input_row_count"] == 3
     assert triage_by_id["recipe:b0"]["correction_ingredient_count"] == 1
     assert triage_by_id["recipe:b0"]["correction_step_count"] == 1
     assert triage_by_id["recipe:b0"]["correction_mapping_count"] == 0
@@ -733,7 +733,7 @@ def test_build_pair_diagnostics_parses_compact_recipe_correction_outputs_per_rec
         for row in diagnostics.call_inventory_rows
         if row["stage_key"] == "recipe_refine"
     )
-    assert call_row["input_block_count"] == 6
+    assert call_row["input_row_count"] == 6
     assert call_row["extracted_ingredient_count"] == 2
     assert call_row["step_count"] == 2
     assert call_row["mapping_count"] == 1

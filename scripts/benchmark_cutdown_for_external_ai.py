@@ -146,7 +146,7 @@ from cookimport.bench.external_ai_cutdown.prompt_diagnostics import (
     _parse_json_like as _parse_json_like_impl,
     _prompt_warning_bucket as _prompt_warning_bucket_impl,
     _summarize_prompt_warning_aggregate as _summarize_prompt_warning_aggregate_impl,
-    _upload_bundle_recipe_correction_input_block_count as _upload_bundle_recipe_correction_input_block_count_impl,
+    _upload_bundle_recipe_correction_input_row_count as _upload_bundle_recipe_correction_input_row_count_impl,
     _upload_bundle_recipe_correction_metrics as _upload_bundle_recipe_correction_metrics_impl,
     _upload_bundle_recipe_correction_output_for_recipe as _upload_bundle_recipe_correction_output_for_recipe_impl,
     _upload_bundle_recipe_correction_output_rows as _upload_bundle_recipe_correction_output_rows_impl,
@@ -173,9 +173,9 @@ from cookimport.bench.external_ai_cutdown.prompt_logs import (
     _write_prompt_log_samples_from_full_prompt_log as _write_prompt_log_samples_from_full_prompt_log_impl,
 )
 from cookimport.bench.external_ai_cutdown.prompt_case_views import (
-    _block_id_from_row as _block_id_from_row_impl,
-    _blocks_from_request_payload as _blocks_from_request_payload_impl,
-    _build_intermediate_selected_blocks as _build_intermediate_selected_blocks_impl,
+    _row_id_from_row as _row_id_from_row_impl,
+    _rows_from_request_payload as _rows_from_request_payload_impl,
+    _build_intermediate_selected_rows as _build_intermediate_selected_rows_impl,
     _correction_input_blocks as _correction_input_blocks_impl,
     _count_list_entries as _count_list_entries_impl,
     _final_recipe_step_count as _final_recipe_step_count_impl,
@@ -384,7 +384,7 @@ STARTER_PACK_EXPLICIT_ESCALATION_CHANGED_LINES_FILE_NAME = (
 STARTER_PACK_BASELINE_TRACE_PARITY_FILE_NAME = "16_baseline_trace_parity.json"
 STARTER_PACK_SELECTION_POLICY = {
     "top_changed_lines": 3,
-    "top_block_loss": 2,
+    "top_row_loss": 2,
     "top_empty_mapping": 2,
     "outside_span_case": 1,
     "healthy_control": 1,
@@ -836,12 +836,12 @@ def _upload_bundle_recipe_correction_output_for_recipe(
     )
 
 
-def _upload_bundle_recipe_correction_input_block_count(
+def _upload_bundle_recipe_correction_input_row_count(
     value: Any,
     *,
     recipe_id: str | None = None,
 ) -> int:
-    return _upload_bundle_recipe_correction_input_block_count_impl(
+    return _upload_bundle_recipe_correction_input_row_count_impl(
         value,
         recipe_id=recipe_id,
     )
@@ -1680,21 +1680,21 @@ def _count_list_entries(value: Any) -> int:
     )
 
 
-def _blocks_from_request_payload(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
-    return _blocks_from_request_payload_impl(payload, key)
+def _rows_from_request_payload(payload: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    return _rows_from_request_payload_impl(payload, key)
 
 
-def _block_id_from_row(block: dict[str, Any]) -> str | None:
-    return _block_id_from_row_impl(
-        block,
+def _row_id_from_row(row: dict[str, Any]) -> str | None:
+    return _row_id_from_row_impl(
+        row,
         coerce_int=_coerce_int,
     )
 
 
-def _build_intermediate_selected_blocks(
+def _build_intermediate_selected_rows(
     row: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], int | None, int | None]:
-    return _build_intermediate_selected_blocks_impl(
+    return _build_intermediate_selected_rows_impl(
         row,
         parse_json_like=_parse_json_like,
         coerce_int=_coerce_int,
@@ -1858,10 +1858,10 @@ def _build_pair_diagnostics(
         build_preprocess_trace_failure_rows=_build_preprocess_trace_failure_rows,
         coerce_int=_coerce_int,
         nearest_recipe_id_for_line_index=_nearest_recipe_id_for_line_index,
-        build_intermediate_selected_blocks=_build_intermediate_selected_blocks,
+        build_intermediate_selected_rows=_build_intermediate_selected_rows,
         upload_bundle_recipe_stages_for_row=_upload_bundle_recipe_stages_for_row,
         upload_bundle_recipe_correction_output_for_recipe=_upload_bundle_recipe_correction_output_for_recipe,
-        upload_bundle_recipe_correction_input_block_count=_upload_bundle_recipe_correction_input_block_count,
+        upload_bundle_recipe_correction_input_row_count=_upload_bundle_recipe_correction_input_row_count,
         warning_buckets=_warning_buckets,
         final_recipe_step_count=_final_recipe_step_count,
         mapping_count=_mapping_count,

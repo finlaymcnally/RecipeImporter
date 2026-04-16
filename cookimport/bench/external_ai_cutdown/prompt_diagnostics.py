@@ -141,7 +141,7 @@ def _upload_bundle_recipe_correction_output_for_recipe(
     return rows[0] if len(rows) == 1 else {}
 
 
-def _upload_bundle_recipe_correction_input_block_count(
+def _upload_bundle_recipe_correction_input_row_count(
     value: Any,
     *,
     recipe_id: str | None = None,

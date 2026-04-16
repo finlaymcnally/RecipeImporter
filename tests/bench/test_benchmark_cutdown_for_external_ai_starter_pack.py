@@ -91,7 +91,7 @@ def test_main_starter_pack_writes_recipe_triage_and_call_inventory(tmp_path: Pat
         "call_id",
         "timestamp_utc",
         "model",
-        "input_block_count",
+        "input_row_count",
         "warning_count",
         "warning_buckets",
         "extracted_ingredient_count",
@@ -184,7 +184,7 @@ def test_main_starter_pack_call_inventory_includes_line_role_rows_with_runtime_f
     exported_line_role_row = next(
         row for row in call_inventory_rows if row["stage_key"] == "line_role"
     )
-    assert exported_line_role_row["input_block_count"] == 2
+    assert exported_line_role_row["input_row_count"] == 2
     assert exported_line_role_row["duration_ms"] == 321
     assert exported_line_role_row["tokens_input"] == 100
     assert exported_line_role_row["tokens_cached_input"] == 25
@@ -387,9 +387,9 @@ def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:
             "recipe_id": f"recipe:{index}",
             "changed_lines_codex_vs_baseline": 20 - index,
             "delta_codex_minus_baseline": 0.1 - (index * 0.01),
-            "build_intermediate_missing_block_count": index % 5,
+            "build_intermediate_missing_row_count": index % 5,
             "final_recipe_empty_mapping": index in {2, 5, 7},
-            "build_intermediate_selected_block_count": 10 if index in {2, 5} else 2,
+            "build_intermediate_selected_row_count": 10 if index in {2, 5} else 2,
             "correction_warning_count": 3 if index == 7 else 0,
             "correction_step_count": 0 if index in {2, 7} else 1,
             "outside_span_wrong_line_count": 3 if index == 4 else 0,
@@ -403,7 +403,7 @@ def test_select_starter_pack_recipe_cases_uses_blended_policy() -> None:
     assert 1 <= len(selected) <= 10
     reasons = [str(row.get("selection_reason") or "") for row in selected]
     assert any("top_changed_lines" in reason for reason in reasons)
-    assert any("top_block_loss" in reason for reason in reasons)
+    assert any("top_row_loss" in reason for reason in reasons)
     assert any("top_empty_mapping_upstream_evidence" in reason for reason in reasons)
     assert any("outside_span_contamination" in reason for reason in reasons)
     assert any("healthy_control" in reason for reason in reasons)
@@ -418,9 +418,9 @@ def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() ->
             "recipe_id": "recipe:steady",
             "changed_lines_codex_vs_baseline": 9,
             "delta_codex_minus_baseline": 0.01,
-            "build_intermediate_missing_block_count": 0,
+            "build_intermediate_missing_row_count": 0,
             "final_recipe_empty_mapping": False,
-            "build_intermediate_selected_block_count": 10,
+            "build_intermediate_selected_row_count": 10,
             "correction_warning_count": 0,
             "correction_step_count": 1,
             "outside_span_wrong_line_count": 0,
@@ -432,9 +432,9 @@ def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() ->
             "recipe_id": "recipe:empty-high-delta",
             "changed_lines_codex_vs_baseline": 4,
             "delta_codex_minus_baseline": -0.40,
-            "build_intermediate_missing_block_count": 1,
+            "build_intermediate_missing_row_count": 1,
             "final_recipe_empty_mapping": True,
-            "build_intermediate_selected_block_count": 10,
+            "build_intermediate_selected_row_count": 10,
             "correction_warning_count": 0,
             "correction_step_count": 0,
             "outside_span_wrong_line_count": 0,
@@ -446,9 +446,9 @@ def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() ->
             "recipe_id": "recipe:empty-low-delta-high-changes",
             "changed_lines_codex_vs_baseline": 20,
             "delta_codex_minus_baseline": -0.05,
-            "build_intermediate_missing_block_count": 1,
+            "build_intermediate_missing_row_count": 1,
             "final_recipe_empty_mapping": True,
-            "build_intermediate_selected_block_count": 10,
+            "build_intermediate_selected_row_count": 10,
             "correction_warning_count": 0,
             "correction_step_count": 0,
             "outside_span_wrong_line_count": 0,
@@ -465,7 +465,7 @@ def test_select_starter_pack_recipe_cases_empty_mapping_tiebreak_uses_delta() ->
     assert "top_empty_mapping_upstream_evidence" in selected_by_recipe["recipe:empty-high-delta"]
 
 
-def test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss() -> None:
+def test_select_starter_pack_recipe_cases_keeps_low_change_high_row_loss() -> None:
     module = _load_cutdown_module()
     triage_rows = [
         {
@@ -474,9 +474,9 @@ def test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss() -> 
             "recipe_id": f"recipe:high-change-{index}",
             "changed_lines_codex_vs_baseline": 20 - index,
             "delta_codex_minus_baseline": -0.10 - (index * 0.01),
-            "build_intermediate_missing_block_count": 2 + index,
+            "build_intermediate_missing_row_count": 2 + index,
             "final_recipe_empty_mapping": False,
-            "build_intermediate_selected_block_count": 10,
+            "build_intermediate_selected_row_count": 10,
             "correction_warning_count": 0,
             "correction_step_count": 1,
             "outside_span_wrong_line_count": 0,
@@ -491,9 +491,9 @@ def test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss() -> 
             "recipe_id": "recipe:low-change-high-loss",
             "changed_lines_codex_vs_baseline": 1,
             "delta_codex_minus_baseline": -0.90,
-            "build_intermediate_missing_block_count": 99,
+            "build_intermediate_missing_row_count": 99,
             "final_recipe_empty_mapping": False,
-            "build_intermediate_selected_block_count": 10,
+            "build_intermediate_selected_row_count": 10,
             "correction_warning_count": 0,
             "correction_step_count": 1,
             "outside_span_wrong_line_count": 0,
@@ -508,7 +508,7 @@ def test_select_starter_pack_recipe_cases_keeps_low_change_high_block_loss() -> 
     }
 
     assert "recipe:low-change-high-loss" in selected_by_recipe
-    assert "top_block_loss" in selected_by_recipe["recipe:low-change-high-loss"]
+    assert "top_row_loss" in selected_by_recipe["recipe:low-change-high-loss"]
 
 
 def test_select_starter_pack_recipe_cases_outside_pool_uses_metric_not_change_floor() -> None:
@@ -520,9 +520,9 @@ def test_select_starter_pack_recipe_cases_outside_pool_uses_metric_not_change_fl
             "recipe_id": "recipe:outside-low-change-highest",
             "changed_lines_codex_vs_baseline": 1,
             "delta_codex_minus_baseline": -0.80,
-            "build_intermediate_missing_block_count": 0,
+            "build_intermediate_missing_row_count": 0,
             "final_recipe_empty_mapping": False,
-            "build_intermediate_selected_block_count": 10,
+            "build_intermediate_selected_row_count": 10,
             "correction_warning_count": 0,
             "correction_step_count": 1,
             "outside_span_wrong_line_count": 50,
@@ -534,9 +534,9 @@ def test_select_starter_pack_recipe_cases_outside_pool_uses_metric_not_change_fl
             "recipe_id": "recipe:outside-higher-change-lower-outside",
             "changed_lines_codex_vs_baseline": 8,
             "delta_codex_minus_baseline": -0.20,
-            "build_intermediate_missing_block_count": 0,
+            "build_intermediate_missing_row_count": 0,
             "final_recipe_empty_mapping": False,
-            "build_intermediate_selected_block_count": 10,
+            "build_intermediate_selected_row_count": 10,
             "correction_warning_count": 0,
             "correction_step_count": 1,
             "outside_span_wrong_line_count": 5,
