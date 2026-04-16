@@ -108,14 +108,14 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
     recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=2,
-            block_indices=[0, 1, 2],
+            start_row_index=0,
+            end_row_index=2,
+            row_indices=[0, 1, 2],
             source_block_ids=["block:0", "block:1", "block:2"],
             start_atomic_index=0,
             end_atomic_index=2,
             atomic_indices=[0, 1, 2],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]
@@ -134,14 +134,14 @@ def test_build_conversion_result_from_label_spans_uses_authoritative_non_recipe_
             RecipeSpanDecision(
                 span_id="recipe_span_0",
                 decision="accepted_recipe_span",
-                start_block_index=0,
-                end_block_index=2,
-                block_indices=[0, 1, 2],
+                start_row_index=0,
+                end_row_index=2,
+                row_indices=[0, 1, 2],
                 source_block_ids=["block:0", "block:1", "block:2"],
                 start_atomic_index=0,
                 end_atomic_index=2,
                 atomic_indices=[0, 1, 2],
-                title_block_index=0,
+                title_row_index=0,
                 title_atomic_index=0,
             )
         ],
@@ -331,14 +331,14 @@ def test_build_conversion_result_from_label_spans_keeps_explicit_invariant_warni
     recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=0,
-            block_indices=[0],
+            start_row_index=0,
+            end_row_index=0,
+            row_indices=[0],
             source_block_ids=["block:0"],
             start_atomic_index=0,
             end_atomic_index=0,
             atomic_indices=[0],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]
@@ -357,14 +357,14 @@ def test_build_conversion_result_from_label_spans_keeps_explicit_invariant_warni
             RecipeSpanDecision(
                 span_id="recipe_span_0",
                 decision="accepted_recipe_span",
-                start_block_index=0,
-                end_block_index=0,
-                block_indices=[0],
+                start_row_index=0,
+                end_row_index=0,
+                row_indices=[0],
                 source_block_ids=["block:0"],
                 start_atomic_index=0,
                 end_atomic_index=0,
                 atomic_indices=[0],
-                title_block_index=0,
+                title_row_index=0,
                 title_atomic_index=0,
             )
         ],

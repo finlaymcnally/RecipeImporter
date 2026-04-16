@@ -579,14 +579,14 @@ def _build_authoritative_atomic_projection_fixture(tmp_path: Path) -> dict[str, 
     label_first_result.recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=1,
-            block_indices=[0, 1],
+            start_row_index=0,
+            end_row_index=1,
+            row_indices=[0, 1],
             source_block_ids=["block:0", "block:1"],
             start_atomic_index=0,
             end_atomic_index=2,
             atomic_indices=[0, 1, 2],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]
@@ -741,14 +741,14 @@ def _build_final_nonrecipe_authority_fixture(
     label_first_result.recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=1,
-            block_indices=[0, 1],
+            start_row_index=0,
+            end_row_index=1,
+            row_indices=[0, 1],
             source_block_ids=["block:0", "block:1"],
             start_atomic_index=0,
             end_atomic_index=1,
             atomic_indices=[0, 1],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]
@@ -1187,14 +1187,14 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
     label_first_result.recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=1,
-            block_indices=[0, 1],
+            start_row_index=0,
+            end_row_index=1,
+            row_indices=[0, 1],
             source_block_ids=["block:0", "block:1"],
             start_atomic_index=0,
             end_atomic_index=1,
             atomic_indices=[0, 1],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]
@@ -1288,14 +1288,14 @@ def test_line_role_artifacts_write_semantic_predictions_for_reviewed_nonrecipe_c
     label_first_result.recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=0,
-            block_indices=[0],
+            start_row_index=0,
+            end_row_index=0,
+            row_indices=[0],
             source_block_ids=["block:0"],
             start_atomic_index=0,
             end_atomic_index=0,
             atomic_indices=[0],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]
@@ -1454,14 +1454,14 @@ def test_authoritative_line_role_artifacts_preserve_runtime_telemetry_summary(
     label_first_result.recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=0,
-            block_indices=[0],
+            start_row_index=0,
+            end_row_index=0,
+            row_indices=[0],
             source_block_ids=["block:0"],
             start_atomic_index=0,
             end_atomic_index=0,
             atomic_indices=[0],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]

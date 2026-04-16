@@ -155,7 +155,7 @@ def _preview_sanitized_nonrecipe_block_labels(
     block_labels: Sequence[AuthoritativeBlockLabel],
     recipe_ownership_result: RecipeOwnershipResult,
 ) -> list[AuthoritativeBlockLabel]:
-    recipe_block_indices = set(recipe_ownership_result.owned_block_indices)
+    recipe_block_indices = set(recipe_ownership_result.owned_row_indices)
     sanitized: list[AuthoritativeBlockLabel] = []
     for block_label in block_labels:
         if int(block_label.source_block_index) in recipe_block_indices:
@@ -580,8 +580,8 @@ def _build_recipe_preview_rows(
     ordered_recipe_spans = sorted(
         context.recipe_spans,
         key=lambda span: (
-            int(span.start_block_index),
-            int(span.end_block_index),
+            int(span.start_row_index),
+            int(span.end_row_index),
             str(span.span_id),
         ),
     )
@@ -602,9 +602,9 @@ def _build_recipe_preview_rows(
         start_block = _coerce_int(location.get("start_block"))
         end_block = _coerce_int(location.get("end_block"))
         if start_block is None and span is not None:
-            start_block = int(span.start_block_index)
+            start_block = int(span.start_row_index)
         if end_block is None and span is not None:
-            end_block = int(span.end_block_index)
+            end_block = int(span.end_row_index)
         if start_block is None or end_block is None:
             continue
         included_blocks = [

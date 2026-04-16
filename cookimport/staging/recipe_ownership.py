@@ -27,33 +27,19 @@ class RecipeOwnershipEntry:
         recipe_span_id: str,
         owned_row_indices: list[int] | None = None,
         divested_row_indices: list[int] | None = None,
-        owned_block_indices: list[int] | None = None,
-        divested_block_indices: list[int] | None = None,
     ) -> None:
         object.__setattr__(self, "recipe_id", recipe_id)
         object.__setattr__(self, "recipe_span_id", recipe_span_id)
         object.__setattr__(
             self,
             "owned_row_indices",
-            list(owned_row_indices if owned_row_indices is not None else owned_block_indices or []),
+            list(owned_row_indices or []),
         )
         object.__setattr__(
             self,
             "divested_row_indices",
-            list(
-                divested_row_indices
-                if divested_row_indices is not None
-                else divested_block_indices or []
-            ),
+            list(divested_row_indices or []),
         )
-
-    @property
-    def owned_block_indices(self) -> list[int]:
-        return list(self.owned_row_indices)
-
-    @property
-    def divested_block_indices(self) -> list[int]:
-        return list(self.divested_row_indices)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -68,19 +54,14 @@ class RecipeDivestment:
         recipe_id: str,
         reason: str,
         row_indices: list[int] | None = None,
-        block_indices: list[int] | None = None,
     ) -> None:
         object.__setattr__(self, "recipe_id", recipe_id)
         object.__setattr__(
             self,
             "row_indices",
-            list(row_indices if row_indices is not None else block_indices or []),
+            list(row_indices or []),
         )
         object.__setattr__(self, "reason", reason)
-
-    @property
-    def block_indices(self) -> list[int]:
-        return list(self.row_indices)
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -103,71 +84,34 @@ class RecipeOwnershipResult:
         divested_row_indices: list[int] | None = None,
         available_to_nonrecipe_row_indices: list[int] | None = None,
         all_row_indices: list[int] | None = None,
-        block_owner_by_index: dict[int, str] | None = None,
-        owned_block_indices: list[int] | None = None,
-        divested_block_indices: list[int] | None = None,
-        available_to_nonrecipe_block_indices: list[int] | None = None,
-        all_block_indices: list[int] | None = None,
     ) -> None:
         object.__setattr__(self, "ownership_mode", ownership_mode)
         object.__setattr__(self, "recipe_entries", list(recipe_entries))
         object.__setattr__(
             self,
             "row_owner_by_index",
-            dict(
-                row_owner_by_index
-                if row_owner_by_index is not None
-                else block_owner_by_index or {}
-            ),
+            dict(row_owner_by_index or {}),
         )
         object.__setattr__(
             self,
             "owned_row_indices",
-            list(owned_row_indices if owned_row_indices is not None else owned_block_indices or []),
+            list(owned_row_indices or []),
         )
         object.__setattr__(
             self,
             "divested_row_indices",
-            list(
-                divested_row_indices
-                if divested_row_indices is not None
-                else divested_block_indices or []
-            ),
+            list(divested_row_indices or []),
         )
         object.__setattr__(
             self,
             "available_to_nonrecipe_row_indices",
-            list(
-                available_to_nonrecipe_row_indices
-                if available_to_nonrecipe_row_indices is not None
-                else available_to_nonrecipe_block_indices or []
-            ),
+            list(available_to_nonrecipe_row_indices or []),
         )
         object.__setattr__(
             self,
             "all_row_indices",
-            list(all_row_indices if all_row_indices is not None else all_block_indices or []),
+            list(all_row_indices or []),
         )
-
-    @property
-    def block_owner_by_index(self) -> dict[int, str]:
-        return dict(self.row_owner_by_index)
-
-    @property
-    def owned_block_indices(self) -> list[int]:
-        return list(self.owned_row_indices)
-
-    @property
-    def divested_block_indices(self) -> list[int]:
-        return list(self.divested_row_indices)
-
-    @property
-    def available_to_nonrecipe_block_indices(self) -> list[int]:
-        return list(self.available_to_nonrecipe_row_indices)
-
-    @property
-    def all_block_indices(self) -> list[int]:
-        return list(self.all_row_indices)
 
     def recipe_entry_by_recipe_id(self, recipe_id: str) -> RecipeOwnershipEntry | None:
         for entry in self.recipe_entries:
@@ -175,32 +119,23 @@ class RecipeOwnershipResult:
                 return entry
         return None
 
-    def is_block_recipe_owned(self, block_index: int) -> bool:
-        return int(block_index) in self.row_owner_by_index
-
     def is_row_recipe_owned(self, row_index: int) -> bool:
-        return self.is_block_recipe_owned(row_index)
+        return int(row_index) in self.row_owner_by_index
 
-    def assert_block_is_available_to_nonrecipe(self, block_index: int) -> None:
-        normalized = int(block_index)
+    def assert_row_is_available_to_nonrecipe(self, row_index: int) -> None:
+        normalized = int(row_index)
         if normalized in self.row_owner_by_index:
             owner = self.row_owner_by_index[normalized]
             raise RecipeOwnershipInvariantError(
-                f"Block {normalized} is recipe-owned by '{owner}' and may not enter nonrecipe routing."
-            )
-
-    def assert_row_is_available_to_nonrecipe(self, row_index: int) -> None:
-        self.assert_block_is_available_to_nonrecipe(row_index)
-
-    def assert_block_is_recipe_owned(self, block_index: int) -> None:
-        normalized = int(block_index)
-        if normalized not in self.row_owner_by_index:
-            raise RecipeOwnershipInvariantError(
-                f"Block {normalized} is not recipe-owned."
+                f"Row {normalized} is recipe-owned by '{owner}' and may not enter nonrecipe routing."
             )
 
     def assert_row_is_recipe_owned(self, row_index: int) -> None:
-        self.assert_block_is_recipe_owned(row_index)
+        normalized = int(row_index)
+        if normalized not in self.row_owner_by_index:
+            raise RecipeOwnershipInvariantError(
+                f"Row {normalized} is not recipe-owned."
+            )
 
 
 def build_recipe_ownership_result(
@@ -210,8 +145,8 @@ def build_recipe_ownership_result(
     recipes: Sequence[RecipeCandidate],
     ownership_mode: str = "recipe_boundary",
 ) -> RecipeOwnershipResult:
-    all_block_indices = _sorted_block_indices(full_blocks)
-    all_block_index_set = set(all_block_indices)
+    all_row_indices = _sorted_row_indices(full_blocks)
+    all_row_index_set = set(all_row_indices)
     span_rows = list(recipe_spans)
     recipe_rows = list(recipes)
     if len(span_rows) != len(recipe_rows):
@@ -221,7 +156,7 @@ def build_recipe_ownership_result(
         )
 
     entries: list[RecipeOwnershipEntry] = []
-    block_owner_by_index: dict[int, str] = {}
+    row_owner_by_index: dict[int, str] = {}
     for span, recipe in zip(span_rows, recipe_rows, strict=True):
         recipe_id = _require_recipe_id(recipe)
         explicit_recipe_span_id = _recipe_span_id_from_recipe(recipe)
@@ -231,19 +166,19 @@ def build_recipe_ownership_result(
                 "Recipe ownership could not be built because recipe span ids do not align "
                 f"({recipe_id}: recipe has '{recipe_span_id}' but boundary has '{span.span_id}')."
             )
-        owned_row_indices = _normalize_index_list(span.row_indices or span.block_indices)
-        missing = [index for index in owned_row_indices if index not in all_block_index_set]
+        owned_row_indices = _normalize_index_list(span.row_indices)
+        missing = [index for index in owned_row_indices if index not in all_row_index_set]
         if missing:
             raise RecipeOwnershipInvariantError(
-                f"Recipe '{recipe_id}' claimed unknown owned block indices: {missing}."
+                f"Recipe '{recipe_id}' claimed unknown owned row indices: {missing}."
             )
-        for block_index in owned_row_indices:
-            prior_owner = block_owner_by_index.get(block_index)
+        for row_index in owned_row_indices:
+            prior_owner = row_owner_by_index.get(row_index)
             if prior_owner is not None and prior_owner != recipe_id:
                 raise RecipeOwnershipInvariantError(
-                    f"Block {block_index} was claimed by both '{prior_owner}' and '{recipe_id}'."
+                    f"Row {row_index} was claimed by both '{prior_owner}' and '{recipe_id}'."
                 )
-            block_owner_by_index[block_index] = recipe_id
+            row_owner_by_index[row_index] = recipe_id
         entries.append(
             RecipeOwnershipEntry(
                 recipe_id=recipe_id,
@@ -256,7 +191,7 @@ def build_recipe_ownership_result(
     return _finalize_recipe_ownership(
         ownership_mode=ownership_mode,
         recipe_entries=entries,
-        all_block_indices=all_block_indices,
+        all_row_indices=all_row_indices,
     )
 
 
@@ -288,7 +223,7 @@ def apply_recipe_divestments(
         }
         for entry in ownership_result.recipe_entries
     }
-    block_owner_by_index = dict(ownership_result.row_owner_by_index)
+    row_owner_by_index = dict(ownership_result.row_owner_by_index)
     known_recipe_ids = set(updates_by_recipe_id)
 
     for divestment in divestments:
@@ -298,20 +233,20 @@ def apply_recipe_divestments(
                 f"Unknown recipe divestment owner '{recipe_id}'."
             )
         normalized_indices = _normalize_index_list(divestment.row_indices)
-        for block_index in normalized_indices:
-            owner = block_owner_by_index.get(block_index)
+        for row_index in normalized_indices:
+            owner = row_owner_by_index.get(row_index)
             if owner != recipe_id:
                 raise RecipeOwnershipInvariantError(
-                    f"Recipe '{recipe_id}' cannot divest block {block_index}; current owner is "
+                    f"Recipe '{recipe_id}' cannot divest row {row_index}; current owner is "
                     f"{owner!r}."
                 )
-            block_owner_by_index.pop(block_index, None)
+            row_owner_by_index.pop(row_index, None)
             owned = updates_by_recipe_id[recipe_id]["owned"]
-            if block_index in owned:
-                owned.remove(block_index)
+            if row_index in owned:
+                owned.remove(row_index)
             divested_list = updates_by_recipe_id[recipe_id]["divested"]
-            if block_index not in divested_list:
-                divested_list.append(block_index)
+            if row_index not in divested_list:
+                divested_list.append(row_index)
 
     updated_entries = [
         RecipeOwnershipEntry(
@@ -325,7 +260,7 @@ def apply_recipe_divestments(
     return _finalize_recipe_ownership(
         ownership_mode=ownership_mode,
         recipe_entries=updated_entries,
-        all_block_indices=list(ownership_result.all_block_indices),
+        all_row_indices=list(ownership_result.all_row_indices),
     )
 
 
@@ -383,7 +318,7 @@ def recipe_ownership_from_payload(
     return _finalize_recipe_ownership(
         ownership_mode=str(payload.get("ownership_mode") or "recipe_boundary"),
         recipe_entries=entries,
-        all_block_indices=_sorted_block_indices(full_blocks),
+        all_row_indices=_sorted_row_indices(full_blocks),
     )
 
 
@@ -391,7 +326,7 @@ def _finalize_recipe_ownership(
     *,
     ownership_mode: str,
     recipe_entries: Sequence[RecipeOwnershipEntry],
-    all_block_indices: Sequence[int],
+    all_row_indices: Sequence[int],
 ) -> RecipeOwnershipResult:
     normalized_entries = [
         RecipeOwnershipEntry(
@@ -402,37 +337,37 @@ def _finalize_recipe_ownership(
         )
         for entry in recipe_entries
     ]
-    block_owner_by_index: dict[int, str] = {}
-    divested_block_indices: set[int] = set()
+    row_owner_by_index: dict[int, str] = {}
+    divested_row_indices: set[int] = set()
     for entry in normalized_entries:
-        for block_index in entry.divested_row_indices:
-            divested_block_indices.add(block_index)
-        for block_index in entry.owned_row_indices:
-            if block_index in divested_block_indices:
+        for row_index in entry.divested_row_indices:
+            divested_row_indices.add(row_index)
+        for row_index in entry.owned_row_indices:
+            if row_index in divested_row_indices:
                 raise RecipeOwnershipInvariantError(
-                    f"Block {block_index} cannot be both owned and divested."
+                    f"Row {row_index} cannot be both owned and divested."
                 )
-            prior_owner = block_owner_by_index.get(block_index)
+            prior_owner = row_owner_by_index.get(row_index)
             if prior_owner is not None and prior_owner != entry.recipe_id:
                 raise RecipeOwnershipInvariantError(
-                    f"Block {block_index} was claimed by both '{prior_owner}' and '{entry.recipe_id}'."
+                    f"Row {row_index} was claimed by both '{prior_owner}' and '{entry.recipe_id}'."
                 )
-            block_owner_by_index[block_index] = entry.recipe_id
-    all_indices = sorted({int(index) for index in all_block_indices})
-    owned_block_indices = sorted(block_owner_by_index)
-    available_to_nonrecipe = [index for index in all_indices if index not in block_owner_by_index]
+            row_owner_by_index[row_index] = entry.recipe_id
+    all_indices = sorted({int(index) for index in all_row_indices})
+    owned_row_indices = sorted(row_owner_by_index)
+    available_to_nonrecipe = [index for index in all_indices if index not in row_owner_by_index]
     return RecipeOwnershipResult(
         ownership_mode=str(ownership_mode).strip() or "recipe_boundary",
         recipe_entries=list(normalized_entries),
-        row_owner_by_index=block_owner_by_index,
-        owned_row_indices=owned_block_indices,
-        divested_row_indices=sorted(divested_block_indices),
+        row_owner_by_index=row_owner_by_index,
+        owned_row_indices=owned_row_indices,
+        divested_row_indices=sorted(divested_row_indices),
         available_to_nonrecipe_row_indices=available_to_nonrecipe,
         all_row_indices=all_indices,
     )
 
 
-def _sorted_block_indices(full_blocks: Sequence[Mapping[str, Any]]) -> list[int]:
+def _sorted_row_indices(full_blocks: Sequence[Mapping[str, Any]]) -> list[int]:
     indices: set[int] = set()
     for fallback_index, block in enumerate(full_blocks):
         if not isinstance(block, Mapping):

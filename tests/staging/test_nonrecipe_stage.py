@@ -44,12 +44,12 @@ def _block_label(
 def _ownership_result(
     *,
     full_blocks: list[dict[str, object]],
-    owned_block_indices: list[int] | None = None,
-    divested_block_indices: list[int] | None = None,
+    owned_row_indices: list[int] | None = None,
+    divested_row_indices: list[int] | None = None,
 ) -> object:
     return make_recipe_ownership_result(
-        owned_by_recipe_id={"urn:recipe:test:r0": list(owned_block_indices or [])},
-        divested_by_recipe_id={"urn:recipe:test:r0": list(divested_block_indices or [])},
+        owned_by_recipe_id={"urn:recipe:test:r0": list(owned_row_indices or [])},
+        divested_by_recipe_id={"urn:recipe:test:r0": list(divested_row_indices or [])},
         all_block_indices=[
             int(block["index"])
             for block in full_blocks
@@ -74,7 +74,7 @@ def test_nonrecipe_stage_ignores_recipe_local_blocks_inside_recipe_span() -> Non
         ],
         recipe_ownership_result=_ownership_result(
             full_blocks=full_blocks,
-            owned_block_indices=[1, 2],
+            owned_row_indices=[1, 2],
         ),
     )
 
@@ -126,8 +126,8 @@ def test_nonrecipe_stage_normalizes_divested_recipe_local_labels_to_candidates()
         ],
         recipe_ownership_result=_ownership_result(
             full_blocks=full_blocks,
-            owned_block_indices=[0],
-            divested_block_indices=[1],
+            owned_row_indices=[0],
+            divested_row_indices=[1],
         ),
     )
 
@@ -265,8 +265,8 @@ def test_nonrecipe_stage_routes_rejected_recipe_boundary_span_to_candidate_queue
 
     assert recipe_spans == []
     assert span_decisions[0].decision == "rejected_pseudo_recipe_span"
-    assert ownership.owned_block_indices == []
-    assert ownership.available_to_nonrecipe_block_indices == [0, 1]
+    assert ownership.owned_row_indices == []
+    assert ownership.available_to_nonrecipe_row_indices == [0, 1]
     assert result.seed.seed_route_by_index == {0: "candidate", 1: "candidate"}
     assert result.routing.candidate_block_indices == [0, 1]
     assert result.routing.excluded_block_indices == []

@@ -242,7 +242,7 @@ def run_recipe_boundary_stage(
     )
     recipe_owned_blocks = _block_rows_for_indices(
         extracted_bundle.archive_blocks,
-        recipe_ownership_result.owned_block_indices,
+        recipe_ownership_result.owned_row_indices,
     )
     return RecipeBoundaryResult(
         extracted_bundle=extracted_bundle,
@@ -265,25 +265,25 @@ def _build_default_recipe_authority_decisions(
         if not recipe_id:
             continue
         ownership_entry = recipe_ownership_result.recipe_entry_by_recipe_id(recipe_id)
-        owned_block_indices = (
-            list(ownership_entry.owned_block_indices) if ownership_entry is not None else []
+        owned_row_indices = (
+            list(ownership_entry.owned_row_indices) if ownership_entry is not None else []
         )
-        divested_block_indices = (
-            list(ownership_entry.divested_block_indices) if ownership_entry is not None else []
+        divested_row_indices = (
+            list(ownership_entry.divested_row_indices) if ownership_entry is not None else []
         )
         retained_block_indices = [
-            index for index in owned_block_indices if index not in set(divested_block_indices)
+            index for index in owned_row_indices if index not in set(divested_row_indices)
         ]
         decisions[recipe_id] = RecipeAuthorityDecision(
             recipe_id=recipe_id,
             semantic_outcome="recipe",
             publish_status="published",
             ownership_action=classify_recipe_ownership_action(
-                owned_block_indices=owned_block_indices,
-                divested_block_indices=divested_block_indices,
+                owned_block_indices=owned_row_indices,
+                divested_block_indices=divested_row_indices,
             ),
-            owned_block_indices=owned_block_indices,
-            divested_block_indices=divested_block_indices,
+            owned_block_indices=owned_row_indices,
+            divested_block_indices=divested_row_indices,
             retained_block_indices=retained_block_indices,
             final_recipe_authority_status="promoted",
             final_recipe_authority_reason="deterministic_recipe_projection",

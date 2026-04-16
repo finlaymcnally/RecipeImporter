@@ -28,7 +28,7 @@ from cookimport.labelstudio.label_config_freeform import (
     normalize_freeform_label,
 )
 from .prelabel_codex import LlmProvider, normalize_prelabel_granularity
-from .prelabel_mapping import _resolve_focus_block_indices
+from .prelabel_mapping import _resolve_focus_row_indices
 _MODEL_CONFIG_LINE_RE = re.compile(r"^\s*model\s*=\s*['\"]([^'\"]+)['\"]\s*$")
 _MODEL_REASONING_EFFORT_CONFIG_LINE_RE = re.compile(
     r"^\s*model_reasoning_effort\s*=\s*['\"]([^'\"]+)['\"]\s*$"
@@ -59,15 +59,15 @@ _SPAN_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text spans for a "
 
 GOAL
 - Return only the specific spans that should be labeled.
-- You may return zero, one, or many spans per block.
+- You may return zero, one, or many spans per row.
 - Use only these labels:
   {{ALLOWED_LABELS}}
 
 FOCUS SCOPE (READ THIS FIRST)
-- The block list appears once at the end as one stream with explicit zone markers.
-- Label only spans from blocks between:
-  <<<START_LABELING_BLOCKS_HERE>>>
-  <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
+- The row list appears once at the end as one stream with explicit zone markers.
+- Label only spans from rows between:
+  <<<START_LABELING_ROWS_HERE>>>
+  <<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>
 - Marker legend:
   <<<CONTEXT_BEFORE_LABELING_ONLY>>> = context before focus (read-only)
   <<<CONTEXT_AFTER_LABELING_ONLY>>> = context after focus (read-only)
@@ -76,19 +76,19 @@ RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary.
 Each item must be one of:
 1) quote-anchored span (preferred):
-   {"block_index": <int>, "label": "<LABEL>", "quote": "<exact text from that block>", "occurrence": <int optional, 1-based>}
+   {"row_index": <int>, "label": "<LABEL>", "quote": "<exact text from that row>", "occurrence": <int optional, 1-based>}
 2) absolute offset span (advanced fallback):
    {"label": "<LABEL>", "start": <int>, "end": <int>}
 
 RULES
-- Return spans only for focus blocks. Non-focus blocks are context only.
-- quote text must be copied exactly from block text (case and internal whitespace must match).
+- Return spans only for focus rows. Non-focus rows are context only.
+- quote text must be copied exactly from row text (case and internal whitespace must match).
 - You may omit leading/trailing spaces in quote.
-- If the quote appears multiple times in the same block, include occurrence.
+- If the quote appears multiple times in the same row, include occurrence.
 - Do not return labels outside the allowed list.
 
 Segment id: {{SEGMENT_ID}}
-Blocks (one block per line as "<block_index><TAB><block_text>"):
+Rows (one row per line as "<row_index><TAB><row_text>"):
 {{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}"""
 _PRELABEL_SELECTION_LABEL_ALIASES = {
     "YIELD": "YIELD_LINE",
@@ -122,7 +122,7 @@ def _render_prompt_template(
     for token, value in replacements.items():
         rendered = rendered.replace(token, value)
     return rendered
-def _collapse_block_index_ranges(indices: list[int]) -> str:
+def _collapse_row_index_ranges(indices: list[int]) -> str:
     if not indices:
         return ""
     ordered = sorted(set(indices))
@@ -144,74 +144,74 @@ def _collapse_block_index_ranges(indices: list[int]) -> str:
     else:
         ranges.append(f"{start}-{end}")
     return ", ".join(ranges)
-def _build_focus_marked_block_lines(
+def _build_focus_marked_row_lines(
     *,
-    valid_blocks: list[tuple[int, str]],
-    focus_block_indices: set[int],
+    valid_rows: list[tuple[int, str]],
+    focus_row_indices: set[int],
 ) -> list[str]:
-    if not valid_blocks:
+    if not valid_rows:
         return []
     marked: list[str] = []
     in_focus_run = False
     saw_focus = False
     emitted_context_before_marker = False
     emitted_context_after_marker = False
-    for block_index, block_text in valid_blocks:
-        is_focus = block_index in focus_block_indices
+    for row_index, row_text in valid_rows:
+        is_focus = row_index in focus_row_indices
         if not saw_focus and not is_focus and not emitted_context_before_marker:
             marked.append("<<<CONTEXT_BEFORE_LABELING_ONLY>>>")
             emitted_context_before_marker = True
         if is_focus and not in_focus_run:
-            marked.append("<<<START_LABELING_BLOCKS_HERE>>>")
+            marked.append("<<<START_LABELING_ROWS_HERE>>>")
             in_focus_run = True
             saw_focus = True
         elif in_focus_run and not is_focus:
-            marked.append("<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>")
+            marked.append("<<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>")
             in_focus_run = False
             if not emitted_context_after_marker:
                 marked.append("<<<CONTEXT_AFTER_LABELING_ONLY>>>")
                 emitted_context_after_marker = True
-        # Keep block text verbatim so quote-copy instructions remain literal.
-        marked.append(f"{block_index}\t{block_text}")
+        # Keep row text verbatim so quote-copy instructions remain literal.
+        marked.append(f"{row_index}\t{row_text}")
     if in_focus_run:
-        marked.append("<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>")
+        marked.append("<<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>")
     return marked
-def _extract_valid_blocks_from_segment_text(
+def _extract_valid_rows_from_segment_text(
     *,
     segment_text: str,
     blocks: list[Any],
 ) -> list[tuple[int, str]]:
-    valid_blocks: list[tuple[int, str]] = []
+    valid_rows: list[tuple[int, str]] = []
     for block in blocks:
         if not isinstance(block, dict):
             continue
-        block_index_raw = block.get("block_index")
+        row_index_raw = block.get("row_index", block.get("block_index"))
         start_raw = block.get("segment_start")
         end_raw = block.get("segment_end")
         try:
-            block_index = int(block_index_raw)
+            row_index = int(row_index_raw)
             start = int(start_raw)
             end = int(end_raw)
         except (TypeError, ValueError):
             continue
         if start < 0 or end <= start or end > len(segment_text):
             continue
-        block_text = segment_text[start:end]
-        valid_blocks.append((block_index, block_text))
-    return valid_blocks
-def _extract_prompt_context_blocks(raw_blocks: Any) -> list[tuple[int, str]]:
+        row_text = segment_text[start:end]
+        valid_rows.append((row_index, row_text))
+    return valid_rows
+def _extract_prompt_context_rows(raw_blocks: Any) -> list[tuple[int, str]]:
     if not isinstance(raw_blocks, list):
         return []
     parsed: list[tuple[int, str]] = []
     for item in raw_blocks:
         if not isinstance(item, dict):
             continue
-        block_index_raw = item.get("block_index")
+        row_index_raw = item.get("row_index", item.get("block_index"))
         try:
-            block_index = int(block_index_raw)
+            row_index = int(row_index_raw)
         except (TypeError, ValueError):
             continue
-        parsed.append((block_index, str(item.get("text") or "")))
+        parsed.append((row_index, str(item.get("text") or "")))
     return parsed
 def _build_prompt(
     *,
@@ -231,48 +231,48 @@ def _build_prompt(
     if not isinstance(blocks, list):
         raise ValueError("task source_map.rows missing")
 
-    focus_valid_blocks = _extract_valid_blocks_from_segment_text(
+    focus_valid_rows = _extract_valid_rows_from_segment_text(
         segment_text=segment_text,
         blocks=blocks,
     )
-    context_before_blocks = _extract_prompt_context_blocks(
+    context_before_rows = _extract_prompt_context_rows(
         source_map.get("context_before_rows")
     )
-    context_after_blocks = _extract_prompt_context_blocks(
+    context_after_rows = _extract_prompt_context_rows(
         source_map.get("context_after_rows")
     )
 
-    if context_before_blocks or context_after_blocks:
-        valid_blocks = [
-            *context_before_blocks,
-            *focus_valid_blocks,
-            *context_after_blocks,
+    if context_before_rows or context_after_rows:
+        valid_rows = [
+            *context_before_rows,
+            *focus_valid_rows,
+            *context_after_rows,
         ]
     else:
-        valid_blocks = list(focus_valid_blocks)
+        valid_rows = list(focus_valid_rows)
 
     lines = [
-        json.dumps({"block_index": block_index, "text": block_text}, ensure_ascii=False)
-        for block_index, block_text in valid_blocks
+        json.dumps({"row_index": row_index, "text": row_text}, ensure_ascii=False)
+        for row_index, row_text in valid_rows
     ]
 
-    available_block_indices = [
-        block_index for block_index, _text in focus_valid_blocks
+    available_row_indices = [
+        row_index for row_index, _text in focus_valid_rows
     ]
-    focus_block_indices = _resolve_focus_block_indices(
+    focus_row_indices = _resolve_focus_row_indices(
         source_map=source_map,
-        available_block_indices=available_block_indices,
+        available_row_indices=available_row_indices,
     )
-    focus_block_index_set = set(focus_block_indices)
+    focus_row_index_set = set(focus_row_indices)
     focus_lines = [
-        json.dumps({"block_index": block_index, "text": block_text}, ensure_ascii=False)
-        for block_index, block_text in focus_valid_blocks
-        if block_index in focus_block_index_set
+        json.dumps({"row_index": row_index, "text": row_text}, ensure_ascii=False)
+        for row_index, row_text in focus_valid_rows
+        if row_index in focus_row_index_set
     ]
     if not focus_lines:
         focus_lines = list(lines)
-        focus_block_index_set = {block_index for block_index, _text in valid_blocks}
-        focus_block_indices = sorted(focus_block_index_set)
+        focus_row_index_set = {row_index for row_index, _text in valid_rows}
+        focus_row_indices = sorted(focus_row_index_set)
 
     ordered_allowed_labels = [
         label for label in FREEFORM_LABELS if label in set(allowed_labels)
@@ -281,25 +281,25 @@ def _build_prompt(
     blocks_json_lines = "\n".join(lines)
     focus_blocks_json_lines = "\n".join(focus_lines)
     blocks_with_focus_markers_compact_lines = "\n".join(
-        _build_focus_marked_block_lines(
-            valid_blocks=valid_blocks,
-            focus_block_indices=focus_block_index_set,
+        _build_focus_marked_row_lines(
+            valid_rows=valid_rows,
+            focus_row_indices=focus_row_index_set,
         )
     )
-    focus_block_indices_text = _collapse_block_index_ranges(focus_block_indices) or "none"
-    all_block_indices = [block_index for block_index, _text in valid_blocks]
-    if focus_block_indices:
-        first_focus_block = focus_block_indices[0]
-        last_focus_block = focus_block_indices[-1]
+    focus_row_indices_text = _collapse_row_index_ranges(focus_row_indices) or "none"
+    all_row_indices = [row_index for row_index, _text in valid_rows]
+    if focus_row_indices:
+        first_focus_row = focus_row_indices[0]
+        last_focus_row = focus_row_indices[-1]
         context_before_block_indices_text = (
-            _collapse_block_index_ranges(
-                [block_index for block_index in all_block_indices if block_index < first_focus_block]
+            _collapse_row_index_ranges(
+                [row_index for row_index in all_row_indices if row_index < first_focus_row]
             )
             or "none"
         )
         context_after_block_indices_text = (
-            _collapse_block_index_ranges(
-                [block_index for block_index in all_block_indices if block_index > last_focus_block]
+            _collapse_row_index_ranges(
+                [row_index for row_index in all_row_indices if row_index > last_focus_row]
             )
             or "none"
         )
@@ -308,20 +308,20 @@ def _build_prompt(
         context_after_block_indices_text = "none"
     if len(focus_lines) == len(lines):
         focus_constraints = (
-            "- Focus equals context for this task: label all listed blocks.\n"
-            f"- Focus block indices: {focus_block_indices_text}."
+            "- Focus equals context for this task: label all listed rows.\n"
+            f"- Focus row indices: {focus_row_indices_text}."
         )
-        focus_marker_rules = "- START/STOP markers wrap the full block list for this task."
+        focus_marker_rules = "- START/STOP markers wrap the full row list for this task."
     else:
         focus_constraints = (
-            f"- Label only focus blocks for this task: {focus_block_indices_text}.\n"
-            f"- Context-only blocks BEFORE focus: {context_before_block_indices_text}.\n"
-            f"- Context-only blocks AFTER focus: {context_after_block_indices_text}."
+            f"- Label only focus rows for this task: {focus_row_indices_text}.\n"
+            f"- Context-only rows BEFORE focus: {context_before_block_indices_text}.\n"
+            f"- Context-only rows AFTER focus: {context_after_block_indices_text}."
         )
         focus_marker_rules = (
             "- <<<CONTEXT_BEFORE_LABELING_ONLY>>> marks read-only context before focus.\n"
-            "- <<<START_LABELING_BLOCKS_HERE>>> begins the labelable focus window.\n"
-            "- <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>> ends the labelable focus window.\n"
+            "- <<<START_LABELING_ROWS_HERE>>> begins the labelable focus window.\n"
+            "- <<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>> ends the labelable focus window.\n"
             "- <<<CONTEXT_AFTER_LABELING_ONLY>>> marks read-only context after focus."
         )
 
@@ -333,7 +333,7 @@ def _build_prompt(
             "{{ALLOWED_LABELS}}": allowed_labels_text,
             "{{FOCUS_CONSTRAINTS}}": focus_constraints,
             "{{FOCUS_BLOCK_JSON_LINES}}": focus_blocks_json_lines,
-            "{{FOCUS_BLOCK_INDICES}}": focus_block_indices_text,
+            "{{FOCUS_BLOCK_INDICES}}": focus_row_indices_text,
             "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
             "{{SEGMENT_ID}}": segment_id,
             "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
@@ -347,7 +347,7 @@ def _build_prompt_log_entry(
     prompt_hash: str,
     allowed_labels: set[str],
     prelabel_granularity: str,
-    focus_block_indices: set[int],
+    focus_row_indices: set[int],
     provider: LlmProvider,
 ) -> dict[str, Any]:
     data = task.get("data") if isinstance(task, dict) else {}
@@ -365,12 +365,12 @@ def _build_prompt_log_entry(
     context_after_blocks = source_map.get("context_after_rows")
     if not isinstance(context_after_blocks, list):
         context_after_blocks = []
-    block_indices: list[int] = []
+    row_indices: list[int] = []
     for block in source_blocks:
         if not isinstance(block, dict):
             continue
         try:
-            block_indices.append(int(block.get("block_index")))
+            row_indices.append(int(block.get("row_index", block.get("block_index"))))
         except (TypeError, ValueError):
             continue
     context_before_indices: list[int] = []
@@ -378,7 +378,7 @@ def _build_prompt_log_entry(
         if not isinstance(block, dict):
             continue
         try:
-            context_before_indices.append(int(block.get("block_index")))
+            context_before_indices.append(int(block.get("row_index", block.get("block_index"))))
         except (TypeError, ValueError):
             continue
     context_after_indices: list[int] = []
@@ -386,7 +386,7 @@ def _build_prompt_log_entry(
         if not isinstance(block, dict):
             continue
         try:
-            context_after_indices.append(int(block.get("block_index")))
+            context_after_indices.append(int(block.get("row_index", block.get("block_index"))))
         except (TypeError, ValueError):
             continue
     ordered_allowed_labels = [
@@ -412,14 +412,14 @@ def _build_prompt_log_entry(
         "prompt": prompt,
         "included_with_prompt": {
             "segment_text_char_count": len(str(data.get("segment_text") or "")),
-            "segment_block_count": len(block_indices),
-            "segment_block_indices": block_indices,
-            "context_before_block_count": len(context_before_indices),
-            "context_before_block_indices": context_before_indices,
-            "context_after_block_count": len(context_after_indices),
-            "context_after_block_indices": context_after_indices,
-            "focus_block_count": len(focus_block_indices),
-            "focus_block_indices": sorted(focus_block_indices),
+            "segment_row_count": len(row_indices),
+            "segment_row_indices": row_indices,
+            "context_before_row_count": len(context_before_indices),
+            "context_before_row_indices": context_before_indices,
+            "context_after_row_count": len(context_after_indices),
+            "context_after_row_indices": context_after_indices,
+            "focus_row_count": len(focus_row_indices),
+            "focus_row_indices": sorted(focus_row_indices),
             "allowed_labels": ordered_allowed_labels,
             "provider_class": provider.__class__.__name__,
             "provider_cmd": getattr(provider, "cmd", None),

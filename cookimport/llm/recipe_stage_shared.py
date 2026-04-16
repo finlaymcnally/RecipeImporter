@@ -1548,7 +1548,9 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
             updated_recipes_by_id[state.recipe_id] = corrected_candidate
     divested_block_indices_by_recipe_id: dict[str, list[int]] = {}
     for divestment in recipe_divestments:
-        divested_block_indices_by_recipe_id.setdefault(divestment.recipe_id, []).extend((int(index) for index in divestment.block_indices))
+        divested_block_indices_by_recipe_id.setdefault(divestment.recipe_id, []).extend(
+            (int(index) for index in divestment.row_indices)
+        )
     for recipe_id, indices in list(divested_block_indices_by_recipe_id.items()):
         divested_block_indices_by_recipe_id[recipe_id] = sorted(set(indices))
     for state in states:

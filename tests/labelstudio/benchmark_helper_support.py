@@ -362,7 +362,7 @@ def _install_noop_benchmark_eval_mocks(
         )
     if _is_repo_default("format_source_row_eval_report_md"):
         _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
     if capture_csv is None:
         monkeypatch.setattr(
             "cookimport.analytics.perf_report.append_benchmark_csv",

@@ -80,7 +80,7 @@ def _boundary_result(
     recipe_block_indices = {
         int(block_index)
         for span in label_result.recipe_spans
-        for block_index in span.block_indices
+        for block_index in span.row_indices
     }
     recipe_owned_blocks = [
         dict(block)
@@ -94,7 +94,7 @@ def _boundary_result(
     ]
     recipe_ownership_result = make_recipe_ownership_result(
         owned_by_recipe_id={
-            str(recipe.identifier): list(span.block_indices)
+            str(recipe.identifier): list(span.row_indices)
             for recipe, span in zip(
                 conversion_result.recipes,
                 label_result.recipe_spans,
@@ -165,9 +165,9 @@ def test_execute_stage_import_session_keeps_label_first_zero_recipe_result(
                 span_id="pseudo_recipe_span_0",
                 decision="rejected_pseudo_recipe_span",
                 rejection_reason="rejected_missing_title_anchor",
-                start_block_index=0,
-                end_block_index=1,
-                block_indices=[0, 1],
+                start_row_index=0,
+                end_row_index=1,
+                row_indices=[0, 1],
                 source_block_ids=["b0", "b1"],
                 warnings=[
                     "recipe_span_started_without_title",
@@ -282,12 +282,12 @@ def test_execute_stage_import_session_writes_line_role_authority_artifacts_for_c
         recipe_spans=[
             RecipeSpan(
                 span_id="span-1",
-                start_block_index=0,
-                end_block_index=1,
-                block_indices=[0, 1],
+                start_row_index=0,
+                end_row_index=1,
+                row_indices=[0, 1],
                 source_block_ids=["b0", "b1"],
                 atomic_indices=[0, 1],
-                title_block_index=0,
+                title_row_index=0,
                 title_atomic_index=0,
             )
         ],
@@ -430,9 +430,9 @@ def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_out
         recipe_spans=[
             RecipeSpan(
                 span_id="recipe.0",
-                start_block_index=0,
-                end_block_index=1,
-                block_indices=[0],
+                start_row_index=0,
+                end_row_index=1,
+                row_indices=[0],
                 source_block_ids=["b0"],
             )
         ],

@@ -392,7 +392,7 @@ def _run_predictions_in_evaluate_only_fixture(
         }
 
     _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: None,
@@ -533,7 +533,7 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
         }
 
     _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
     monkeypatch.setattr(
         "cookimport.analytics.perf_report.append_benchmark_csv",
         lambda *_args, **_kwargs: None,

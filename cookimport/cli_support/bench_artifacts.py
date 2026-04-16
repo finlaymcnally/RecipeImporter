@@ -641,13 +641,13 @@ def _prediction_record_meta_from_bundle(
     }
 
 
-def _load_stage_block_prediction_payload(path: Path) -> dict[str, Any]:
+def _load_semantic_row_prediction_payload(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         raise ValueError(f"Unable to read semantic row predictions from {path}: {exc}") from exc
     if not isinstance(payload, dict):
-        raise ValueError(f"Stage block predictions payload at {path} is not a JSON object.")
+        raise ValueError(f"Semantic row predictions payload at {path} is not a JSON object.")
     return payload
 
 
@@ -695,7 +695,7 @@ def predict_stage(
     bundle: BenchmarkPredictionBundle,
     selected_source: Path,
 ) -> Iterator[PredictionRecord]:
-    stage_payload = _load_stage_block_prediction_payload(bundle.stage_predictions_path)
+    stage_payload = _load_semantic_row_prediction_payload(bundle.stage_predictions_path)
     raw_row_labels = stage_payload.get("row_labels")
     if not isinstance(raw_row_labels, dict):
         raise ValueError(

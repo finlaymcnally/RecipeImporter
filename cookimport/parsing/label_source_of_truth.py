@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import format_stage_counter_progress
@@ -155,40 +155,18 @@ class RecipeSpan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     span_id: str
-    start_row_index: int = Field(validation_alias=AliasChoices("start_row_index", "start_block_index"))
-    end_row_index: int = Field(validation_alias=AliasChoices("end_row_index", "end_block_index"))
-    row_indices: list[int] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("row_indices", "block_indices"),
-    )
+    start_row_index: int
+    end_row_index: int
+    row_indices: list[int] = Field(default_factory=list)
     source_block_ids: list[str] = Field(default_factory=list)
     start_atomic_index: int | None = None
     end_atomic_index: int | None = None
     atomic_indices: list[int] = Field(default_factory=list)
-    title_row_index: int | None = Field(
-        default=None,
-        validation_alias=AliasChoices("title_row_index", "title_block_index"),
-    )
+    title_row_index: int | None = None
     title_atomic_index: int | None = None
     warnings: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
     decision_notes: list[str] = Field(default_factory=list)
-
-    @property
-    def start_block_index(self) -> int:
-        return int(self.start_row_index)
-
-    @property
-    def end_block_index(self) -> int:
-        return int(self.end_row_index)
-
-    @property
-    def block_indices(self) -> list[int]:
-        return list(self.row_indices)
-
-    @property
-    def title_block_index(self) -> int | None:
-        return self.title_row_index
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "RecipeSpan":
@@ -204,40 +182,18 @@ class RecipeSpanDecision(BaseModel):
     span_id: str
     decision: Literal["accepted_recipe_span", "rejected_pseudo_recipe_span"]
     rejection_reason: str | None = None
-    start_row_index: int = Field(validation_alias=AliasChoices("start_row_index", "start_block_index"))
-    end_row_index: int = Field(validation_alias=AliasChoices("end_row_index", "end_block_index"))
-    row_indices: list[int] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("row_indices", "block_indices"),
-    )
+    start_row_index: int
+    end_row_index: int
+    row_indices: list[int] = Field(default_factory=list)
     source_block_ids: list[str] = Field(default_factory=list)
     start_atomic_index: int | None = None
     end_atomic_index: int | None = None
     atomic_indices: list[int] = Field(default_factory=list)
-    title_row_index: int | None = Field(
-        default=None,
-        validation_alias=AliasChoices("title_row_index", "title_block_index"),
-    )
+    title_row_index: int | None = None
     title_atomic_index: int | None = None
     warnings: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
     decision_notes: list[str] = Field(default_factory=list)
-
-    @property
-    def start_block_index(self) -> int:
-        return int(self.start_row_index)
-
-    @property
-    def end_block_index(self) -> int:
-        return int(self.end_row_index)
-
-    @property
-    def block_indices(self) -> list[int]:
-        return list(self.row_indices)
-
-    @property
-    def title_block_index(self) -> int | None:
-        return self.title_row_index
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "RecipeSpanDecision":
@@ -396,8 +352,10 @@ def build_conversion_result_from_label_spans(
     authoritative_label_stage_key: Literal["label_refine", "line_role"] = "label_refine",
 ) -> LabelFirstStageResult:
     lines_by_block: dict[int, list[AuthoritativeLabeledLine]] = defaultdict(list)
+    lines_by_atomic_index: dict[int, AuthoritativeLabeledLine] = {}
     for row in labeled_lines:
         lines_by_block[int(row.source_block_index)].append(row)
+        lines_by_atomic_index[int(row.atomic_index)] = row
     for rows in lines_by_block.values():
         rows.sort(key=lambda row: row.atomic_index)
 
@@ -430,8 +388,8 @@ def build_conversion_result_from_label_spans(
     for span in recipe_spans:
         span_rows = [
             row
-            for block_index in span.block_indices
-            for row in lines_by_block.get(int(block_index), [])
+            for row_index in span.row_indices
+            if (row := lines_by_atomic_index.get(int(row_index))) is not None
         ]
         span_rows.sort(key=lambda row: row.atomic_index)
         recipe = _build_recipe_candidate_from_span(
@@ -488,9 +446,10 @@ def build_conversion_result_from_label_spans(
             updated_span_decisions.append(decision)
 
     block_ids_in_recipe = {
-        int(block_index)
+        int(row.source_block_index)
         for span in accepted_recipe_spans
-        for block_index in span.block_indices
+        for row_index in span.row_indices
+        if (row := lines_by_atomic_index.get(int(row_index))) is not None
     }
     non_recipe_blocks = [
         dict(block)
@@ -587,22 +546,23 @@ def authoritative_lines_to_canonical_predictions(
     labeled_lines: Sequence[AuthoritativeLabeledLine],
     recipe_spans: Sequence[RecipeSpan],
 ) -> list[CanonicalLineRolePrediction]:
-    recipe_index_by_block: dict[int, int] = {}
-    span_id_by_block: dict[int, str] = {}
+    recipe_index_by_row: dict[int, int] = {}
+    span_id_by_row: dict[int, str] = {}
     for recipe_index, span in enumerate(recipe_spans):
-        for block_index in span.block_indices:
-            recipe_index_by_block[int(block_index)] = recipe_index
-            span_id_by_block[int(block_index)] = span.span_id
+        for row_index in span.row_indices:
+            recipe_index_by_row[int(row_index)] = recipe_index
+            span_id_by_row[int(row_index)] = span.span_id
     predictions: list[CanonicalLineRolePrediction] = []
     for row in labeled_lines:
         block_index = int(row.source_block_index)
-        recipe_index = recipe_index_by_block.get(block_index)
+        row_index = int(row.atomic_index)
+        recipe_index = recipe_index_by_row.get(row_index)
         predictions.append(
             CanonicalLineRolePrediction(
                 recipe_id=(
                     f"recipe:{recipe_index}"
                     if recipe_index is not None
-                    else span_id_by_block.get(block_index)
+                    else span_id_by_row.get(row_index)
                 ),
                 block_id=row.source_block_id,
                 block_index=block_index,
@@ -653,13 +613,36 @@ def _build_recipe_candidate_from_span(
             continue
         seen_instruction_rows.add(text)
         instruction_rows.append(text)
+    span_source_block_indices = sorted(
+        {int(row.source_block_index) for row in span_rows}
+    )
+    title_source_block_index = next(
+        (
+            int(row.source_block_index)
+            for row in span_rows
+            if row.final_label == "RECIPE_TITLE"
+        ),
+        None,
+    )
     location = {
-        "start_block": span.start_block_index,
-        "end_block": span.end_block_index,
+        "start_block": (
+            span_source_block_indices[0]
+            if span_source_block_indices
+            else int(span.start_row_index)
+        ),
+        "end_block": (
+            span_source_block_indices[-1]
+            if span_source_block_indices
+            else int(span.end_row_index)
+        ),
         "chunk_index": recipe_index,
         "label_source": "label-first-v1",
         "recipe_span_id": span.span_id,
-        "title_block_index": span.title_block_index,
+        "title_block_index": (
+            title_source_block_index
+            if title_source_block_index is not None
+            else span.title_row_index
+        ),
     }
     provenance = provenance_builder.build(
         confidence_score=None,

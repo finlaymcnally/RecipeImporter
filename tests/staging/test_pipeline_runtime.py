@@ -85,7 +85,7 @@ def test_run_recipe_refine_stage_applies_llm_recipe_divestments(monkeypatch, tmp
             recipe_divestments=[
                 RecipeDivestment(
                     recipe_id=recipe_id,
-                    block_indices=[0, 1],
+                    row_indices=[0, 1],
                     reason="not_a_recipe",
                 )
             ],
@@ -106,9 +106,9 @@ def test_run_recipe_refine_stage_applies_llm_recipe_divestments(monkeypatch, tmp
     )
 
     assert result.conversion_result.recipes == []
-    assert result.recipe_ownership_result.owned_block_indices == []
-    assert result.recipe_ownership_result.divested_block_indices == [0, 1]
-    assert result.recipe_ownership_result.available_to_nonrecipe_block_indices == [0, 1, 2]
+    assert result.recipe_ownership_result.owned_row_indices == []
+    assert result.recipe_ownership_result.divested_row_indices == [0, 1]
+    assert result.recipe_ownership_result.available_to_nonrecipe_row_indices == [0, 1, 2]
 
 
 def test_run_recipe_refine_stage_keeps_fragmentary_recipe_owned_when_not_divested(
@@ -192,8 +192,8 @@ def test_run_recipe_refine_stage_keeps_fragmentary_recipe_owned_when_not_diveste
     )
 
     assert result.conversion_result.recipes == []
-    assert result.recipe_ownership_result.owned_block_indices == [0, 1, 2]
-    assert result.recipe_ownership_result.divested_block_indices == []
+    assert result.recipe_ownership_result.owned_row_indices == [0, 1, 2]
+    assert result.recipe_ownership_result.divested_row_indices == []
     assert result.recipe_authority_decisions_by_recipe_id[recipe_id].publish_status == (
         "withheld_partial"
     )

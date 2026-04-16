@@ -5,18 +5,18 @@ from typing import Any, Mapping
 from cookimport.core.models import AuthoritativeRecipeSemantics
 from cookimport.core.models import ConversionResult
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel
-from cookimport.staging.block_label_resolution import (
+from cookimport.staging.row_label_resolution import (
     FREEFORM_LABELS,
     RECIPE_LOCAL_LABELS,
-    resolve_stage_block_label,
+    resolve_semantic_row_label,
 )
-from cookimport.staging.knowledge_block_evidence import build_knowledge_block_evidence
+from cookimport.staging.knowledge_row_evidence import build_knowledge_row_evidence
 from cookimport.staging.nonrecipe_stage import NonRecipeStageResult
 from cookimport.staging.recipe_authority_decisions import RecipeAuthorityDecision
-from cookimport.staging.recipe_block_evidence import (
-    build_recipe_block_evidence,
+from cookimport.staging.recipe_row_evidence import (
+    build_recipe_row_evidence,
     is_howto_section_text as _is_howto_section_text,
-    load_stage_prediction_archive,
+    load_stage_prediction_archive_rows,
     resolve_stage_prediction_source_file,
     resolve_stage_prediction_source_hash,
 )
@@ -47,20 +47,20 @@ def build_semantic_row_predictions(
     boundary_labels: list[AuthoritativeBlockLabel] | None = None,
 ) -> dict[str, Any]:
     """Build a deterministic row-native semantic label manifest from staged outputs."""
-    archive = load_stage_prediction_archive(conversion_result, archive_blocks)
-    recipe_evidence = build_recipe_block_evidence(
+    archive_rows = load_stage_prediction_archive_rows(conversion_result, archive_blocks)
+    recipe_evidence = build_recipe_row_evidence(
         conversion_result,
-        archive=archive,
+        archive_rows=archive_rows,
         recipe_ownership_result=recipe_ownership_result,
         authoritative_payloads_by_recipe_id=authoritative_payloads_by_recipe_id,
         recipe_authority_decisions_by_recipe_id=recipe_authority_decisions_by_recipe_id,
-        boundary_block_labels=boundary_labels,
+        boundary_labels=boundary_labels,
     )
-    knowledge_evidence = build_knowledge_block_evidence(nonrecipe_stage_result)
+    knowledge_evidence = build_knowledge_row_evidence(nonrecipe_stage_result)
 
     row_labels = {
         index: set(labels)
-        for index, labels in recipe_evidence.block_labels.items()
+        for index, labels in recipe_evidence.row_labels.items()
     }
     notes = list(recipe_evidence.notes)
     notes.extend(knowledge_evidence.notes)
@@ -69,15 +69,15 @@ def build_semantic_row_predictions(
             "Recipe-local title/variant/yield/time evidence now stays unresolved when exact grounding is unavailable."
         )
 
-    if knowledge_evidence.knowledge_indices and recipe_evidence.block_count == 0:
+    if knowledge_evidence.knowledge_indices and recipe_evidence.row_count == 0:
         notes.append("Knowledge rows were present but no extracted archive rows were available.")
     for row_index in sorted(knowledge_evidence.knowledge_indices):
-        if recipe_ownership_result.is_block_recipe_owned(row_index):
-            owner = recipe_ownership_result.block_owner_by_index.get(int(row_index), "unknown")
+        if recipe_ownership_result.is_row_recipe_owned(row_index):
+            owner = recipe_ownership_result.row_owner_by_index.get(int(row_index), "unknown")
             raise RecipeOwnershipInvariantError(
                 f"Row {row_index} was marked KNOWLEDGE but is recipe-owned by '{owner}'."
             )
-        if row_index < 0 or row_index >= recipe_evidence.block_count:
+        if row_index < 0 or row_index >= recipe_evidence.row_count:
             notes.append(
                 f"Knowledge row reference was out of range ({row_index}); ignored."
             )
@@ -91,7 +91,7 @@ def build_semantic_row_predictions(
 
     conflicts: list[dict[str, Any]] = []
     resolved: dict[int, str] = {}
-    for row_index in range(recipe_evidence.block_count):
+    for row_index in range(recipe_evidence.row_count):
         labels = sorted(label for label in row_labels.get(row_index, set()) if label != "OTHER")
         if "KNOWLEDGE" in labels and any(label in RECIPE_LOCAL_LABELS for label in labels):
             raise RecipeOwnershipInvariantError(
@@ -100,10 +100,10 @@ def build_semantic_row_predictions(
             )
         if len(labels) > 1:
             conflicts.append({"row_index": row_index, "labels": labels})
-        resolved[row_index] = resolve_stage_block_label(labels)
+        resolved[row_index] = resolve_semantic_row_label(labels)
 
     label_rows: dict[str, list[int]] = {label: [] for label in FREEFORM_LABELS}
-    for row_index in range(recipe_evidence.block_count):
+    for row_index in range(recipe_evidence.row_count):
         label_rows.setdefault(resolved.get(row_index, "OTHER"), []).append(row_index)
 
     return {
@@ -111,22 +111,22 @@ def build_semantic_row_predictions(
         "source_file": source_file or resolve_stage_prediction_source_file(conversion_result),
         "source_hash": source_hash or resolve_stage_prediction_source_hash(conversion_result),
         "workbook_slug": workbook_slug,
-        "row_count": recipe_evidence.block_count,
+        "row_count": recipe_evidence.row_count,
         "row_labels": {
             str(index): resolved.get(index, "OTHER")
-            for index in range(recipe_evidence.block_count)
+            for index in range(recipe_evidence.row_count)
         },
         "label_rows": {
             label: sorted(indices)
             for label, indices in label_rows.items()
         },
         "counts": {
-            "rows": recipe_evidence.block_count,
+            "rows": recipe_evidence.row_count,
             "authoritative_knowledge_rows": len(knowledge_evidence.knowledge_indices),
-            "unresolved_candidate_rows": len(knowledge_evidence.unresolved_block_indices),
+            "unresolved_candidate_rows": len(knowledge_evidence.unresolved_row_indices),
             "unresolved_recipe_owned_rows": len(recipe_evidence.unresolved_recipe_owned_indices),
         },
-        UNRESOLVED_CANDIDATE_ROW_INDICES_KEY: list(knowledge_evidence.unresolved_block_indices),
+        UNRESOLVED_CANDIDATE_ROW_INDICES_KEY: list(knowledge_evidence.unresolved_row_indices),
         UNRESOLVED_CANDIDATE_ROW_CATEGORY_KEY: {
             str(index): category
             for index, category in sorted(knowledge_evidence.unresolved_categories.items())

@@ -195,7 +195,7 @@ def _run_pipelined_streaming_fixture(
 
     _install_noop_benchmark_eval_mocks(monkeypatch)
     _patch_cli_attr(monkeypatch, "evaluate_source_rows", _fake_evaluate_source_rows)
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
 
     eval_root = tmp_path / "eval-pipelined-streaming"
     cli.labelstudio_benchmark(
@@ -677,7 +677,7 @@ def test_labelstudio_benchmark_writes_eval_timing_and_passes_csv_timing(
             "false_positive_preds": [],
         },
     )
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
 
     captured_csv: dict[str, object] = {}
 

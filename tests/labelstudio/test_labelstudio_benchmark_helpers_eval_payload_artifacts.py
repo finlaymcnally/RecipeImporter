@@ -97,7 +97,7 @@ def _run_prune_after_csv_fixture(
             "false_positive_preds": [],
         },
     )
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
 
     processed_run_root = tmp_path / "output" / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
@@ -281,7 +281,7 @@ def _run_interactive_prune_fixture(
             "false_positive_preds": [],
         },
     )
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
     _patch_cli_attr(monkeypatch, "_refresh_dashboard_after_history_write", lambda **_kwargs: None)
 
     processed_run_root = tmp_path / "output" / "2026-03-03_02.10.00_foodlab-line-role-gated-fix7"
@@ -436,7 +436,7 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
             "false_positive_preds": [],
         },
     )
-    _patch_cli_attr(monkeypatch, "format_stage_block_eval_report_md", lambda *_: "report")
+    _patch_cli_attr(monkeypatch, "format_source_row_eval_report_md", lambda *_: "report")
 
     captured: dict[str, object] = {}
 

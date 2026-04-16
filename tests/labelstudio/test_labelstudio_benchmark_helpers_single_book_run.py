@@ -1012,7 +1012,7 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_prefers_sour
     )
 
     assert [row["index"] for row in result.extracted_bundle.archive_blocks] == [0, 1, 2]
-    assert result.recipe_ownership_result.owned_block_indices == [0, 1, 2]
+    assert result.recipe_ownership_result.owned_row_indices == [0, 1, 2]
 
 
 def test_load_recipe_boundary_result_from_deterministic_prep_bundle_reads_line_role_authority_file(

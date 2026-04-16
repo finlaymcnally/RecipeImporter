@@ -580,7 +580,7 @@ That includes:
 - reviewer-facing knowledge artifacts when non-recipe finalize runs
 - raw artifacts
 - reports
-- benchmark-facing `stage_block_predictions.json`
+- benchmark-facing `semantic_row_predictions.json`
 - run manifest, summary, and observability files
 
 Sections come from the finalized recipe side.
@@ -593,7 +593,7 @@ If non-recipe finalize produced reviewed outside-recipe authority, that late-out
 
 If non-recipe finalize is off or falls back, that late-output list is instead the surviving candidate queue from `nonrecipe-route`, so the run can still build useful deterministic tables and chunks without pretending that unreviewed rows are final truth.
 
-`stage_block_predictions.json` matters because it is the run's block-level benchmark evidence after the real authority decisions have already happened.
+`semantic_row_predictions.json` matters because it is the run's row-level benchmark evidence after the real authority decisions have already happened.
 
 It also follows the stricter current ownership rule: recipe-owned blocks and final non-recipe `knowledge` are not supposed to overlap. If the runtime ever sees both on the same block, that is treated as a bug or invariant violation, not as a normal merge case where one side quietly wins.
 

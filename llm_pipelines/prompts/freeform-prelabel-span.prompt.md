@@ -1,12 +1,12 @@
 You are labeling cookbook text spans for a "freeform spans" golden set.
 
 IMPORTANT IMPLEMENTATION CONSTRAINT
-- You are labeling SUBSTRINGS, not whole blocks.
+- You are labeling SUBSTRINGS, not whole rows.
 - Return only the exact text spans that should be highlighted.
-- You may return zero, one, or many spans per block.
+- You may return zero, one, or many spans per row.
 
 GOAL
-Use nearby context to detect whether blocks are recipe content vs general narrative,
+Use nearby context to detect whether rows are recipe content vs general narrative,
 then return precise spans with the best label for each span.
 
 Use only these labels:
@@ -16,38 +16,38 @@ FOCUS SCOPE (READ THIS FIRST)
 {{FOCUS_CONSTRAINTS}}
 Marker legend:
 {{FOCUS_MARKER_RULES}}
-- Label only spans from blocks between:
-  <<<START_LABELING_BLOCKS_HERE>>>
-  <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
-- Block stream line format is: <block_index><TAB><block_text>
+- Label only spans from rows between:
+  <<<START_LABELING_ROWS_HERE>>>
+  <<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>
+- Row stream line format is: <row_index><TAB><row_text>
 
 RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary. No extra keys.
 Each item must be exactly one of:
 1) quote-anchored span (preferred):
-   {"block_index": <int>, "label": "<LABEL>", "quote": "<exact text from that block>", "occurrence": <int optional, 1-based>}
+   {"row_index": <int>, "label": "<LABEL>", "quote": "<exact text from that row>", "occurrence": <int optional, 1-based>}
 2) absolute offset span (advanced fallback):
    {"label": "<LABEL>", "start": <int>, "end": <int>}
 
 HARD RULES
-1) Return spans only for focus blocks.
+1) Return spans only for focus rows.
 2) label must be exactly one of the allowed labels.
-3) quote must be copied exactly from a single block text (case and internal whitespace must match).
+3) quote must be copied exactly from a single row text (case and internal whitespace must match).
 4) You may omit leading/trailing spaces in quote.
 5) If the same quote appears multiple times in the same block, include occurrence.
 6) Return only confident spans; leave unclear content unlabeled.
 7) Prefer quote-anchored items; use absolute offsets only when quote anchoring is not feasible.
-8) Whole-block selections should be rare in span mode.
-9) If a block is longer than 160 characters, do NOT label the entire block unless nearly all meaningful text is one label.
-10) For long multi-sentence blocks, split by sentence/phrase and label only the specific parts that match a label.
+8) Whole-row selections should be rare in span mode.
+9) If a row is longer than 160 characters, do NOT label the entire row unless nearly all meaningful text is one label.
+10) For long multi-sentence rows, split by sentence/phrase and label only the specific parts that match a label.
 11) Context helps with classification, but context does NOT justify labeling glue text.
 
 HOW TO DECIDE (STEP-BY-STEP)
 A) First, detect whether a recipe is present nearby:
    - Strong recipe signals: RECIPE_TITLE, runs of INGREDIENT_LINE content, numbered steps,
      imperative cooking verbs ("mix", "bake", "stir"), "Serves/Makes", "Prep/Cook/Total".
-   - Use nearby blocks only to infer context.
-   - Do NOT auto-label adjacent/contiguous blocks just because they are nearby.
+   - Use nearby rows only to infer context.
+   - Do NOT auto-label adjacent/contiguous rows just because they are nearby.
    - Decide each returned span from its own text; it is valid to label only a small phrase.
 
 B) Then label spans using the definitions + tie-break rules below.
@@ -105,44 +105,44 @@ OTHER
   section headers, non-knowledge narrative fluff, page metadata, credits, references, etc.
 - Also use for standalone "Ingredients"/"Directions"/"Method" header text.
 
-MIXED BLOCKS (IMPORTANT)
+MIXED ROWS (IMPORTANT)
 Because this is span mode:
-- Do NOT force one label for the whole block.
+- Do NOT force one label for the whole row.
 - Return multiple spans if different parts map to different labels.
 - Skip unlabeled glue text between labeled spans.
 - If a fragment is too ambiguous, leave it unlabeled.
 
-MIXED BLOCK EXAMPLES (COPY THIS STYLE)
+MIXED ROW EXAMPLES (COPY THIS STYLE)
 Example 1 (yield + time in one line):
-- Block text: "SERVES 4; READY IN 25 MINUTES"
+- Row text: "SERVES 4; READY IN 25 MINUTES"
 - Good output:
   [
-    {"block_index": 42, "label": "YIELD_LINE", "quote": "SERVES 4"},
-    {"block_index": 42, "label": "TIME_LINE", "quote": "READY IN 25 MINUTES"}
+    {"row_index": 42, "label": "YIELD_LINE", "quote": "SERVES 4"},
+    {"row_index": 42, "label": "TIME_LINE", "quote": "READY IN 25 MINUTES"}
   ]
 
 Example 2 (note + instruction in one block):
-- Block text: "Tip: add chili oil for heat. Stir and cook 3 minutes."
+- Row text: "Tip: add chili oil for heat. Stir and cook 3 minutes."
 - Good output:
   [
-    {"block_index": 77, "label": "RECIPE_NOTES", "quote": "Tip: add chili oil for heat."},
-    {"block_index": 77, "label": "INSTRUCTION_LINE", "quote": "Stir and cook 3 minutes."}
+    {"row_index": 77, "label": "RECIPE_NOTES", "quote": "Tip: add chili oil for heat."},
+    {"row_index": 77, "label": "INSTRUCTION_LINE", "quote": "Stir and cook 3 minutes."}
   ]
 
 Example 3 (header + ingredient in one block):
-- Block text: "Ingredients: 2 tablespoons olive oil"
+- Row text: "Ingredients: 2 tablespoons olive oil"
 - Good output:
   [
-    {"block_index": 88, "label": "OTHER", "quote": "Ingredients:"},
-    {"block_index": 88, "label": "INGREDIENT_LINE", "quote": "2 tablespoons olive oil"}
+    {"row_index": 88, "label": "OTHER", "quote": "Ingredients:"},
+    {"row_index": 88, "label": "INGREDIENT_LINE", "quote": "2 tablespoons olive oil"}
   ]
 
 FINAL CHECK BEFORE YOU ANSWER
 - Is the output strict JSON array only?
 - Are all labels from the allowed set?
-- Are quote spans exact copies from block text?
-- Did you avoid labeling non-focus blocks?
+- Are quote spans exact copies from row text?
+- Did you avoid labeling non-focus rows?
 
 Segment id: {{SEGMENT_ID}}
-Blocks (single pass with explicit context-before / focus / context-after markers):
+Rows (single pass with explicit context-before / focus / context-after markers):
 {{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}

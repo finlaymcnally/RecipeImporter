@@ -171,15 +171,15 @@ _SPAN_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text spans for a "
 
 GOAL
 - Return only the specific spans that should be labeled.
-- You may return zero, one, or many spans per block.
+- You may return zero, one, or many spans per row.
 - Use only these labels:
   {{ALLOWED_LABELS}}
 
 FOCUS SCOPE (READ THIS FIRST)
-- The block list appears once at the end as one stream with explicit zone markers.
-- Label only spans from blocks between:
-  <<<START_LABELING_BLOCKS_HERE>>>
-  <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
+- The row list appears once at the end as one stream with explicit zone markers.
+- Label only spans from rows between:
+  <<<START_LABELING_ROWS_HERE>>>
+  <<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>
 - Marker legend:
   <<<CONTEXT_BEFORE_LABELING_ONLY>>> = context before focus (read-only)
   <<<CONTEXT_AFTER_LABELING_ONLY>>> = context after focus (read-only)
@@ -188,19 +188,19 @@ RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary.
 Each item must be one of:
 1) quote-anchored span (preferred):
-   {"block_index": <int>, "label": "<LABEL>", "quote": "<exact text from that block>", "occurrence": <int optional, 1-based>}
+   {"row_index": <int>, "label": "<LABEL>", "quote": "<exact text from that row>", "occurrence": <int optional, 1-based>}
 2) absolute offset span (advanced fallback):
    {"label": "<LABEL>", "start": <int>, "end": <int>}
 
 RULES
-- Return spans only for focus blocks. Non-focus blocks are context only.
-- quote text must be copied exactly from block text (case and internal whitespace must match).
+- Return spans only for focus rows. Non-focus rows are context only.
+- quote text must be copied exactly from row text (case and internal whitespace must match).
 - You may omit leading/trailing spaces in quote.
-- If the quote appears multiple times in the same block, include occurrence.
+- If the quote appears multiple times in the same row, include occurrence.
 - Do not return labels outside the allowed list.
 
 Segment id: {{SEGMENT_ID}}
-Blocks (one block per line as "<block_index><TAB><block_text>"):
+Rows (one row per line as "<row_index><TAB><row_text>"):
 {{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}"""
 _PRELABEL_SELECTION_LABEL_ALIASES = {
     "YIELD": "YIELD_LINE",
@@ -279,28 +279,28 @@ def parse_span_label_output(raw: str) -> list[dict[str, Any]]:
             )
             continue
 
-        block_index_raw = item.get("block_index")
+        row_index_raw = item.get("row_index", item.get("block_index"))
         quote_raw = item.get("quote")
         if quote_raw is None:
             quote_raw = item.get("text") or item.get("span")
-        if block_index_raw is None or quote_raw is None:
+        if row_index_raw is None or quote_raw is None:
             continue
         try:
-            block_index = int(block_index_raw)
+            row_index = int(row_index_raw)
         except (TypeError, ValueError):
             continue
         quote = str(quote_raw)
         if not quote:
             continue
         occurrence = _parse_optional_occurrence(item.get("occurrence"))
-        key = ("quote", block_index, label, quote, occurrence)
+        key = ("quote", row_index, label, quote, occurrence)
         if key in seen:
             continue
         seen.add(key)
         parsed.append(
             {
                 "kind": "quote",
-                "block_index": block_index,
+                "row_index": row_index,
                 "label": label,
                 "quote": quote,
                 "occurrence": occurrence,

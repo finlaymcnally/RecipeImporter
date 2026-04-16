@@ -51,9 +51,9 @@ def _freeform_task() -> dict[str, object]:
             "segment_text": "Serves 4\n\n1 cup flour",
             "source_map": {
                 "separator": "\n\n",
-                "focus_start_block_index": 0,
-                "focus_end_block_index": 1,
-                "focus_block_indices": [0, 1],
+                "focus_start_row_index": 0,
+                "focus_end_row_index": 1,
+                "focus_row_indices": [0, 1],
                 "rows": [
                     {
                         "row_id": "row-0",
@@ -85,9 +85,9 @@ def _single_block_task(text: str) -> dict[str, object]:
             "segment_text": text,
             "source_map": {
                 "separator": "\n\n",
-                "focus_start_block_index": 5,
-                "focus_end_block_index": 5,
-                "focus_block_indices": [5],
+                "focus_start_row_index": 5,
+                "focus_end_row_index": 5,
+                "focus_row_indices": [5],
                 "rows": [
                     {
                         "row_id": "row-5",
@@ -106,22 +106,22 @@ def _single_block_task(text: str) -> dict[str, object]:
 def test_parse_span_label_output_extracts_quote_and_absolute_items() -> None:
     raw = (
         "extra text\n"
-        '[{"block_index": 5, "label": "time", "quote": "Prep 10 min"},'
-        '{"block_index": 5, "label": "yield", "quote": "Serves 4", "occurrence": 1},'
+        '[{"row_index": 5, "label": "time", "quote": "Prep 10 min"},'
+        '{"row_index": 5, "label": "yield", "quote": "Serves 4", "occurrence": 1},'
         '{"label": "notes", "start": 2, "end": 8}]'
     )
     parsed = parse_span_label_output(raw)
     assert parsed == [
         {
             "kind": "quote",
-            "block_index": 5,
+            "row_index": 5,
             "label": "TIME_LINE",
             "quote": "Prep 10 min",
             "occurrence": None,
         },
         {
             "kind": "quote",
-            "block_index": 5,
+            "row_index": 5,
             "label": "YIELD_LINE",
             "quote": "Serves 4",
             "occurrence": 1,
@@ -144,8 +144,8 @@ def test_is_rate_limit_message_matches_common_429_shapes() -> None:
 def test_prelabel_freeform_task_uses_row_offsets_and_exact_text() -> None:
     task = _freeform_task()
     provider = _StaticProvider(
-        '[{"block_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}, '
-        '{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+        '[{"row_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}, '
+        '{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -173,8 +173,8 @@ def test_prelabel_freeform_task_uses_row_offsets_and_exact_text() -> None:
 def test_prelabel_freeform_task_span_mode_creates_partial_block_spans() -> None:
     task = _single_block_task("Serves 4 • Prep 10 min")
     provider = _StaticProvider(
-        '[{"block_index": 5, "label": "YIELD_LINE", "quote": "Serves 4"},'
-        '{"block_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min"}]'
+        '[{"row_index": 5, "label": "YIELD_LINE", "quote": "Serves 4"},'
+        '{"row_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -235,9 +235,9 @@ def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
             "segment_text": "A\n\nB\n\nC",
             "source_map": {
                 "separator": "\n\n",
-                "focus_start_block_index": 0,
-                "focus_end_block_index": 2,
-                "focus_block_indices": [0, 1, 2],
+                "focus_start_row_index": 0,
+                "focus_end_row_index": 2,
+                "focus_row_indices": [0, 1, 2],
                 "rows": [
                     {
                         "row_id": "row-0",
@@ -268,7 +268,7 @@ def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
         },
     }
     provider = _StaticProvider(
-        '[{"block_index": 0, "label": "OTHER", "quote": "B"}]'
+        '[{"row_index": 0, "label": "OTHER", "quote": "B"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -289,7 +289,7 @@ def test_span_resolution_requires_occurrence_for_ambiguous_quote() -> None:
     task = _single_block_task("Prep 10 min; Prep 10 min")
 
     ambiguous_provider = _StaticProvider(
-        '[{"block_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min"}]'
+        '[{"row_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min"}]'
     )
     ambiguous_annotation = prelabel_freeform_task(
         task,
@@ -299,7 +299,7 @@ def test_span_resolution_requires_occurrence_for_ambiguous_quote() -> None:
     assert ambiguous_annotation is None
 
     disambiguated_provider = _StaticProvider(
-        '[{"block_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min", "occurrence": 2}]'
+        '[{"row_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min", "occurrence": 2}]'
     )
     disambiguated_annotation = prelabel_freeform_task(
         task,
@@ -316,8 +316,8 @@ def test_span_resolution_requires_occurrence_for_ambiguous_quote() -> None:
 def test_prelabel_span_prompt_uses_ai_instruction_template() -> None:
     task = _freeform_task()
     provider = _CaptureProvider(
-        '[{"block_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}, '
-        '{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+        '[{"row_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}, '
+        '{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -335,11 +335,11 @@ def test_prelabel_span_prompt_uses_ai_instruction_template() -> None:
 
 def test_prelabel_prompt_includes_focus_scope() -> None:
     task = _freeform_task()
-    task["data"]["source_map"]["focus_start_block_index"] = 1
-    task["data"]["source_map"]["focus_end_block_index"] = 1
-    task["data"]["source_map"]["focus_block_indices"] = [1]
+    task["data"]["source_map"]["focus_start_row_index"] = 1
+    task["data"]["source_map"]["focus_end_row_index"] = 1
+    task["data"]["source_map"]["focus_row_indices"] = [1]
     provider = _CaptureProvider(
-        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+        '[{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -349,17 +349,17 @@ def test_prelabel_prompt_includes_focus_scope() -> None:
     )
     assert annotation is not None
     prompt = provider.prompts[0]
-    assert "Label only spans from blocks between:" in prompt
+    assert "Label only spans from rows between:" in prompt
     assert "1\t1 cup flour" in prompt
 
 
 def test_prelabel_span_prompt_marks_focus_window_without_block_duplication() -> None:
     task = _freeform_task()
-    task["data"]["source_map"]["focus_start_block_index"] = 1
-    task["data"]["source_map"]["focus_end_block_index"] = 1
-    task["data"]["source_map"]["focus_block_indices"] = [1]
+    task["data"]["source_map"]["focus_start_row_index"] = 1
+    task["data"]["source_map"]["focus_end_row_index"] = 1
+    task["data"]["source_map"]["focus_row_indices"] = [1]
     provider = _CaptureProvider(
-        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+        '[{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -370,10 +370,10 @@ def test_prelabel_span_prompt_marks_focus_window_without_block_duplication() -> 
     assert annotation is not None
     prompt = provider.prompts[0]
     assert "Focus block indices (for quick reference):" not in prompt
-    assert "<<<START_LABELING_BLOCKS_HERE>>>" in prompt
-    assert "<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>" in prompt
+    assert "<<<START_LABELING_ROWS_HERE>>>" in prompt
+    assert "<<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>" in prompt
     blocks_section = prompt.split(
-        "Blocks (single pass with explicit context-before / focus / context-after markers):", 1
+        "Rows (single pass with explicit context-before / focus / context-after markers):", 1
     )[1]
     assert "<<<CONTEXT_BEFORE_LABELING_ONLY>>>" in blocks_section
     assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" not in blocks_section
@@ -388,9 +388,9 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
             "segment_text": "A\n\nB\n\nC",
             "source_map": {
                 "separator": "\n\n",
-                "focus_start_block_index": 1,
-                "focus_end_block_index": 1,
-                "focus_block_indices": [1],
+                "focus_start_row_index": 1,
+                "focus_end_row_index": 1,
+                "focus_row_indices": [1],
                 "rows": [
                     {
                         "row_id": "row-0",
@@ -421,7 +421,7 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
         },
     }
     provider = _CaptureProvider(
-        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "B"}]'
+        '[{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "B"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -432,8 +432,8 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
     assert annotation is not None
     prompt = provider.prompts[0]
     assert "<<<CONTEXT_BEFORE_LABELING_ONLY>>>" in prompt
-    assert "<<<START_LABELING_BLOCKS_HERE>>>" in prompt
-    assert "<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>" in prompt
+    assert "<<<START_LABELING_ROWS_HERE>>>" in prompt
+    assert "<<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>" in prompt
     assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" in prompt
 
 
@@ -445,9 +445,9 @@ def test_prelabel_span_prompt_reads_context_blocks_for_focus_only_segment() -> N
             "segment_text": "B",
             "source_map": {
                 "separator": "\n\n",
-                "focus_start_block_index": 1,
-                "focus_end_block_index": 1,
-                "focus_block_indices": [1],
+                "focus_start_row_index": 1,
+                "focus_end_row_index": 1,
+                "focus_row_indices": [1],
                 "context_before_rows": [{"row_index": 0, "block_index": 0, "text": "A"}],
                 "context_after_rows": [{"row_index": 2, "block_index": 2, "text": "C"}],
                 "rows": [
@@ -464,7 +464,7 @@ def test_prelabel_span_prompt_reads_context_blocks_for_focus_only_segment() -> N
         },
     }
     provider = _CaptureProvider(
-        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "B"}]'
+        '[{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "B"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -480,8 +480,8 @@ def test_prelabel_span_prompt_reads_context_blocks_for_focus_only_segment() -> N
 
     prompt = provider.prompts[0]
     assert "<<<CONTEXT_BEFORE_LABELING_ONLY>>>" in prompt
-    assert "<<<START_LABELING_BLOCKS_HERE>>>" in prompt
-    assert "<<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>" in prompt
+    assert "<<<START_LABELING_ROWS_HERE>>>" in prompt
+    assert "<<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>" in prompt
     assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" in prompt
     assert "0\tA" in prompt
     assert "1\tB" in prompt
@@ -491,7 +491,7 @@ def test_prelabel_span_prompt_reads_context_blocks_for_focus_only_segment() -> N
 def test_prelabel_prompt_log_callback_captures_prompt_context() -> None:
     task = _freeform_task()
     provider = _StaticProvider(
-        '[{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+        '[{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
     )
     prompt_logs: list[dict[str, object]] = []
 
@@ -509,22 +509,22 @@ def test_prelabel_prompt_log_callback_captures_prompt_context() -> None:
     assert entry["prompt_template"] == "freeform-prelabel-span.prompt.md"
     assert "Segment id: urn:cookimport:segment:testhash:0:1" in entry["prompt"]
     included = entry["included_with_prompt"]
-    assert included["focus_block_indices"] == [0, 1]
-    assert included["segment_block_count"] == 2
-    assert included["context_before_block_count"] == 0
-    assert included["context_after_block_count"] == 0
+    assert included["focus_row_indices"] == [0, 1]
+    assert included["segment_row_count"] == 2
+    assert included["context_before_row_count"] == 0
+    assert included["context_after_row_count"] == 0
     assert included["allowed_labels"][0] == "RECIPE_TITLE"
     assert "Prompt includes allowed labels" in entry["included_with_prompt_description"]
 
 
 def test_prelabel_span_mode_filters_out_of_focus_rows() -> None:
     task = _freeform_task()
-    task["data"]["source_map"]["focus_start_block_index"] = 1
-    task["data"]["source_map"]["focus_end_block_index"] = 1
-    task["data"]["source_map"]["focus_block_indices"] = [1]
+    task["data"]["source_map"]["focus_start_row_index"] = 1
+    task["data"]["source_map"]["focus_end_row_index"] = 1
+    task["data"]["source_map"]["focus_row_indices"] = [1]
     provider = _StaticProvider(
-        '[{"block_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}, '
-        '{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+        '[{"row_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}, '
+        '{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -543,12 +543,12 @@ def test_prelabel_span_mode_filters_out_of_focus_rows() -> None:
 
 def test_prelabel_span_mode_drops_absolute_spans_outside_focus() -> None:
     task = _freeform_task()
-    task["data"]["source_map"]["focus_start_block_index"] = 1
-    task["data"]["source_map"]["focus_end_block_index"] = 1
-    task["data"]["source_map"]["focus_block_indices"] = [1]
+    task["data"]["source_map"]["focus_start_row_index"] = 1
+    task["data"]["source_map"]["focus_end_row_index"] = 1
+    task["data"]["source_map"]["focus_row_indices"] = [1]
     provider = _StaticProvider(
         '[{"label": "YIELD_LINE", "start": 0, "end": 21}, '
-        '{"block_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
+        '{"row_index": 1, "label": "INGREDIENT_LINE", "quote": "1 cup flour"}]'
     )
 
     annotation = prelabel_freeform_task(
@@ -582,7 +582,7 @@ def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> Non
 
     task = _freeform_task()
     span_provider = _CaptureProvider(
-        '[{"block_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}]'
+        '[{"row_index": 0, "label": "YIELD_LINE", "quote": "Serves 4"}]'
     )
     span_annotation = prelabel_freeform_task(
         task,
@@ -591,4 +591,4 @@ def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> Non
     )
     assert span_annotation is not None
     assert "SPAN urn:cookimport:segment:testhash:0:1" in span_provider.prompts[0]
-    assert '{"block_index": 0, "text": "Serves 4"}' in span_provider.prompts[0]
+    assert '{"row_index": 0, "text": "Serves 4"}' in span_provider.prompts[0]

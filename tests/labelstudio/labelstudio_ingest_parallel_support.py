@@ -151,9 +151,9 @@ def _make_label_first_result(
         recipe_spans=[
             RecipeSpan(
                 span_id="recipe_span_0",
-                start_block_index=0,
-                end_block_index=4,
-                block_indices=[0, 1, 2, 3, 4],
+                start_row_index=0,
+                end_row_index=4,
+                row_indices=[0, 1, 2, 3, 4],
                 source_block_ids=[
                     "block:0",
                     "block:1",
@@ -164,7 +164,7 @@ def _make_label_first_result(
                 start_atomic_index=0,
                 end_atomic_index=4,
                 atomic_indices=[0, 1, 2, 3, 4],
-                title_block_index=0,
+                title_row_index=0,
                 title_atomic_index=0,
             )
         ],
@@ -693,14 +693,14 @@ def _build_authoritative_atomic_projection_fixture(tmp_path: Path) -> dict[str, 
     label_first_result.recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=1,
-            block_indices=[0, 1],
+            start_row_index=0,
+            end_row_index=1,
+            row_indices=[0, 1],
             source_block_ids=["block:0", "block:1"],
             start_atomic_index=0,
             end_atomic_index=2,
             atomic_indices=[0, 1, 2],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]
@@ -825,14 +825,14 @@ def _build_final_nonrecipe_authority_fixture(
     label_first_result.recipe_spans = [
         RecipeSpan(
             span_id="recipe_span_0",
-            start_block_index=0,
-            end_block_index=1,
-            block_indices=[0, 1],
+            start_row_index=0,
+            end_row_index=1,
+            row_indices=[0, 1],
             source_block_ids=["block:0", "block:1"],
             start_atomic_index=0,
             end_atomic_index=1,
             atomic_indices=[0, 1],
-            title_block_index=0,
+            title_row_index=0,
             title_atomic_index=0,
         )
     ]

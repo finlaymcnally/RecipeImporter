@@ -37,7 +37,7 @@ RECIPE_LOCAL_LABELS: set[str] = {
 }
 
 
-def resolve_stage_block_label(labels: list[str]) -> str:
+def resolve_semantic_row_label(labels: list[str]) -> str:
     if not labels:
         return "OTHER"
 

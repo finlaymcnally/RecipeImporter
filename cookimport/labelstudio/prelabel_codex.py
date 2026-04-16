@@ -53,31 +53,31 @@ _RATE_LIMIT_MESSAGE_RE = re.compile(
     r"\b429\b|too many requests|rate[ -]?limit(?:ed|ing)?",
     re.IGNORECASE,
 )
-_FULL_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text BLOCKS for a "freeform spans" golden set.
+_FULL_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text ROWS for a "freeform spans" golden set.
 
 IMPORTANT IMPLEMENTATION CONSTRAINT
-- You must assign exactly ONE label to EACH block.
-- Downstream will highlight the ENTIRE block for the label you choose.
+- You must assign exactly ONE label to EACH row.
+- Downstream will highlight the ENTIRE row for the label you choose.
   So do NOT try to label substrings. Choose the best single label for the whole block.
 
 GOAL
-For each block, choose the label that best describes what the block IS, using local context
-(neighboring blocks) to determine whether we are inside a recipe or in general/narrative text.
+For each row, choose the label that best describes what the row IS, using local context
+(neighboring rows) to determine whether we are inside a recipe or in general/narrative text.
 
 FOCUS SCOPE
 {{FOCUS_CONSTRAINTS}}
-Focus blocks to label (context blocks may be broader):
+Focus rows to label (context rows may be broader):
 {{FOCUS_BLOCK_JSON_LINES}}
 
 RETURN FORMAT (STRICT)
 Return STRICT JSON ONLY. No markdown, no commentary, no extra keys.
 Output format exactly:
-[{"block_index": <int>, "label": "<LABEL>"}]
+[{"row_index": <int>, "label": "<LABEL>"}]
 
 HARD RULES
-1) Return labels only for focus blocks.
-2) Keep the SAME ORDER as the focus blocks listed above.
-3) Include each focus block_index exactly once.
+1) Return labels only for focus rows.
+2) Keep the SAME ORDER as the focus rows listed above.
+3) Include each focus row_index exactly once.
 4) label must be exactly one of:
    {{ALLOWED_LABELS}}
 {{UNCERTAINTY_HINT}}
@@ -89,7 +89,7 @@ A) First, detect whether a recipe is present nearby:
    - If those signals are present, treat contiguous nearby blocks as part of that recipe
      unless they are clearly unrelated noise (page number, copyright, photo credit, etc).
 
-B) Then label each block using the definitions + tie-break rules below.
+B) Then label each row using the definitions + tie-break rules below.
 
 LABEL DEFINITIONS (WITH HEURISTICS)
 
@@ -100,12 +100,12 @@ RECIPE_TITLE
   "Ingredients", "Directions", "Method", "Notes" by themselves.
 
 INGREDIENT_LINE
-- A line (or block mostly composed of lines) listing ingredients, typically with:
+- A line (or row mostly composed of lines) listing ingredients, typically with:
   - a quantity and/or unit (1, 1/2, 200 g, tbsp, cup, oz, ml),
   - an ingredient noun (flour, butter, garlic),
   - optional prep descriptors (chopped, minced, room temperature).
 - Also includes ingredient sub-lists that are still ingredients (e.g., "For the sauce: ...").
-- If the block is a MIX of ingredients and instructions, label OTHER (see "Mixed blocks").
+- If the row is a MIX of ingredients and instructions, label OTHER (see "Mixed blocks").
 
 INSTRUCTION_LINE
 - A preparation step: actions to perform, often imperative verbs and sentences:
@@ -116,12 +116,12 @@ INSTRUCTION_LINE
 YIELD_LINE
 - Statements about servings or yield / amount produced:
   "Serves 4", "Makes 24 cookies", "Yield: 2 loaves", "Feeds a crowd", "About 1 quart".
-- If yield is embedded with time in the SAME block, use the tie-break rule under TIME_LINE.
+- If yield is embedded with time in the SAME row, use the tie-break rule under TIME_LINE.
 
 TIME_LINE
 - Statements about time durations, prep/cook/total/chill/rest times:
   "Prep: 10 min", "Cook time 1 hour", "Total: 1:15", "Chill overnight".
-- If a single block contains BOTH time and yield:
+- If a single row contains BOTH time and yield:
   - Choose TIME_LINE if any explicit time durations or "prep/cook/total" appear.
   - Otherwise choose YIELD_LINE.
 
@@ -154,32 +154,32 @@ OTHER
 - mixed-content blocks where no single recipe label dominates.
 
 MIXED BLOCKS (IMPORTANT)
-Because you can only choose ONE label per block:
-- If the block is mostly ingredient lines -> INGREDIENT_LINE.
-- If the block is mostly instruction steps -> INSTRUCTION_LINE.
+Because you can only choose ONE label per row:
+- If the row is mostly ingredient lines -> INGREDIENT_LINE.
+- If the row is mostly instruction steps -> INSTRUCTION_LINE.
 - If it is truly mixed (e.g., ingredients + instructions interleaved, or recipe + narrative) -> OTHER.
 
 FINAL CHECK BEFORE YOU ANSWER
-- Did you label every provided block_index exactly once?
+- Did you label every provided row_index exactly once?
 - Are labels exactly from the allowed set?
 - Is the output STRICT JSON only (no trailing commas, no comments)?
 
 Segment id: {{SEGMENT_ID}}
-Blocks:
+Rows:
 {{BLOCKS_JSON_LINES}}"""
 _SPAN_PROMPT_TEMPLATE_FALLBACK = """You are labeling cookbook text spans for a "freeform spans" golden set.
 
 GOAL
 - Return only the specific spans that should be labeled.
-- You may return zero, one, or many spans per block.
+- You may return zero, one, or many spans per row.
 - Use only these labels:
   {{ALLOWED_LABELS}}
 
 FOCUS SCOPE (READ THIS FIRST)
-- The block list appears once at the end as one stream with explicit zone markers.
-- Label only spans from blocks between:
-  <<<START_LABELING_BLOCKS_HERE>>>
-  <<<STOP_LABELING_BLOCKS_HERE_CONTEXT_ONLY>>>
+- The row list appears once at the end as one stream with explicit zone markers.
+- Label only spans from rows between:
+  <<<START_LABELING_ROWS_HERE>>>
+  <<<STOP_LABELING_ROWS_HERE_CONTEXT_ONLY>>>
 - Marker legend:
   <<<CONTEXT_BEFORE_LABELING_ONLY>>> = context before focus (read-only)
   <<<CONTEXT_AFTER_LABELING_ONLY>>> = context after focus (read-only)
@@ -188,19 +188,19 @@ RETURN FORMAT (STRICT JSON ONLY)
 Return ONLY a JSON array. No markdown. No commentary.
 Each item must be one of:
 1) quote-anchored span (preferred):
-   {"block_index": <int>, "label": "<LABEL>", "quote": "<exact text from that block>", "occurrence": <int optional, 1-based>}
+   {"row_index": <int>, "label": "<LABEL>", "quote": "<exact text from that row>", "occurrence": <int optional, 1-based>}
 2) absolute offset span (advanced fallback):
    {"label": "<LABEL>", "start": <int>, "end": <int>}
 
 RULES
-- Return spans only for focus blocks. Non-focus blocks are context only.
-- quote text must be copied exactly from block text (case and internal whitespace must match).
+- Return spans only for focus rows. Non-focus rows are context only.
+- quote text must be copied exactly from row text (case and internal whitespace must match).
 - You may omit leading/trailing spaces in quote.
-- If the quote appears multiple times in the same block, include occurrence.
+- If the quote appears multiple times in the same row, include occurrence.
 - Do not return labels outside the allowed list.
 
 Segment id: {{SEGMENT_ID}}
-Blocks (one block per line as "<block_index><TAB><block_text>"):
+Rows (one row per line as "<row_index><TAB><row_text>"):
 {{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}"""
 _PRELABEL_SELECTION_LABEL_ALIASES = {
     "YIELD": "YIELD_LINE",

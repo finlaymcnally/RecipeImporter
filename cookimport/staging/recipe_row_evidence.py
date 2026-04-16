@@ -46,27 +46,27 @@ _TITLE_PROSE_CUE_RE = re.compile(
 
 
 @dataclass(frozen=True, slots=True)
-class ArchiveBlockView:
+class ArchiveRowView:
     index: int
     text: str
     location: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
-class RecipeBlockEvidence:
-    archive: list[ArchiveBlockView]
-    block_count: int
-    block_labels: dict[int, set[str]]
+class RecipeRowEvidence:
+    archive_rows: list[ArchiveRowView]
+    row_count: int
+    row_labels: dict[int, set[str]]
     unresolved_recipe_owned_indices: list[int]
     unresolved_recipe_owned_recipe_id_by_index: dict[int, str]
     unresolved_exact_evidence: list[dict[str, Any]]
     notes: list[str]
 
 
-def load_stage_prediction_archive(
+def load_stage_prediction_archive_rows(
     conversion_result: ConversionResult,
     archive_blocks: Iterable[dict[str, Any]] | None,
-) -> list[ArchiveBlockView]:
+) -> list[ArchiveRowView]:
     if archive_blocks is None:
         archive_payload = build_extracted_archive(
             conversion_result,
@@ -74,7 +74,7 @@ def load_stage_prediction_archive(
         )
         return sorted(
             [
-                ArchiveBlockView(
+                ArchiveRowView(
                     index=int(block.index),
                     text=str(block.text or ""),
                     location=dict(block.location or {}),
@@ -84,15 +84,15 @@ def load_stage_prediction_archive(
             key=lambda block: block.index,
         )
 
-    blocks: list[ArchiveBlockView] = []
+    rows: list[ArchiveRowView] = []
     for fallback_index, payload in enumerate(archive_blocks):
         if not isinstance(payload, dict):
             continue
         raw_index = payload.get("index")
         try:
-            block_index = int(raw_index)
+            row_index = int(raw_index)
         except (TypeError, ValueError):
-            block_index = fallback_index
+            row_index = fallback_index
         location = payload.get("location")
         if not isinstance(location, dict):
             location = {
@@ -100,14 +100,14 @@ def load_stage_prediction_archive(
                 for key, value in payload.items()
                 if key not in {"index", "text"}
             }
-        blocks.append(
-            ArchiveBlockView(
-                index=block_index,
+        rows.append(
+            ArchiveRowView(
+                index=row_index,
                 text=str(payload.get("text") or ""),
                 location=dict(location),
             )
         )
-    return sorted(blocks, key=lambda block: block.index)
+    return sorted(rows, key=lambda row: row.index)
 
 
 def resolve_stage_prediction_source_file(conversion_result: ConversionResult) -> str:
@@ -132,20 +132,20 @@ def resolve_stage_prediction_source_hash(conversion_result: ConversionResult) ->
     return "unknown"
 
 
-def build_recipe_block_evidence(
+def build_recipe_row_evidence(
     conversion_result: ConversionResult,
     *,
-    archive: list[ArchiveBlockView],
+    archive_rows: list[ArchiveRowView],
     recipe_ownership_result: RecipeOwnershipResult,
     authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]] | None = None,
     recipe_authority_decisions_by_recipe_id: Mapping[str, RecipeAuthorityDecision | Mapping[str, Any]] | None = None,
-    boundary_block_labels: Iterable[AuthoritativeBlockLabel] | None = None,
-) -> RecipeBlockEvidence:
+    boundary_labels: Iterable[AuthoritativeBlockLabel] | None = None,
+) -> RecipeRowEvidence:
     notes: list[str] = []
-    max_index = max((block.index for block in archive), default=-1)
-    block_count = max_index + 1 if max_index >= 0 else 0
-    block_labels: dict[int, set[str]] = {index: set() for index in range(block_count)}
-    archive_by_index = {block.index: block for block in archive}
+    max_index = max((row.index for row in archive_rows), default=-1)
+    row_count = max_index + 1 if max_index >= 0 else 0
+    row_labels: dict[int, set[str]] = {index: set() for index in range(row_count)}
+    archive_rows_by_index = {row.index: row for row in archive_rows}
     conversion_recipes_by_id = {
         _require_recipe_id(recipe): recipe for recipe in conversion_result.recipes
     }
@@ -161,7 +161,7 @@ def build_recipe_block_evidence(
     }
     boundary_labels_by_index = {
         int(row.source_block_index): str(row.final_label or "").strip()
-        for row in (boundary_block_labels or [])
+        for row in (boundary_labels or [])
     }
     unresolved_recipe_owned_indices: set[int] = set()
     unresolved_recipe_owned_recipe_id_by_index: dict[int, str] = {}
@@ -169,7 +169,7 @@ def build_recipe_block_evidence(
 
     for ownership_entry in recipe_ownership_result.recipe_entries:
         recipe_id = str(ownership_entry.recipe_id).strip()
-        if not recipe_id or not ownership_entry.owned_block_indices:
+        if not recipe_id or not ownership_entry.owned_row_indices:
             continue
         recipe_payload = authoritative_payload_rows.get(recipe_id)
         recipe = (
@@ -178,36 +178,36 @@ def build_recipe_block_evidence(
             else conversion_recipes_by_id.get(recipe_id)
         )
         if recipe is not None:
-            _label_recipe_blocks(
+            _label_recipe_rows(
                 recipe,
-                archive_by_index=archive_by_index,
-                owned_block_indices=ownership_entry.owned_block_indices,
-                block_labels=block_labels,
+                archive_rows_by_index=archive_rows_by_index,
+                owned_row_indices=ownership_entry.owned_row_indices,
+                row_labels=row_labels,
                 unresolved_exact_evidence=unresolved_exact_evidence,
                 notes=notes,
             )
             continue
-        labeled_from_boundary = _label_recipe_blocks_from_boundary_labels(
+        labeled_from_boundary = _label_recipe_rows_from_boundary_labels(
             recipe_id=recipe_id,
-            owned_block_indices=ownership_entry.owned_block_indices,
+            owned_row_indices=ownership_entry.owned_row_indices,
             boundary_labels_by_index=boundary_labels_by_index,
-            block_labels=block_labels,
+            row_labels=row_labels,
             notes=notes,
         )
         if labeled_from_boundary:
             continue
         decision = decision_rows.get(recipe_id)
-        for block_index in ownership_entry.owned_block_indices:
-            unresolved_recipe_owned_indices.add(int(block_index))
-            unresolved_recipe_owned_recipe_id_by_index[int(block_index)] = recipe_id
+        for row_index in ownership_entry.owned_row_indices:
+            unresolved_recipe_owned_indices.add(int(row_index))
+            unresolved_recipe_owned_recipe_id_by_index[int(row_index)] = recipe_id
         notes.append(
-            "Recipe-owned blocks remained withheld without recipe-local evidence: "
+            "Recipe-owned rows remained withheld without recipe-local evidence: "
             f"{recipe_id} ({getattr(decision, 'publish_status', 'unknown') or 'unknown'})."
         )
-    return RecipeBlockEvidence(
-        archive=archive,
-        block_count=block_count,
-        block_labels=block_labels,
+    return RecipeRowEvidence(
+        archive_rows=archive_rows,
+        row_count=row_count,
+        row_labels=row_labels,
         unresolved_recipe_owned_indices=sorted(unresolved_recipe_owned_indices),
         unresolved_recipe_owned_recipe_id_by_index=unresolved_recipe_owned_recipe_id_by_index,
         unresolved_exact_evidence=unresolved_exact_evidence,
@@ -225,7 +225,7 @@ def _coerce_int(value: Any) -> int | None:
 def _resolve_recipe_range(
     recipe: RecipeCandidate,
     *,
-    archive: list[ArchiveBlockView],
+    archive: list[ArchiveRowView],
 ) -> tuple[int | None, int | None]:
     provenance = recipe.provenance if isinstance(recipe.provenance, dict) else {}
     location = provenance.get("location") if isinstance(provenance, dict) else None
@@ -282,37 +282,37 @@ def _resolve_recipe_range(
     return start, end
 
 
-def _label_recipe_blocks(
+def _label_recipe_rows(
     recipe: RecipeCandidate,
     *,
-    archive_by_index: dict[int, ArchiveBlockView],
-    owned_block_indices: list[int],
-    block_labels: dict[int, set[str]],
+    archive_rows_by_index: dict[int, ArchiveRowView],
+    owned_row_indices: list[int],
+    row_labels: dict[int, set[str]],
     unresolved_exact_evidence: list[dict[str, Any]],
     notes: list[str],
 ) -> None:
     recipe_id = _require_recipe_id(recipe)
-    if not owned_block_indices:
+    if not owned_row_indices:
         notes.append(
-            f"Recipe '{recipe.name}' ({recipe_id}) owns no blocks; skipped recipe-local labeling."
+            f"Recipe '{recipe.name}' ({recipe_id}) owns no rows; skipped recipe-local labeling."
         )
         return
-    candidate_blocks: list[ArchiveBlockView] = []
-    missing_block_indices: list[int] = []
-    for block_index in owned_block_indices:
-        block = archive_by_index.get(int(block_index))
-        if block is None:
-            missing_block_indices.append(int(block_index))
+    candidate_rows: list[ArchiveRowView] = []
+    missing_row_indices: list[int] = []
+    for row_index in owned_row_indices:
+        row = archive_rows_by_index.get(int(row_index))
+        if row is None:
+            missing_row_indices.append(int(row_index))
             continue
-        candidate_blocks.append(block)
-    if missing_block_indices:
+        candidate_rows.append(row)
+    if missing_row_indices:
         raise RecipeOwnershipInvariantError(
-            f"Recipe '{recipe_id}' owns missing archive blocks: {missing_block_indices}."
+            f"Recipe '{recipe_id}' owns missing archive rows: {missing_row_indices}."
         )
 
-    title_index = _find_title_block_index(recipe, candidate_blocks)
+    title_index = _find_title_row_index(recipe, candidate_rows)
     if title_index is not None:
-        _mark_label(block_labels, title_index, "RECIPE_TITLE")
+        _mark_row_label(row_labels, title_index, "RECIPE_TITLE")
     elif str(recipe.name or "").strip():
         _record_unresolved_exact_evidence(
             unresolved_exact_evidence,
@@ -321,38 +321,38 @@ def _label_recipe_blocks(
             value=str(recipe.name or "").strip(),
         )
 
-    ingredient_indices = _match_texts_to_block_indices(
+    ingredient_indices = _match_texts_to_row_indices(
         _ingredient_texts(recipe),
-        candidate_blocks,
+        candidate_rows,
         preferred_roles={"ingredient_line", "section_heading"},
     )
     for idx in ingredient_indices:
-        _mark_label(block_labels, idx, "INGREDIENT_LINE")
+        _mark_row_label(row_labels, idx, "INGREDIENT_LINE")
 
-    instruction_indices = _match_texts_to_block_indices(
+    instruction_indices = _match_texts_to_row_indices(
         _instruction_texts(recipe),
-        candidate_blocks,
+        candidate_rows,
         preferred_roles={"instruction_line", "section_heading"},
     )
     for idx in instruction_indices:
-        _mark_label(block_labels, idx, "INSTRUCTION_LINE")
+        _mark_row_label(row_labels, idx, "INSTRUCTION_LINE")
 
     ingredient_role_indices = {
-        block.index for block in candidate_blocks if _block_role(block) == "ingredient_line"
+        row.index for row in candidate_rows if _block_role(row) == "ingredient_line"
     }
     instruction_role_indices = {
-        block.index for block in candidate_blocks if _block_role(block) == "instruction_line"
+        row.index for row in candidate_rows if _block_role(row) == "instruction_line"
     }
     howto_header_rows = _ingredient_section_header_texts(recipe)
     howto_header_rows.extend(_instruction_section_header_texts(recipe))
-    howto_indices = _match_texts_to_block_indices(
+    howto_indices = _match_texts_to_row_indices(
         howto_header_rows,
-        candidate_blocks,
+        candidate_rows,
         preferred_roles={"ingredient_line", "instruction_line", "section_heading"},
     )
     howto_indices = _filter_howto_section_indices(
         indices=howto_indices,
-        candidate_blocks=candidate_blocks,
+        candidate_rows=candidate_rows,
         structural_signal_indices=(
             ingredient_indices
             | instruction_indices
@@ -361,37 +361,37 @@ def _label_recipe_blocks(
         ),
     )
     for idx in howto_indices:
-        _mark_label(block_labels, idx, "HOWTO_SECTION")
+        _mark_row_label(row_labels, idx, "HOWTO_SECTION")
 
-    for idx in _match_texts_to_block_indices(_note_texts(recipe), candidate_blocks):
-        _mark_label(block_labels, idx, "RECIPE_NOTES")
+    for idx in _match_texts_to_row_indices(_note_texts(recipe), candidate_rows):
+        _mark_row_label(row_labels, idx, "RECIPE_NOTES")
 
     variant_texts = _variant_texts(recipe)
-    variant_indices = _match_texts_to_block_indices(variant_texts, candidate_blocks)
+    variant_indices = _match_texts_to_row_indices(variant_texts, candidate_rows)
     if not variant_indices and variant_texts:
-        for block in candidate_blocks:
-            if _is_variant_text(block.text):
-                variant_indices.add(block.index)
-    block_position_by_index = {
-        block.index: position for position, block in enumerate(candidate_blocks)
+        for row in candidate_rows:
+            if _is_variant_text(row.text):
+                variant_indices.add(row.index)
+    row_position_by_index = {
+        row.index: position for position, row in enumerate(candidate_rows)
     }
-    block_by_index = {block.index: block for block in candidate_blocks}
+    row_by_index = {row.index: row for row in candidate_rows}
     variant_indices = {
         index
         for index in variant_indices
         if (
-            (block := block_by_index.get(index)) is not None
-            and (position := block_position_by_index.get(index)) is not None
+            (row := row_by_index.get(index)) is not None
+            and (position := row_position_by_index.get(index)) is not None
             and _is_valid_title_or_variant_candidate(
-                block,
-                candidate_blocks=candidate_blocks,
+                row,
+                candidate_rows=candidate_rows,
                 candidate_position=position,
                 kind="variant",
             )
         )
     }
     for idx in variant_indices:
-        _mark_label(block_labels, idx, "RECIPE_VARIANT")
+        _mark_row_label(row_labels, idx, "RECIPE_VARIANT")
     if variant_texts and not variant_indices:
         for text in _dedupe_text_rows(list(variant_texts)):
             _record_unresolved_exact_evidence(
@@ -401,9 +401,9 @@ def _label_recipe_blocks(
                 value=text,
             )
 
-    yield_indices = _find_yield_block_indices(recipe, candidate_blocks)
+    yield_indices = _find_yield_row_indices(recipe, candidate_rows)
     for idx in yield_indices:
-        _mark_label(block_labels, idx, "YIELD_LINE")
+        _mark_row_label(row_labels, idx, "YIELD_LINE")
     if str(recipe.recipe_yield or "").strip() and not yield_indices:
         _record_unresolved_exact_evidence(
             unresolved_exact_evidence,
@@ -411,9 +411,9 @@ def _label_recipe_blocks(
             label="YIELD_LINE",
             value=str(recipe.recipe_yield or "").strip(),
         )
-    time_indices = _find_time_block_indices(recipe, candidate_blocks)
+    time_indices = _find_time_row_indices(recipe, candidate_rows)
     for idx in time_indices:
-        _mark_label(block_labels, idx, "TIME_LINE")
+        _mark_row_label(row_labels, idx, "TIME_LINE")
     time_values = [
         str(value).strip()
         for value in (recipe.prep_time, recipe.cook_time, recipe.total_time)
@@ -429,25 +429,25 @@ def _label_recipe_blocks(
             )
 
     if not ingredient_indices:
-        for block in candidate_blocks:
-            if _block_role(block) == "ingredient_line":
-                _mark_label(block_labels, block.index, "INGREDIENT_LINE")
+        for row in candidate_rows:
+            if _block_role(row) == "ingredient_line":
+                _mark_row_label(row_labels, row.index, "INGREDIENT_LINE")
     if not instruction_indices:
-        for block in candidate_blocks:
-            if _block_role(block) == "instruction_line":
-                _mark_label(block_labels, block.index, "INSTRUCTION_LINE")
+        for row in candidate_rows:
+            if _block_role(row) == "instruction_line":
+                _mark_row_label(row_labels, row.index, "INSTRUCTION_LINE")
 
     if title_index is not None:
-        existing = block_labels.get(title_index)
+        existing = row_labels.get(title_index)
         if existing is not None:
             existing.discard("INGREDIENT_LINE")
             existing.discard("INSTRUCTION_LINE")
 
 
-def _mark_label(block_labels: dict[int, set[str]], block_index: int, label: str) -> None:
-    if block_index < 0:
+def _mark_row_label(row_labels: dict[int, set[str]], row_index: int, label: str) -> None:
+    if row_index < 0:
         return
-    block_labels.setdefault(block_index, set()).add(label)
+    row_labels.setdefault(row_index, set()).add(label)
 
 
 def _require_recipe_id(recipe: RecipeCandidate) -> str:
@@ -515,26 +515,26 @@ def _recipe_candidate_from_authoritative_payload(
     )
 
 
-def _label_recipe_blocks_from_boundary_labels(
+def _label_recipe_rows_from_boundary_labels(
     *,
     recipe_id: str,
-    owned_block_indices: list[int],
+    owned_row_indices: list[int],
     boundary_labels_by_index: Mapping[int, str],
-    block_labels: dict[int, set[str]],
+    row_labels: dict[int, set[str]],
     notes: list[str],
 ) -> bool:
     labeled_indices: list[int] = []
-    for block_index in owned_block_indices:
-        label = str(boundary_labels_by_index.get(int(block_index)) or "").strip()
+    for row_index in owned_row_indices:
+        label = str(boundary_labels_by_index.get(int(row_index)) or "").strip()
         if label not in RECIPE_LOCAL_LINE_ROLE_LABELS:
             continue
-        _mark_label(block_labels, int(block_index), label)
-        labeled_indices.append(int(block_index))
+        _mark_row_label(row_labels, int(row_index), label)
+        labeled_indices.append(int(row_index))
     if not labeled_indices:
         return False
     notes.append(
         "Recipe-local stage evidence fell back to boundary labels for withheld recipe "
-        f"{recipe_id} ({len(labeled_indices)} blocks)."
+        f"{recipe_id} ({len(labeled_indices)} rows)."
     )
     return True
 
@@ -555,7 +555,7 @@ def _normalize_title_for_match(text: str) -> str:
 
 
 def _match_archive_indices_for_line_range(
-    archive: list[ArchiveBlockView],
+    archive: list[ArchiveRowView],
     *,
     start_line: int,
     end_line: int,
@@ -657,13 +657,13 @@ def _looks_title_boundary_prose(text: str) -> bool:
     return False
 
 
-def _block_features(block: ArchiveBlockView) -> dict[str, Any]:
+def _block_features(block: ArchiveRowView) -> dict[str, Any]:
     location = block.location if isinstance(block.location, dict) else {}
     features = location.get("features")
     return features if isinstance(features, dict) else {}
 
 
-def _block_role(block: ArchiveBlockView) -> str:
+def _block_role(block: ArchiveRowView) -> str:
     features = _block_features(block)
     role = features.get("block_role")
     if role is None:
@@ -671,7 +671,7 @@ def _block_role(block: ArchiveBlockView) -> str:
     return str(role or "").strip().lower()
 
 
-def _block_has_recipe_boundary_signal(block: ArchiveBlockView) -> bool:
+def _block_has_recipe_boundary_signal(block: ArchiveRowView) -> bool:
     text = (block.text or "").strip()
     role = _block_role(block)
     if role in {"ingredient_line", "instruction_line"}:
@@ -688,25 +688,25 @@ def _block_has_recipe_boundary_signal(block: ArchiveBlockView) -> bool:
 def _has_title_boundary_evidence(
     *,
     candidate_position: int,
-    candidate_blocks: list[ArchiveBlockView],
+    candidate_rows: list[ArchiveRowView],
     kind: str,
 ) -> bool:
-    upper = min(len(candidate_blocks), candidate_position + (4 if kind == "title" else 3) + 1)
+    upper = min(len(candidate_rows), candidate_position + (4 if kind == "title" else 3) + 1)
     for position in range(candidate_position + 1, upper):
-        if _block_has_recipe_boundary_signal(candidate_blocks[position]):
+        if _block_has_recipe_boundary_signal(candidate_rows[position]):
             return True
     if kind == "variant":
         lower = max(0, candidate_position - 2)
         for position in range(lower, candidate_position):
-            if _block_has_recipe_boundary_signal(candidate_blocks[position]):
+            if _block_has_recipe_boundary_signal(candidate_rows[position]):
                 return True
     return False
 
 
 def _is_valid_title_or_variant_candidate(
-    block: ArchiveBlockView,
+    block: ArchiveRowView,
     *,
-    candidate_blocks: list[ArchiveBlockView],
+    candidate_rows: list[ArchiveRowView],
     candidate_position: int,
     kind: str,
 ) -> bool:
@@ -726,33 +726,33 @@ def _is_valid_title_or_variant_candidate(
         return False
     return _has_title_boundary_evidence(
         candidate_position=candidate_position,
-        candidate_blocks=candidate_blocks,
+        candidate_rows=candidate_rows,
         kind=kind,
     )
 
 
-def _find_title_block_index(
+def _find_title_row_index(
     recipe: RecipeCandidate,
-    candidate_blocks: list[ArchiveBlockView],
+    candidate_rows: list[ArchiveRowView],
 ) -> int | None:
     recipe_name = (recipe.name or "").strip()
     target = _normalize_title_for_match(recipe_name) if recipe_name else ""
     if target:
-        for position, block in enumerate(candidate_blocks[:60]):
+        for position, block in enumerate(candidate_rows[:60]):
             if _normalize_title_for_match(block.text) == target and _is_valid_title_or_variant_candidate(
                 block,
-                candidate_blocks=candidate_blocks,
+                candidate_rows=candidate_rows,
                 candidate_position=position,
                 kind="title",
             ):
                 return block.index
     role_matches = [
         block.index
-        for position, block in enumerate(candidate_blocks[:20])
+        for position, block in enumerate(candidate_rows[:20])
         if _block_role(block) == "recipe_title"
         and _is_valid_title_or_variant_candidate(
             block,
-            candidate_blocks=candidate_blocks,
+            candidate_rows=candidate_rows,
             candidate_position=position,
             kind="title",
         )
@@ -762,28 +762,28 @@ def _find_title_block_index(
     return None
 
 
-def _find_yield_block_indices(
+def _find_yield_row_indices(
     recipe: RecipeCandidate,
-    candidate_blocks: list[ArchiveBlockView],
+    candidate_rows: list[ArchiveRowView],
 ) -> set[int]:
     matches: set[int] = set()
     recipe_yield = (recipe.recipe_yield or "").strip()
     if recipe_yield:
         target = _normalize_for_match(recipe_yield)
-        for block in candidate_blocks[:30]:
+        for block in candidate_rows[:30]:
             block_norm = _normalize_for_match(block.text)
             if block_norm and target and (target in block_norm or block_norm in target):
                 matches.add(block.index)
     if matches:
         return matches
     role_matches = {
-        block.index for block in candidate_blocks[:30] if _block_role(block) == "yield_line"
+        block.index for block in candidate_rows[:30] if _block_role(block) == "yield_line"
     }
     if role_matches:
         return role_matches
     keyword_matches = {
         block.index
-        for block in candidate_blocks[:30]
+        for block in candidate_rows[:30]
         if (text := (block.text or "").strip())
         and _YIELD_KEYWORDS_RE.search(text)
         and _block_role(block) != "instruction_line"
@@ -793,9 +793,9 @@ def _find_yield_block_indices(
     return set()
 
 
-def _find_time_block_indices(
+def _find_time_row_indices(
     recipe: RecipeCandidate,
-    candidate_blocks: list[ArchiveBlockView],
+    candidate_rows: list[ArchiveRowView],
 ) -> set[int]:
     matches: set[int] = set()
     normalized_values = [
@@ -803,7 +803,7 @@ def _find_time_block_indices(
         for value in (recipe.prep_time, recipe.cook_time, recipe.total_time)
         if value
     ]
-    for block in candidate_blocks[:40]:
+    for block in candidate_rows[:40]:
         text = (block.text or "").strip()
         if not text:
             continue
@@ -814,13 +814,13 @@ def _find_time_block_indices(
     if matches:
         return matches
     role_matches = {
-        block.index for block in candidate_blocks[:40] if _block_role(block) == "time_line"
+        block.index for block in candidate_rows[:40] if _block_role(block) == "time_line"
     }
     if role_matches:
         return role_matches
     keyword_matches = {
         block.index
-        for block in candidate_blocks[:40]
+        for block in candidate_rows[:40]
         if (text := (block.text or "").strip())
         and _TIME_KEYWORDS_RE.search(text)
         and _TIME_VALUE_RE.search(text)
@@ -865,12 +865,12 @@ def _has_nearby_structural_signal(
 def _filter_howto_section_indices(
     *,
     indices: set[int],
-    candidate_blocks: list[ArchiveBlockView],
+    candidate_rows: list[ArchiveRowView],
     structural_signal_indices: set[int],
 ) -> set[int]:
     if not indices:
         return set()
-    block_by_index = {block.index: block for block in candidate_blocks}
+    block_by_index = {block.index: block for block in candidate_rows}
     accepted: set[int] = set()
     for index in sorted(indices):
         block = block_by_index.get(index)
@@ -882,9 +882,9 @@ def _filter_howto_section_indices(
     return accepted
 
 
-def _match_texts_to_block_indices(
+def _match_texts_to_row_indices(
     rows: list[str],
-    candidate_blocks: list[ArchiveBlockView],
+    candidate_rows: list[ArchiveRowView],
     *,
     preferred_roles: set[str] | None = None,
 ) -> set[int]:
@@ -902,7 +902,7 @@ def _match_texts_to_block_indices(
         if str(role or "").strip()
     }
     role_by_index: dict[int, str] = {}
-    for block in candidate_blocks:
+    for block in candidate_rows:
         block_norm = _normalize_for_match(block.text)
         if not block_norm:
             continue

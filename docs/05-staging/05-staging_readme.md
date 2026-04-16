@@ -47,8 +47,8 @@ Staging is the boundary between importer/parsing internals and persisted artifac
 - `cookimport/staging/writer.py`
   - Writes recipe-authority artifacts, intermediate/final outputs, non-recipe route/finalize artifacts, section artifacts, chunks, raw artifacts, and report JSON.
   - Generates/stabilizes IDs where needed.
-- `cookimport/staging/recipe_block_evidence.py`, `knowledge_block_evidence.py`, `block_label_resolution.py`
-  - Owned builders for recipe-local evidence, final non-recipe knowledge evidence, and block-label priority resolution. `recipe_block_evidence.py` is now exact-or-unresolved: it uses exact grounded matches plus explicit unresolved metadata instead of fuzzy/scored back-projection for title, variant, yield, and time evidence.
+- `cookimport/staging/recipe_row_evidence.py`, `knowledge_row_evidence.py`, `row_label_resolution.py`
+  - Owned builders for recipe-local row evidence, final non-recipe knowledge evidence, and row-label priority resolution. `recipe_row_evidence.py` is now exact-or-unresolved: it uses exact grounded matches plus explicit unresolved metadata instead of fuzzy/scored back-projection for title, variant, yield, and time evidence.
 - `cookimport/staging/semantic_row_predictions.py`
   - Thin assembly layer for deterministic row-native benchmark evidence labels (`semantic_row_predictions.v1`).
 - `cookimport/staging/pdf_jobs.py`
@@ -208,7 +208,7 @@ Semantic-row prediction contract:
 
 Semantic-row prediction contract:
 - `semantic_row_predictions.py` labels rows from recipe-local text matches (title, ingredients, instructions, notes, variant/yield/time lines) while treating source-block indices as provenance only.
-- `recipe_block_evidence.py` owns those recipe-local matches, including the conservative fallback order for withheld recipes: retained semantic payload first, then recipe-boundary labels, then explicit unresolved recipe-owned metadata. `knowledge_block_evidence.py` owns final `KNOWLEDGE` evidence plus unresolved review metadata, and `block_label_resolution.py` is the only label-priority resolver.
+- `recipe_row_evidence.py` owns those recipe-local matches, including the conservative fallback order for withheld recipes: retained semantic payload first, then recipe-boundary labels, then explicit unresolved recipe-owned metadata. `knowledge_row_evidence.py` owns final `KNOWLEDGE` evidence plus unresolved review metadata, and `row_label_resolution.py` is the only label-priority resolver.
 - knowledge packet inputs now omit recipe-owned block text entirely; nearby owned indices may survive only as guardrail metadata in the LLM payload.
 - `semantic_row_predictions.py` now requires nearby recipe-boundary evidence before promoting `RECIPE_TITLE` or `RECIPE_VARIANT`, so isolated headings or memoir-style prose transitions do not become recipe headers in stage evidence.
 - `semantic_row_predictions.py` emits `HOWTO_SECTION` for deterministic ingredient/instruction section-header hits (`extract_ingredient_sections`, `extract_instruction_sections`) when nearby recipe-structure signals are present.

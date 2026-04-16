@@ -6,25 +6,25 @@ from .nonrecipe_stage import NonRecipeStageResult
 
 
 @dataclass(frozen=True, slots=True)
-class KnowledgeBlockEvidence:
+class KnowledgeRowEvidence:
     knowledge_indices: set[int]
     unresolved_categories: dict[int, str]
-    unresolved_block_indices: list[int]
+    unresolved_row_indices: list[int]
     notes: list[str]
 
 
-def build_knowledge_block_evidence(
+def build_knowledge_row_evidence(
     nonrecipe_stage_result: NonRecipeStageResult | None,
-) -> KnowledgeBlockEvidence:
+) -> KnowledgeRowEvidence:
     notes: list[str] = []
     if nonrecipe_stage_result is None:
         notes.append(
             "KNOWLEDGE labels require final non-recipe authority; no fallback chunk-lane projection ran."
         )
-        return KnowledgeBlockEvidence(
+        return KnowledgeRowEvidence(
             knowledge_indices=set(),
             unresolved_categories={},
-            unresolved_block_indices=[],
+            unresolved_row_indices=[],
             notes=notes,
         )
 
@@ -37,7 +37,7 @@ def build_knowledge_block_evidence(
             nonrecipe_stage_result.candidate_status.unresolved_candidate_route_by_index.items()
         )
     }
-    unresolved_block_indices = sorted(unresolved_categories)
+    unresolved_row_indices = sorted(unresolved_categories)
     knowledge_indices = {
         int(block_index)
         for block_index, category in authoritative_categories.items()
@@ -53,9 +53,9 @@ def build_knowledge_block_evidence(
         notes.append(
             "All candidate non-recipe rows had final authority before scoring."
         )
-    return KnowledgeBlockEvidence(
+    return KnowledgeRowEvidence(
         knowledge_indices=knowledge_indices,
         unresolved_categories=unresolved_categories,
-        unresolved_block_indices=unresolved_block_indices,
+        unresolved_row_indices=unresolved_row_indices,
         notes=notes,
     )
