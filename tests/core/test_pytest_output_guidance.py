@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import configparser
 from types import SimpleNamespace
 
 from tests.paths import REPO_ROOT
@@ -65,3 +66,12 @@ def test_failure_hints_prefer_compact_scoped_rerun(monkeypatch) -> None:
         for line in lines
     )
     assert not any(line.startswith("verbose: COOKIMPORT_PYTEST_VERBOSE_OUTPUT=1") for line in lines)
+
+
+def test_pytest_ini_uses_sys_capture_for_repo_default_runs() -> None:
+    parser = configparser.ConfigParser()
+    parser.read(REPO_ROOT / "pytest.ini", encoding="utf-8")
+
+    addopts = parser.get("pytest", "addopts")
+
+    assert "--capture=sys" in addopts.split()

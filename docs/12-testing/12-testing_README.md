@@ -190,6 +190,7 @@ For routine agent loops, prefer the wrapper script or `make` aliases over broad 
 Current compact-output behavior:
 
 - Default pytest runs avoid per-test dot/progress floods.
+- Default repo pytest runs now also force `--capture=sys` instead of the pytest `fd` default. This keeps capture enabled while avoiding the WSL/Windows-temp teardown failure we hit when raw pytest inherited `TMP=/mnt/c/...`.
 - Success-path print noise is removed from normal test modules.
 - Compact mode is enforced from `tests/conftest.py` even when callers override `addopts`.
 - `pytest -v` and `pytest -vv` are clamped back to compact mode unless the scoped verbose escape hatch applies.
@@ -204,6 +205,7 @@ Design intent:
 
 - keep routine AI-assisted test runs low-noise and token-efficient,
 - keep deeper diagnostics explicit and narrow.
+- prefer `sys` capture as the durable repo default unless a future change demonstrates that `fd` capture is required and safe again in this environment.
 
 ## Known Risks and Sharp Edges
 
