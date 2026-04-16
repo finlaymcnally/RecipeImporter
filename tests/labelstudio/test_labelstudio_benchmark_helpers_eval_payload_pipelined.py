@@ -226,17 +226,22 @@ def test_labelstudio_benchmark_pipelined_mode_streams_records_before_producer_fi
     assert producer_finished.is_set()
 
 
-def test_labelstudio_benchmark_pipelined_mode_replays_streamed_records_for_eval(
+def test_labelstudio_benchmark_pipelined_mode_replays_streamed_records_without_using_them_for_eval(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     fixture = _run_pipelined_streaming_fixture(monkeypatch, tmp_path)
     replay_dir = fixture["replay_dir"]
     captured_eval = fixture["captured_eval"]
+    prediction_run = tmp_path / "pred-run"
 
     assert captured_eval["stage_predictions_json"] == (
-        replay_dir / "semantic_row_predictions.from_records.json"
+        prediction_run / "semantic_row_predictions.json"
     )
+    assert captured_eval["extracted_blocks_json"] == (
+        prediction_run / "extracted_archive.json"
+    )
+    assert (replay_dir / "semantic_row_predictions.from_records.json").exists()
     replay_payload = json.loads(
         (replay_dir / "semantic_row_predictions.from_records.json").read_text(
             encoding="utf-8"
@@ -451,6 +456,7 @@ def test_labelstudio_benchmark_source_rows_mode_uses_row_evaluator(
     fixture = _run_canonical_text_pipelined_fixture(monkeypatch, tmp_path)
     captured_eval = fixture["captured_eval"]
     eval_root = fixture["eval_root"]
+    line_role_stage_predictions_path = fixture["line_role_stage_predictions_path"]
 
     assert captured_eval["gold_export_root"] == (tmp_path / "gold" / "exports")
     replay_stage_predictions_path = (
@@ -459,7 +465,8 @@ def test_labelstudio_benchmark_source_rows_mode_uses_row_evaluator(
         / "pipelined"
         / "semantic_row_predictions.from_records.json"
     )
-    assert captured_eval["stage_predictions_json"] == replay_stage_predictions_path
+    assert captured_eval["stage_predictions_json"] == line_role_stage_predictions_path
+    assert replay_stage_predictions_path.exists()
     replay_payload = json.loads(
         replay_stage_predictions_path.read_text(encoding="utf-8")
     )

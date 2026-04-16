@@ -198,6 +198,7 @@ Active use cases:
 - explicit-escalation and follow-up bundle analysis now distinguish route broadness, post-route label change, and `NONRECIPE_EXCLUDE` leakage into final knowledge. Bundle blame can now attribute those leaked rows to `nonrecipe_authority` instead of collapsing them into generic line-role churn.
 - canonical benchmark follow-up joins are now conservative too: `upload_bundle_v1` explicit-escalation rows and `cf-debug` line-role/prompt audits should use `line-role-pipeline/joined_line_table.jsonl` as the authority for canonical-line to route-row linkage. Raw `line_index == atomic_index` fallback is not a safe contract once canonical projection and route rows diverge.
 - benchmark eval now prefers `line-role-pipeline/semantic_line_role_predictions.jsonl` when it exists, then materializes that reviewer-facing view as the local benchmark `line_role_predictions.jsonl`; prediction-run roots may still keep the older route-layer `line_role_predictions.jsonl` alongside the semantic file for compatibility.
+- live pipelined single-book `source-rows` evaluation must stay anchored to the original prediction bundle (`semantic_row_predictions.json` plus the sibling row-prediction JSONL artifacts and `run_manifest.json` authority context). `.prediction-record-replay/` outputs are for prediction-record export/debug flows and evaluate-only replay, not the live benchmark scorer input.
 
 Knowledge extraction is now a first-class follow-up seam:
 

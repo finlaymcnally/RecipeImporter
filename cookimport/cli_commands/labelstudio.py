@@ -2482,10 +2482,12 @@ def register(app: typer.Typer) -> dict[str, object]:
                         prewarmed_canonical_paths = (
                             pipelined_result.prewarmed_canonical_paths
                         )
-                        evaluation_bundle = (
-                            pipelined_result.replay_bundle
-                            or pipelined_result.prediction_bundle
-                        )
+                        # Source-row scoring needs the original prediction run's
+                        # row-level artifacts and run-manifest authority context.
+                        # The replay bundle is still useful for exported
+                        # prediction-record debugging, but it is not a full eval
+                        # bundle for live pipelined benchmark runs.
+                        evaluation_bundle = pipelined_result.prediction_bundle
             else:
                 if predictions_in_path is None:
                     _fail("Prediction record input is required.")
