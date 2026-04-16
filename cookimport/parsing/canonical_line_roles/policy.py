@@ -906,12 +906,12 @@ def _codex_prediction_policy_rejection_reason(
     by_atomic_index: dict[int, AtomicLineCandidate],
 ) -> str | None:
     label = str(prediction.label or "NONRECIPE_CANDIDATE")
-    if label == "NONRECIPE_EXCLUDE" and _is_within_recipe_span(candidate):
-        return "nonrecipe_exclude_inside_recipe_not_allowed"
-    if label == "KNOWLEDGE":
-        return "knowledge_not_in_live_contract"
-    if label == "OTHER":
-        return "other_not_in_live_contract"
+    if label == "NONRECIPE_EXCLUDE" and _is_outside_recipe_span(candidate):
+        if not _outside_recipe_exclude_allowed(
+            candidate,
+            by_atomic_index=by_atomic_index,
+        ):
+            return "nonrecipe_exclude_without_support"
     return None
 
 
@@ -922,10 +922,22 @@ def _reject_codex_prediction_to_baseline_if_policy_violated(
     by_atomic_index: dict[int, AtomicLineCandidate],
     baseline_prediction: CanonicalLineRolePrediction,
 ) -> CanonicalLineRolePrediction:
-    del candidate
-    del by_atomic_index
-    del baseline_prediction
-    return prediction
+    reason = _codex_prediction_policy_rejection_reason(
+        prediction=prediction,
+        candidate=candidate,
+        by_atomic_index=by_atomic_index,
+    )
+    if reason is None:
+        return prediction
+    payload = baseline_prediction.model_dump(mode="python")
+    payload["reason_tags"] = _unique_string_list(
+        [
+            *baseline_prediction.reason_tags,
+            "codex_policy_rejected",
+            reason,
+        ]
+    )
+    return CanonicalLineRolePrediction.model_validate(payload)
 
 
 def _should_escalate_candidate(

@@ -367,7 +367,7 @@ def test_codex_outside_recipe_question_heading_demotes_knowledge_to_other(tmp_pa
     assert predictions[0].decided_by == "codex"
 
 
-def test_codex_outside_recipe_nonrecipe_exclude_without_support_stays_authoritative(
+def test_codex_outside_recipe_nonrecipe_exclude_without_support_falls_back_to_baseline(
     tmp_path,
 ) -> None:
     candidates = [
@@ -377,7 +377,8 @@ def test_codex_outside_recipe_nonrecipe_exclude_without_support_stays_authoritat
             block_index=1,
             atomic_index=0,
             text=(
-                "Salt enhances flavor by suppressing bitterness and amplifying aroma."
+                "Set the average home oven to 350°F, and it'll heat up to about "
+                "370°F before the heating element shuts off."
             ),
             within_recipe_span=False,
             rule_tags=["explicit_prose"],
@@ -402,11 +403,10 @@ def test_codex_outside_recipe_nonrecipe_exclude_without_support_stays_authoritat
         live_llm_allowed=True,
     )
 
-    assert predictions[0].label == "NONRECIPE_EXCLUDE"
-    assert predictions[0].decided_by == "codex"
-    assert "codex_policy_rejected" not in (
-        predictions[0].reason_tags
-    )
+    assert predictions[0].label == "NONRECIPE_CANDIDATE"
+    assert predictions[0].decided_by == "fallback"
+    assert "codex_policy_rejected" in predictions[0].reason_tags
+    assert "nonrecipe_exclude_without_support" in predictions[0].reason_tags
 
 
 def test_codex_recipe_local_nonrecipe_exclude_is_normalized_without_baseline_fallback(

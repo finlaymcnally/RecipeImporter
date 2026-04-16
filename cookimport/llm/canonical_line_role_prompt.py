@@ -38,7 +38,8 @@ Negative rules:
 - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, do not call it `INSTRUCTION_LINE`.
-- Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the row itself states portable cooking knowledge that would still help a cook if quoted alone.
+- Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE` only when the row itself is still fluff, framing, or encouragement.
+- If an outside-recipe row states a concrete cooking fact, temperature/process behavior, or portable method advice, prefer `NONRECIPE_CANDIDATE` even when it is phrased as coaching or setup.
 - If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone.
 - If the shard rows are outside recipe context, decide in two steps: first discard obvious fluff as `NONRECIPE_EXCLUDE`, then use `NONRECIPE_CANDIDATE` only for rows that clearly stand on their own as portable cooking knowledge.
 - Nearby lesson rows can help you understand context, but they do not rescue a weak row into `NONRECIPE_CANDIDATE` when that row itself is just coaching, setup, rhetoric, or author voice.
@@ -190,6 +191,10 @@ Few-shot examples:
 30) Context: outside recipe, short split coaching fragment without standalone reference value
     Line: `Taste. It will need salt.`
     Label: `NONRECIPE_EXCLUDE`
+
+31) Context: outside recipe, factual temperature/process lesson
+    Line: `Set the average home oven to 350°F, and it'll heat up to about 370°F before the heating element shuts off.`
+    Label: `NONRECIPE_CANDIDATE`
 """
 
 def build_line_role_label_code_by_label(

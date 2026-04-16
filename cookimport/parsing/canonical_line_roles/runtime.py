@@ -129,6 +129,7 @@ from . import (
     _build_line_role_taskfile_prompt,
     _build_line_role_worker_shard_row,
     _coerce_mapping_dict,
+    _codex_prediction_policy_rejection_reason,
     _deterministic_label,
     _distribute_line_role_session_value,
     _evaluate_line_role_response,
@@ -144,6 +145,7 @@ from . import (
     _looks_recipe_note_prose,
     _normalize_line_role_shard_outcome,
     _normalize_prediction_metadata,
+    _reject_codex_prediction_to_baseline_if_policy_violated,
     _relative_runtime_path,
     _render_codex_events_jsonl,
     _render_line_role_authoritative_rows,
@@ -478,6 +480,19 @@ def _label_atomic_lines_internal(
     sanitized_by_index: dict[int, CanonicalLineRolePrediction] = {}
     for candidate in ordered:
         current = predictions[candidate.atomic_index]
+        if current.decided_by == "codex":
+            rejection_reason = _codex_prediction_policy_rejection_reason(
+                prediction=current,
+                candidate=candidate,
+                by_atomic_index=by_atomic_index,
+            )
+            if rejection_reason is not None:
+                current = _reject_codex_prediction_to_baseline_if_policy_violated(
+                    prediction=current,
+                    candidate=candidate,
+                    by_atomic_index=by_atomic_index,
+                    baseline_prediction=deterministic_baseline[candidate.atomic_index],
+                )
         current = _normalize_prediction_metadata(
             prediction=current,
             candidate=candidate,

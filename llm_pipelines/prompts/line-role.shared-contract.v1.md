@@ -16,7 +16,8 @@ Negative rules:
 - `INSTRUCTION_LINE` means a recipe-local procedural step for the current recipe, not generic culinary advice or cookbook teaching prose.
 - Do not use `INSTRUCTION_LINE` for explanatory/advisory prose just because it contains verbs like `use`, `choose`, `let`, `think about`, or `remember`.
 - If a line discusses what cooks generally should do, or gives examples across many dishes rather than advancing one recipe, do not call it `INSTRUCTION_LINE`.
-- Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`; use `NONRECIPE_CANDIDATE` only when the row itself states portable cooking knowledge that would still help a cook if quoted alone.
+- Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE` only when the row itself is still fluff, framing, or encouragement.
+- If an outside-recipe row states a concrete cooking fact, temperature/process behavior, or portable method advice, prefer `NONRECIPE_CANDIDATE` even when it is phrased as coaching or setup.
 - If local evidence is genuinely ambiguous, resolve the row from the text and neighboring context alone.
 - If the shard rows are outside recipe context, decide in two steps: first discard obvious fluff as `NONRECIPE_EXCLUDE`, then use `NONRECIPE_CANDIDATE` only for rows that clearly stand on their own as portable cooking knowledge.
 - Nearby lesson rows can help you understand context, but they do not rescue a weak row into `NONRECIPE_CANDIDATE` when that row itself is just coaching, setup, rhetoric, or author voice.
@@ -175,22 +176,26 @@ Few-shot examples:
     Line: `Taste. It will need salt.`
     Label: `NONRECIPE_EXCLUDE`
 
-31) Context: inside recipe, bare cue heading before alternate-version rows
+31) Context: outside recipe, factual temperature/process lesson
+    Line: `Set the average home oven to 350°F, and it'll heat up to about 370°F before the heating element shuts off.`
+    Label: `NONRECIPE_CANDIDATE`
+
+32) Context: inside recipe, bare cue heading before alternate-version rows
     Line: `Variations`
     Label: `OTHER`
 
-32) Context: inside recipe, heading-like local alternate-version title after a `Variations` cue
+33) Context: inside recipe, heading-like local alternate-version title after a `Variations` cue
     Line: `Three Classic Shaved Salads`
     Label: `RECIPE_VARIANT`
 
-33) Context: inside recipe, explanatory prose that is still introducing the local variant run
+34) Context: inside recipe, explanatory prose that is still introducing the local variant run
     Line: `I inherited my fondness for shaved salads from my friend Cal Peternell, and these are the three versions I return to most often.`
     Label: `RECIPE_VARIANT`
 
-34) Context: inside recipe, named component within a larger ingredient list rather than its own sub-preparation
+35) Context: inside recipe, named component within a larger ingredient list rather than its own sub-preparation
     Line: `Lime Vinaigrette`
     Label: `INGREDIENT_LINE`
 
-35) Context: inside recipe, storage guidance after the main method
+36) Context: inside recipe, storage guidance after the main method
     Line: `Refrigerate leftovers, covered, for up to one night.`
     Label: `RECIPE_NOTES`

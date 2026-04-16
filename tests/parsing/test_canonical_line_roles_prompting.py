@@ -124,10 +124,18 @@ def test_line_role_shared_contract_block_includes_required_contract_text() -> No
     assert "Label: `INGREDIENT_LINE`" in contract
     assert "Cooking Acids" in contract
     assert "Use limes in guacamole" in contract
-    assert "broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`" in contract
+    assert (
+        "broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE` only when the row itself is still fluff, framing, or encouragement."
+        in contract
+    )
+    assert (
+        "If an outside-recipe row states a concrete cooking fact, temperature/process behavior, or portable method advice, prefer `NONRECIPE_CANDIDATE`"
+        in contract
+    )
     assert "Obvious praise blurbs, foreword or preface setup" in contract
     assert "This book will teach you the four elements of good cooking." in contract
     assert "Taste. It will need salt." in contract
+    assert "Set the average home oven to 350°F" in contract
     assert "Label: `NONRECIPE_EXCLUDE`" in contract
 
 
@@ -148,7 +156,8 @@ def test_line_role_taskfile_worker_prompt_includes_title_yield_reset_contract() 
     for line in (
         "`INSTRUCTION_LINE` means a recipe-local procedural step",
         "Contents-style title lists, endorsements, intro framing, and isolated topic headings default to `NONRECIPE_EXCLUDE`",
-        "broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`",
+        "broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE` only when the row itself is still fluff, framing, or encouragement.",
+        "If an outside-recipe row states a concrete cooking fact, temperature/process behavior, or portable method advice, prefer `NONRECIPE_CANDIDATE`",
         "This book will teach you the four elements of good cooking.",
     ):
         assert line in shared_contract
@@ -518,11 +527,16 @@ def test_canonical_line_role_file_prompt_describes_compact_tuple_payload() -> No
         in prompt
     )
     assert (
-        "broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`"
+        "broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE` only when the row itself is still fluff, framing, or encouragement."
+        in prompt
+    )
+    assert (
+        "If an outside-recipe row states a concrete cooking fact, temperature/process behavior, or portable method advice, prefer `NONRECIPE_CANDIDATE`"
         in prompt
     )
     assert "This book will teach you the four elements of good cooking." in prompt
     assert "Taste. It will need salt." in prompt
+    assert "Set the average home oven to 350°F" in prompt
     assert "Keep answer rows aligned with the task file's `rows` array and its `row_id` values." in prompt
     assert "A single outside-recipe heading by itself is not enough" in prompt
     assert "Reference-only neighboring context:" in prompt
@@ -570,7 +584,11 @@ def test_line_role_shared_contract_fallback_stays_routing_only(
 
     assert "If a line discusses what cooks generally should do" in contract
     assert (
-        "Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE`"
+        "Outside recipe, broad coaching, exhortation, or rhetorical setup usually stays `NONRECIPE_EXCLUDE` only when the row itself is still fluff, framing, or encouragement."
+        in contract
+    )
+    assert (
+        "If an outside-recipe row states a concrete cooking fact, temperature/process behavior, or portable method advice, prefer `NONRECIPE_CANDIDATE`"
         in contract
     )
     assert (
@@ -610,6 +628,10 @@ def test_line_role_shared_contract_fallback_stays_routing_only(
     )
     assert (
         "Line: `Taste. It will need salt.`\n    Label: `NONRECIPE_EXCLUDE`"
+        in contract
+    )
+    assert (
+        "Line: `Set the average home oven to 350°F, and it'll heat up to about 370°F before the heating element shuts off.`\n    Label: `NONRECIPE_CANDIDATE`"
         in contract
     )
     assert (
