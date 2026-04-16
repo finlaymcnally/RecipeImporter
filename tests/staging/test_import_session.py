@@ -20,7 +20,10 @@ from cookimport.parsing.label_source_of_truth import (
     RecipeSpanDecision,
 )
 from cookimport.staging import import_session
-from cookimport.staging.import_session_flows import output_stage as output_stage_flow
+from cookimport.staging.import_session_flows import (
+    authority as authority_flow,
+    output_stage as output_stage_flow,
+)
 from tests.nonrecipe_stage_helpers import make_recipe_ownership_result
 
 
@@ -334,6 +337,37 @@ def test_execute_stage_import_session_writes_line_role_authority_artifacts_for_c
     assert not (tmp_path / "out" / "label_deterministic").exists()
     assert not (tmp_path / "out" / "label_refine").exists()
     assert (tmp_path / "out" / "line-role-pipeline" / "authoritative_labeled_lines.jsonl").exists()
+
+
+def test_serialize_span_decision_emits_row_native_keys_for_row_native_models() -> None:
+    payload = authority_flow._serialize_span_decision(
+        RecipeSpanDecision(
+            span_id="span-1",
+            decision="accepted_recipe_span",
+            rejection_reason=None,
+            start_row_index=3,
+            end_row_index=5,
+            row_indices=[3, 4, 5],
+            source_block_ids=["b3", "b4", "b5"],
+            start_atomic_index=30,
+            end_atomic_index=50,
+            atomic_indices=[30, 40, 50],
+            title_row_index=3,
+            title_atomic_index=30,
+            warnings=["warn"],
+            escalation_reasons=["reason"],
+            decision_notes=["note"],
+        )
+    )
+
+    assert payload["start_row_index"] == 3
+    assert payload["end_row_index"] == 5
+    assert payload["row_indices"] == [3, 4, 5]
+    assert payload["title_row_index"] == 3
+    assert "start_block_index" not in payload
+    assert "end_block_index" not in payload
+    assert "block_indices" not in payload
+    assert "title_block_index" not in payload
 
 
 def test_execute_stage_import_session_uses_candidate_nonrecipe_rows_for_late_outputs_when_nonrecipe_finalize_is_off(

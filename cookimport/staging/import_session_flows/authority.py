@@ -258,6 +258,12 @@ def _span_decisions_for_artifacts(
         for row in label_first_result.recipe_spans
     ]
 
+def _payload_value(payload: dict[str, Any], *keys: str) -> Any:
+    for key in keys:
+        if key in payload:
+            return payload[key]
+    return None
+
 def _serialize_span_decision(row: Any) -> dict[str, Any]:
     if hasattr(row, "model_dump"):
         payload = row.model_dump(mode="json")
@@ -267,14 +273,14 @@ def _serialize_span_decision(row: Any) -> dict[str, Any]:
         "span_id": payload.get("span_id"),
         "decision": payload.get("decision", "accepted_recipe_span"),
         "rejection_reason": payload.get("rejection_reason"),
-        "start_block_index": payload.get("start_block_index"),
-        "end_block_index": payload.get("end_block_index"),
-        "block_indices": list(payload.get("block_indices") or []),
+        "start_row_index": _payload_value(payload, "start_row_index", "start_block_index"),
+        "end_row_index": _payload_value(payload, "end_row_index", "end_block_index"),
+        "row_indices": list(_payload_value(payload, "row_indices", "block_indices") or []),
         "source_block_ids": list(payload.get("source_block_ids") or []),
         "start_atomic_index": payload.get("start_atomic_index"),
         "end_atomic_index": payload.get("end_atomic_index"),
         "atomic_indices": list(payload.get("atomic_indices") or []),
-        "title_block_index": payload.get("title_block_index"),
+        "title_row_index": _payload_value(payload, "title_row_index", "title_block_index"),
         "title_atomic_index": payload.get("title_atomic_index"),
         "escalation_reasons": list(payload.get("escalation_reasons") or []),
         "decision_notes": list(payload.get("decision_notes") or []),
