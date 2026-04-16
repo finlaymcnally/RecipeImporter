@@ -72,15 +72,15 @@ def test_knowledge_orchestrator_reports_live_shard_progress(
 
     assert payloads
     assert payloads[0]["task_current"] == 0
-    assert payloads[0]["task_total"] == 2
+    assert payloads[0]["task_total"] == 1
     live_payloads = [
         payload
         for payload in payloads
         if int((payload.get("artifact_counts") or {}).get("shards_completed") or 0) == 1
     ]
     assert live_payloads
-    assert payloads[-1]["task_current"] == 2
-    assert payloads[-1]["task_total"] == 2
+    assert payloads[-1]["task_current"] == 1
+    assert payloads[-1]["task_total"] == 1
 
 
 def test_knowledge_orchestrator_fails_closed_before_worker_launch_when_survivability_is_unsafe(
@@ -147,11 +147,11 @@ def test_knowledge_orchestrator_progress_detail_lines_track_live_shards(
     ]
 
     assert any(
-        "book.ks0001.nr (2/2 shards)" in (payload.get("active_tasks") or [])
-        for payload in live_payloads
+        "book.ks0000.nr (1/1 shards)" in (payload.get("active_tasks") or [])
+        for payload in payloads
     )
     assert any(
-        "completed shards: 1/2" in (payload.get("detail_lines") or [])
+        "completed shards: 1/1" in (payload.get("detail_lines") or [])
         for payload in live_payloads
     )
 
@@ -352,7 +352,12 @@ def test_knowledge_orchestrator_runs_shard_workers_concurrently(
                     state["current"] -= 1
 
     pack_root, run_root = make_runtime_pack_and_run_dirs(tmp_path)
-    settings = make_runtime_settings(pack_root=pack_root, worker_count=2)
+    settings = make_runtime_settings(pack_root=pack_root, worker_count=2).model_copy(
+        update={
+            "knowledge_packet_input_char_budget": 1,
+            "knowledge_packet_output_char_budget": 1,
+        }
+    )
     apply_result = run_codex_farm_nonrecipe_finalize(
         conversion_result=make_runtime_conversion_result(
             ["Knowledge zero.", "Recipe gap.", "Knowledge two."]

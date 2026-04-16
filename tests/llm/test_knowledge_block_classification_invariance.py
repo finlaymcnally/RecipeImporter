@@ -13,10 +13,7 @@ from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1, WorkerAssi
 _TARGET_CASES = {
     "balsamic_vinaigrette": {
         "text": "Balsamic Vinaigrette",
-        "answer": {
-            "category": "other",
-            "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
-        },
+        "answer": {"category": "other"},
     },
     "generic_advice": {
         "text": (
@@ -24,24 +21,14 @@ _TARGET_CASES = {
             "of your own ingredients and kitchen and, most important, your own taste be "
             "overridden by what you're reading. Be present. Stir, taste, adjust."
         ),
-        "answer": {
-            "category": "other",
-            "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
-        },
+        "answer": {"category": "other"},
     },
     "durable_knowledge": {
         "text": (
             "Acid brightens rich food because it balances heaviness and sharpens flavor "
             "perception across the whole dish."
         ),
-        "answer": {
-            "category": "knowledge",
-            "grounding": {
-                "tag_keys": ["bright"],
-                "category_keys": ["flavor-profile"],
-                "proposed_tags": [],
-            },
-        },
+        "answer": {"category": "keep_for_review"},
     },
 }
 
@@ -86,10 +73,7 @@ def _answers_for_task_file(task_file: dict) -> dict[str, dict[str, str]]:
                 answers[unit["unit_id"]] = dict(fixture["answer"])
                 break
         else:
-            answers[unit["unit_id"]] = {
-                "category": "other",
-                "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
-            }
+            answers[unit["unit_id"]] = {"category": "other"}
     return answers
 
 
@@ -143,7 +127,8 @@ def test_target_block_evidence_and_answer_surface_stay_invariant_across_packings
     assert _target_unit(reordered_task_file, target_text)["evidence"] == target_evidence
     assert "group_key" not in _target_unit(mixed_task_file, target_text)["answer"]
     assert "topic_label" not in _target_unit(mixed_task_file, target_text)["answer"]
-    assert mixed_task_file["ontology"] == alone_task_file["ontology"]
+    assert "ontology" not in alone_task_file
+    assert "ontology" not in mixed_task_file
 
 
 def test_expected_classifications_survive_alone_mixed_reordered_and_repair_shapes() -> None:

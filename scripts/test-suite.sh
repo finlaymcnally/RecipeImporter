@@ -9,6 +9,26 @@ PYTEST_PATH="$repo_root/$PYTEST_BIN"
 MAXFAIL="${COOKIMPORT_TEST_MAXFAIL:-1}"
 export COOKIMPORT_TEST_SUITE=1
 
+test_temp_root="${COOKIMPORT_TEST_TEMP_ROOT:-/tmp}"
+keep_host_temp="${COOKIMPORT_TEST_KEEP_HOST_TEMP:-0}"
+if [[ "$keep_host_temp" != "1" && -d "$test_temp_root" ]]; then
+  override_temp_root=0
+  for candidate in "${TMPDIR:-}" "${TEMP:-}" "${TMP:-}"; do
+    if [[ -n "$candidate" && "$candidate" == /mnt/* ]]; then
+      override_temp_root=1
+      break
+    fi
+  done
+  if [[ $override_temp_root -eq 0 && -z "${TMPDIR:-}" && -z "${TEMP:-}" && -z "${TMP:-}" ]]; then
+    override_temp_root=1
+  fi
+  if [[ $override_temp_root -eq 1 ]]; then
+    export TMPDIR="$test_temp_root"
+    export TEMP="$test_temp_root"
+    export TMP="$test_temp_root"
+  fi
+fi
+
 domains=(analytics bench cli core ingestion labelstudio llm parsing staging)
 
 usage() {
@@ -28,6 +48,8 @@ Usage:
 Environment:
   COOKIMPORT_PYTEST_BIN: pytest path (default .venv/bin/pytest)
   COOKIMPORT_TEST_MAXFAIL: max failures before stop (default 1)
+  COOKIMPORT_TEST_TEMP_ROOT: temp root for wrapper-driven runs when host temp points at /mnt/* (default /tmp)
+  COOKIMPORT_TEST_KEEP_HOST_TEMP: set to 1 to disable the wrapper temp-root override
 USAGE
 }
 

@@ -41,7 +41,9 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.bench.line_role_artifact_lookup import LineRoleArtifactLookup
+from cookimport.bench.metrics import compute_label_metrics
 from cookimport.bench import oracle_upload as oracle_upload_contract
+from cookimport.bench.row_gold_lines import load_row_gold_line_labels
 from cookimport.bench.external_ai_cutdown.row_gold_sampling import (
     _build_correct_label_sample,
 )
@@ -212,10 +214,6 @@ from cookimport.bench.external_ai_cutdown.starter_pack import (
 from cookimport.bench.external_ai_cutdown.starter_pack_writer import (
     _write_starter_pack_v1 as _write_starter_pack_v1_impl,
 )
-from cookimport.bench.eval_stage_blocks import (
-    compute_block_metrics,
-    load_gold_block_labels,
-)
 from cookimport.bench.codex_bridge_projection_policy import (
     resolve_trace_status,
     select_prompt_row_for_trace,
@@ -234,7 +232,52 @@ from cookimport.bench.upload_bundle_v1_render import (
     write_upload_bundle_v1,
 )
 from cookimport.bench.structure_label_report import build_structure_label_report
+from cookimport.labelstudio.label_config_freeform import (
+    FREEFORM_LABELS,
+    normalize_freeform_label,
+)
 from cookimport.runs.stage_observability import stage_artifact_stem, stage_label
+
+
+_FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
+
+
+def load_gold_block_labels(
+    gold_labels_path: Path,
+    *,
+    require_exhaustive: bool = True,
+) -> dict[int, set[str]]:
+    del require_exhaustive
+    _rows, labels_by_row_index = load_row_gold_line_labels(
+        gold_labels_path,
+        strict_empty_to_other=True,
+    )
+    if not labels_by_row_index:
+        raise ValueError(f"No row-gold labels found at {gold_labels_path}")
+    return {
+        int(index): {
+            str(label).strip()
+            for label in labels
+            if str(label).strip()
+        }
+        or {"OTHER"}
+        for index, labels in labels_by_row_index.items()
+    }
+
+
+def compute_block_metrics(
+    gold_labels: dict[int, str | list[str] | tuple[str, ...] | set[str]],
+    prediction_by_index: dict[int, str],
+) -> dict[str, Any]:
+    normalized_predictions = {
+        int(index): (
+            normalized
+            if (normalized := normalize_freeform_label(str(label or "OTHER"))) in _FREEFORM_LABEL_SET
+            else "OTHER"
+        )
+        for index, label in prediction_by_index.items()
+    }
+    return compute_label_metrics(gold_labels, normalized_predictions)
 
 
 DEFAULT_SAMPLE_LIMIT = 80

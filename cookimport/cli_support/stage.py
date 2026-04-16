@@ -1003,6 +1003,7 @@ def _run_stage_from_deterministic_prep_bundle(
         write_markdown=write_markdown,
         progress_callback=_report_status,
         timing_stats=stage_stats,
+        write_raw_artifacts_enabled=True,
         output_stats=output_stats,
         recipe_limit=limit,
         recipe_limit_label=limit,

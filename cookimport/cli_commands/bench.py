@@ -1728,18 +1728,6 @@ def register(app: typer.Typer) -> dict[str, object]:
                 fg=typer.colors.CYAN,
             )
 
-        typer.secho(f"Report: {out_dir / 'eval_report.md'}", fg=typer.colors.CYAN)
-        typer.secho(
-            "Overall block accuracy: "
-            f"{float((report or {}).get('overall_block_accuracy') or 0.0):.3f}",
-            fg=typer.colors.CYAN,
-        )
-        typer.secho(
-            "Macro F1 (excluding OTHER): "
-            f"{float((report or {}).get('macro_f1_excluding_other') or 0.0):.3f}",
-            fg=typer.colors.CYAN,
-        )
-
     exports = {
         "bench_oracle_upload": bench_oracle_upload,
         "bench_oracle_followup": bench_oracle_followup,

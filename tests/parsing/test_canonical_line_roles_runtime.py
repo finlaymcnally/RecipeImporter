@@ -1111,13 +1111,19 @@ def test_label_atomic_lines_inline_json_prompt_avoids_literal_example_copy_failu
     class _LiteralExampleCopyRunner(FakeCodexExecRunner):
         def __init__(self) -> None:
             super().__init__(output_builder=self._build_output)
+            self.saw_literal_example = False
+            self.saw_placeholder_schema = False
 
         def _build_output(self, payload):  # noqa: ANN001
             prompt_text = str(self.calls[-1].get("prompt_text") or "")
-            if (
+            self.saw_literal_example = (
                 '{"rows":[{"row_id":"r01","label":"RECIPE_NOTES"},{"row_id":"r02","label":"NONRECIPE_EXCLUDE"}]}'
                 in prompt_text
-            ):
+            )
+            self.saw_placeholder_schema = (
+                '{"rows":[{"row_id":"r01","label":"<ALLOWED_LABEL>"}]}' in prompt_text
+            )
+            if self.saw_literal_example:
                 return {
                     "rows": [
                         {"row_id": "r01", "label": "RECIPE_NOTES"},
@@ -1131,7 +1137,7 @@ def test_label_atomic_lines_inline_json_prompt_avoids_literal_example_copy_failu
                 "rows": [
                     {
                         "row_id": str((row or {}).get("row_id") or f"r{index + 1:02d}"),
-                        "label": "NONRECIPE_EXCLUDE",
+                        "label": "NONRECIPE_CANDIDATE",
                     }
                     for index, row in enumerate(structured_packet_rows or [])
                 ]
@@ -1152,10 +1158,12 @@ def test_label_atomic_lines_inline_json_prompt_avoids_literal_example_copy_failu
     )
 
     assert [prediction.label for prediction in predictions] == [
-        "NONRECIPE_EXCLUDE",
-        "NONRECIPE_EXCLUDE",
-        "NONRECIPE_EXCLUDE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
+        "NONRECIPE_CANDIDATE",
     ]
+    assert runner.saw_literal_example is False
+    assert runner.saw_placeholder_schema is True
     assert [call["mode"] for call in runner.calls] == ["structured_prompt"]
     assert runner.calls[0]["persist_session"] is True
     assert runner.calls[0]["resume_last"] is False

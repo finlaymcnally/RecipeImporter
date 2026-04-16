@@ -344,11 +344,10 @@ def build_upload_bundle_source_model_from_existing_root(
     pair_breakdown_from_root = per_recipe_payload.get("pairs")
     pair_breakdown_from_root = pair_breakdown_from_root if isinstance(pair_breakdown_from_root, list) else []
     changed_lines_path = source_root / changed_lines_file_name
-    if not changed_lines_path.is_file():
-        legacy_changed_lines_path = source_root / LEGACY_BENCHMARK_CHANGED_LINES_FILE_NAME
-        if legacy_changed_lines_path.is_file():
-            changed_lines_path = legacy_changed_lines_path
     changed_lines_from_root = helpers.iter_jsonl(changed_lines_path)
+    if not changed_lines_from_root and changed_lines_file_name != LEGACY_BENCHMARK_CHANGED_LINES_FILE_NAME:
+        legacy_changed_lines_path = source_root / LEGACY_BENCHMARK_CHANGED_LINES_FILE_NAME
+        changed_lines_from_root = helpers.iter_jsonl(legacy_changed_lines_path)
 
     starter_pack_dir = source_root / starter_pack_dir_name
     starter_pack_present = starter_pack_dir.is_dir()

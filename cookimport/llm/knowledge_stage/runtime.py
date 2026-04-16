@@ -144,8 +144,8 @@ def run_codex_farm_nonrecipe_finalize(
     candidate_spans = list(routing.candidate_nonrecipe_spans)
     seed_nonrecipe_span_count = len(all_nonrecipe_spans)
     candidate_nonrecipe_span_count = len(candidate_spans)
-    candidate_block_count = len(routing.candidate_block_indices)
-    excluded_block_count = len(routing.excluded_block_indices)
+    candidate_block_count = len(routing.candidate_row_indices)
+    excluded_block_count = len(routing.excluded_row_indices)
     if not all_nonrecipe_spans:
         llm_report = _build_noop_knowledge_llm_report(
             run_settings=run_settings,
@@ -433,7 +433,7 @@ def run_codex_farm_nonrecipe_finalize(
             outputs=outputs,
             allowed_block_indices={
                 int(block_index): "candidate"
-                for block_index in routing.candidate_block_indices
+                for block_index in routing.candidate_row_indices
             },
         )
         (
@@ -444,7 +444,7 @@ def run_codex_farm_nonrecipe_finalize(
             outputs=outputs,
             allowed_block_indices={
                 int(block_index): "candidate"
-                for block_index in routing.candidate_block_indices
+                for block_index in routing.candidate_row_indices
             },
             proposal_metadata_by_packet_id=proposal_metadata_by_packet_id,
         )

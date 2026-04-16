@@ -380,18 +380,18 @@ def _run_all_method_prediction_once_impl(
                             "llm_knowledge_pipeline": benchmark_kwargs[
                                 "llm_knowledge_pipeline"
                             ],
-                            "knowledge_packet_input_char_budget": benchmark_kwargs[
+                            "knowledge_packet_input_char_budget": benchmark_kwargs.get(
                                 "knowledge_packet_input_char_budget"
-                            ],
-                            "knowledge_packet_output_char_budget": benchmark_kwargs[
+                            ),
+                            "knowledge_packet_output_char_budget": benchmark_kwargs.get(
                                 "knowledge_packet_output_char_budget"
-                            ],
-                            "knowledge_group_task_max_units": benchmark_kwargs[
+                            ),
+                            "knowledge_group_task_max_units": benchmark_kwargs.get(
                                 "knowledge_group_task_max_units"
-                            ],
-                            "knowledge_group_task_max_evidence_chars": benchmark_kwargs[
+                            ),
+                            "knowledge_group_task_max_evidence_chars": benchmark_kwargs.get(
                                 "knowledge_group_task_max_evidence_chars"
-                            ],
+                            ),
                             "atomic_block_splitter": benchmark_kwargs[
                                 "atomic_block_splitter"
                             ],

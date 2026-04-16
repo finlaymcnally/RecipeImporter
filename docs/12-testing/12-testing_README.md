@@ -185,6 +185,13 @@ Common run patterns:
 
 For routine agent loops, prefer the wrapper script or `make` aliases over broad raw `pytest`.
 
+Wrapper temp-root behavior:
+
+- `scripts/test-suite.sh` now normalizes `TMPDIR`, `TEMP`, and `TMP` to `/tmp` for wrapper-driven runs when the inherited host temp root points at `/mnt/*` or when no temp env is set.
+- This keeps pytest `tmp_path`, `tmp_path_factory`, `tempfile`, and runtime temp-root helpers off the Windows-mounted temp directory during broad Linux/WSL runs.
+- Use `COOKIMPORT_TEST_TEMP_ROOT` to point the wrapper at another Linux temp root if needed.
+- Use `COOKIMPORT_TEST_KEEP_HOST_TEMP=1` only when you intentionally need the inherited host temp location.
+
 ## Compact Output Behavior
 
 Current compact-output behavior:

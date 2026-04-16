@@ -573,7 +573,10 @@ def _pipeline_id_for_exec_schema(output_schema_path: str) -> str:
     file_name = Path(output_schema_path).name
     if file_name == "recipe.correction.v1.output.schema.json":
         return "recipe.correction.compact.v1"
-    if file_name == "recipe.knowledge.v1.output.schema.json":
+    if file_name in {
+        "recipe.knowledge.v1.output.schema.json",
+        "recipe.knowledge.packet.v1.output.schema.json",
+    }:
         return "recipe.knowledge.compact.v1"
     if file_name == "line-role.canonical.v1.output.schema.json":
         return "line-role.canonical.v1"
@@ -596,12 +599,17 @@ def _run_exec(args: argparse.Namespace) -> int:
         parsed_payload = _extract_prompt_packet_payload(prompt_text)
     if parsed_payload is None:
         parsed_payload = _extract_first_json_object(prompt_text)
-    if (
-        isinstance(parsed_payload, dict)
-        and str(parsed_payload.get("schema_version") or "").strip()
-        == "knowledge_structured_packet.v2"
-    ):
-        pipeline_id = "recipe.knowledge.packet.v1"
+    if isinstance(parsed_payload, dict):
+        stage_key = str(parsed_payload.get("stage_key") or "").strip()
+        schema_version = str(parsed_payload.get("schema_version") or "").strip()
+        if stage_key in {"nonrecipe_classify", "knowledge_group", "nonrecipe_finalize"}:
+            pipeline_id = "recipe.knowledge.packet.v1"
+        elif stage_key == "line_role":
+            pipeline_id = "line-role.canonical.v1"
+        elif schema_version.startswith("knowledge_structured_packet."):
+            pipeline_id = "recipe.knowledge.packet.v1"
+        elif schema_version.startswith("line_role_structured_packet."):
+            pipeline_id = "line-role.canonical.v1"
     payload = parsed_payload if parsed_payload is not None else prompt_text
     response_payload = build_structural_pipeline_output(pipeline_id, payload)
     response_text = json.dumps(response_payload, sort_keys=True)

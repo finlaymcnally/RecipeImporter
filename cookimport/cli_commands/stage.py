@@ -1463,7 +1463,11 @@ def register(app: typer.Typer) -> dict[str, object]:
                     progress_queue_manager = create_sync_manager()
                     progress_queue = progress_queue_manager.Queue()
                 except Exception:
-                    progress_queue = queue.Queue()
+                    # A normal in-process Queue carries a thread lock and is not
+                    # picklable, so it cannot be passed into process workers.
+                    # When the process-safe manager is unavailable, degrade to
+                    # no shared progress queue instead of crashing job pickling.
+                    progress_queue = None
             else:
                 progress_queue = queue.Queue()
             _start_progress_queue_consumer()

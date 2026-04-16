@@ -492,7 +492,7 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
     )
 
     assert apply_result.authoritative_recipe_payloads_by_recipe_id == {}
-    assert [divestment.block_indices for divestment in apply_result.recipe_divestments] == [
+    assert [divestment.row_indices for divestment in apply_result.recipe_divestments] == [
         [1, 2, 3, 4, 5]
     ]
     assert apply_result.updated_conversion_result.recipes == []
@@ -511,12 +511,18 @@ def test_orchestrator_keeps_not_a_recipe_proposal_in_reports_but_skips_promotion
         promotion_report["recipe_results"][recipe_id]["final_recipe_authority_eligibility"]
         == "non_promotable"
     )
+    assert (
+        promotion_report["recipe_results"][recipe_id]["final_recipe_authority_reason"]
+        == "repair_status_not_a_recipe"
+    )
     assert proposal["payload"]["r"][0]["st"] == "not_a_recipe"
     assert proposal["payload"]["r"][0]["db"] == [1, 2, 3, 4, 5]
     assert audit["output"]["repair_status"] == "not_a_recipe"
     assert audit["deterministic_final_assembly"]["status"] == "skipped"
     assert audit["task_outcome"]["final_recipe_authority_eligibility"] == "non_promotable"
+    assert audit["task_outcome"]["final_recipe_authority_reason"] == "repair_status_not_a_recipe"
     assert audit["final_recipe_authority"]["status"] == "not_promoted"
+    assert audit["final_recipe_authority"]["reason"] == "valid_task_outcome_not_a_recipe"
 
 
 def test_orchestrator_keeps_fragmentary_proposal_visible_but_non_promoted(

@@ -139,7 +139,7 @@ def test_knowledge_orchestrator_uses_fixed_assignment_surface_not_task_queue_sur
     assert not (worker_root / "CURRENT_TASK.md").exists()
     assert not (worker_root / "CURRENT_TASK_FEEDBACK.md").exists()
     assert (worker_root / "task.json").exists()
-    assert runner.initial_assigned_shard_ids == ["book.ks0000.nr", "book.ks0001.nr"]
+    assert runner.initial_assigned_shard_ids == ["book.ks0000.nr"]
     assert not (worker_root / "current_packet.json").exists()
     assert not (worker_root / "current_hint.md").exists()
     assert not (worker_root / "current_result_path.txt").exists()
@@ -161,9 +161,6 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     first_output = json.loads(
         (worker_root / "out" / "book.ks0000.nr.json").read_text(encoding="utf-8")
     )
-    second_output = json.loads(
-        (worker_root / "out" / "book.ks0001.nr.json").read_text(encoding="utf-8")
-    )
     assert not (worker_root / "current_packet.json").exists()
     assert not (worker_root / "current_hint.md").exists()
     assert not (worker_root / "current_result_path.txt").exists()
@@ -179,16 +176,16 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert task_file["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
     assert task_file["answer_schema"]["example_answers"][0]["groups"][0]["group_id"] == "g01"
     assert first_output["packet_id"] == "book.ks0000.nr"
-    assert first_output["block_decisions"][0]["block_index"] == 0
-    assert first_output["block_decisions"][0]["category"] == "knowledge"
-    assert (
-        first_output["block_decisions"][0]["grounding"]["tag_keys"]
-        or first_output["block_decisions"][0]["grounding"]["proposed_tags"]
+    assert [row["block_index"] for row in first_output["block_decisions"]] == [0, 2]
+    assert all(row["category"] == "knowledge" for row in first_output["block_decisions"])
+    assert all(
+        row["grounding"]["tag_keys"] or row["grounding"]["proposed_tags"]
+        for row in first_output["block_decisions"]
     )
     first_grounding = first_output["block_decisions"][0]["grounding"]
     first_group = first_output["idea_groups"][0]
     assert first_group["group_id"] == "g01"
-    assert first_group["block_indices"] == [0]
+    assert first_group["block_indices"] == [0, 2]
     assert first_group["grounding"] == {
         "tag_keys": first_grounding["tag_keys"],
         "category_keys": first_grounding["category_keys"],
@@ -201,29 +198,6 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     else:
         assert first_group["why_no_existing_tag"] is None
         assert first_group["retrieval_query"] is None
-    assert second_output["packet_id"] == "book.ks0001.nr"
-    assert second_output["block_decisions"][0]["block_index"] == 2
-    assert second_output["block_decisions"][0]["category"] == "knowledge"
-    assert (
-        second_output["block_decisions"][0]["grounding"]["tag_keys"]
-        or second_output["block_decisions"][0]["grounding"]["proposed_tags"]
-    )
-    second_grounding = second_output["block_decisions"][0]["grounding"]
-    second_group = second_output["idea_groups"][0]
-    assert second_group["group_id"] == "g01"
-    assert second_group["block_indices"] == [2]
-    assert second_group["grounding"] == {
-        "tag_keys": second_grounding["tag_keys"],
-        "category_keys": second_grounding["category_keys"],
-        "proposed_tags": second_grounding["proposed_tags"],
-    }
-    assert second_group["topic_label"]
-    if second_grounding["proposed_tags"]:
-        assert second_group["why_no_existing_tag"]
-        assert second_group["retrieval_query"]
-    else:
-        assert second_group["why_no_existing_tag"] is None
-        assert second_group["retrieval_query"] is None
     phase_manifest = json.loads((phase_dir / "phase_manifest.json").read_text(encoding="utf-8"))
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
     worker_status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
@@ -244,7 +218,7 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
         worker_status["repair_recovery_policy"]["worker_assignment"]["budgets"][
             "structured_repair_followup"
         ]["allowed_attempts"]
-        == 2
+        == 1
     )
     assert (
         worker_status["repair_recovery_policy"]["worker_assignment"]["budgets"][
@@ -365,19 +339,19 @@ def test_knowledge_orchestrator_inline_json_style_persists_workspace_for_possibl
     lineage_path = next(worker_root.rglob("session_lineage.json"))
     lineage_payload = json.loads(lineage_path.read_text(encoding="utf-8"))
 
-    assert len(runner.calls) == 4
-    assert [call["mode"] for call in runner.calls].count("structured_prompt") == 4
+    assert len(runner.calls) == 2
+    assert [call["mode"] for call in runner.calls].count("structured_prompt") == 2
     assert [call["mode"] for call in runner.calls].count("structured_prompt_resume") == 0
-    assert [call["persist_session"] for call in runner.calls].count(True) == 4
+    assert [call["persist_session"] for call in runner.calls].count(True) == 2
     assert [call["resume_last"] for call in runner.calls].count(True) == 0
-    assert len({call["execution_working_dir"] for call in runner.calls}) == 2
+    assert len({call["execution_working_dir"] for call in runner.calls}) == 1
     assert lineage_payload["turn_count"] == 2
     assert lineage_payload["turns"][0]["turn_kind"] == "classification_initial"
     assert lineage_payload["turns"][1]["turn_kind"] == "grouping_1"
     assert worker_status["telemetry"]["summary"]["taskfile_session_count"] == 0
     assert worker_status["telemetry"]["summary"]["prompt_input_mode_counts"] == {
-        "structured_session_classification_initial": 2,
-        "structured_session_grouping": 2,
+        "structured_session_classification_initial": 1,
+        "structured_session_grouping": 1,
     }
 
 
@@ -1434,9 +1408,9 @@ def test_knowledge_orchestrator_classifies_clean_exit_without_assignment_output(
         "same_session_handoff_incomplete"
     )
     assert summary["packets"]["no_final_output_reason_code_counts"] == {
-        "same_session_handoff_incomplete": 2,
+        "same_session_handoff_incomplete": 1,
     }
-    assert summary["attention_summary"]["zero_target_counts"]["no_final_output_shard_count"] == 2
+    assert summary["attention_summary"]["zero_target_counts"]["no_final_output_shard_count"] == 1
     assert not (worker_root / "packet_lease_status.json").exists()
     assert live_status["state"] == "completed"
     assert live_status["reason_code"] == "process_exited_without_watchdog_intervention"
@@ -1474,9 +1448,9 @@ def test_knowledge_orchestrator_classifies_repair_packet_exhaustion(
         task_rows["book.ks0000.nr"]["terminal_reason_detail"]
     )
     assert summary["packets"]["no_final_output_reason_code_counts"] == {
-        "same_session_handoff_incomplete": 2
+        "same_session_handoff_incomplete": 1
     }
-    assert summary["attention_summary"]["zero_target_counts"]["no_final_output_shard_count"] == 2
+    assert summary["attention_summary"]["zero_target_counts"]["no_final_output_shard_count"] == 1
     assert handoff_state["same_session_repair_rewrite_count"] == 1
     assert handoff_state["current_stage_key"] == "nonrecipe_classify"
     assert json.loads((worker_root / "task.json").read_text(encoding="utf-8"))["stage_key"] == (
@@ -1507,5 +1481,5 @@ def test_knowledge_orchestrator_preserves_watchdog_reason_precedence(
         == "watchdog_command_execution_forbidden"
     )
     assert summary["packets"]["no_final_output_reason_code_counts"] == {
-        "watchdog_command_execution_forbidden": 2
+        "watchdog_command_execution_forbidden": 1
     }

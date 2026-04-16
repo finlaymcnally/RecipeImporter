@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 import shutil
 import subprocess
@@ -10,6 +11,171 @@ from cookimport.bench.comparison_artifacts import (
     PRIMARY_BENCHMARK_COMPARISON_JSON_FILE_NAME,
     resolve_existing_benchmark_comparison_json_path,
 )
+
+_FLATTEN_MAX_BYTES = 120000
+_BINARY_EXTENSIONS = {
+    ".zip",
+    ".tar",
+    ".tgz",
+    ".bz2",
+    ".xz",
+    ".7z",
+    ".rar",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".webp",
+    ".bmp",
+    ".ico",
+    ".icns",
+    ".pdf",
+    ".mp3",
+    ".mp4",
+    ".m4a",
+    ".mov",
+    ".avi",
+    ".wav",
+    ".flac",
+    ".ogg",
+    ".parquet",
+    ".arrow",
+    ".feather",
+    ".avro",
+    ".sqlite",
+    ".db",
+}
+_CODE_FENCE_BY_EXTENSION = {
+    ".md": "markdown",
+    ".markdown": "markdown",
+    ".txt": "text",
+    ".text": "text",
+    ".json": "json",
+    ".jsonl": "json",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".py": "python",
+    ".js": "javascript",
+    ".ts": "typescript",
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".sql": "sql",
+    ".toml": "toml",
+    ".ini": "ini",
+    ".cfg": "ini",
+    ".conf": "ini",
+    ".csv": "csv",
+}
+
+
+def _code_fence_for_file(path: Path) -> str:
+    return _CODE_FENCE_BY_EXTENSION.get(path.suffix.lower(), "text")
+
+
+def _is_binary_extension(path: Path) -> bool:
+    suffix = path.suffix.lower()
+    if suffix == ".gz":
+        return False
+    return suffix in _BINARY_EXTENSIONS
+
+
+def _render_file_preview(path: Path, *, max_bytes: int) -> str:
+    size_bytes = int(path.stat().st_size)
+    if _is_binary_extension(path):
+        return f"_Omitted: binary file ({size_bytes} bytes)._"
+
+    if path.suffix.lower() == ".gz":
+        try:
+            with gzip.open(path, "rt", encoding="utf-8", errors="replace") as handle:
+                preview = handle.read(max_bytes)
+        except OSError:
+            return "_Omitted: unreadable gzip file._"
+        return (
+            f"_gzip file ({size_bytes} bytes). Showing up to {max_bytes} bytes of decompressed preview._\n\n"
+            f"{preview}\n\n_(End of decompressed preview.)_"
+        )
+
+    raw_bytes = path.read_bytes()
+    if size_bytes <= max_bytes:
+        return raw_bytes.decode("utf-8", errors="replace")
+    preview = raw_bytes[:max_bytes].decode("utf-8", errors="replace")
+    return (
+        f"_Truncated: {size_bytes} bytes total. Showing first {max_bytes} bytes._\n\n"
+        f"{preview}\n\n_(End of preview.)_"
+    )
+
+
+def _write_flattened_markdown(
+    *,
+    source_dir: Path,
+    output_file: Path,
+    source_name: str,
+    recursive: bool = False,
+    max_bytes: int = _FLATTEN_MAX_BYTES,
+) -> None:
+    if recursive:
+        files = sorted(path for path in source_dir.rglob("*") if path.is_file())
+    else:
+        files = sorted(path for path in source_dir.iterdir() if path.is_file())
+
+    lines: list[str] = [
+        "---",
+        f'summary: "Flattened contents of {source_name}."',
+        "read_when:",
+        '  - "When you need all files from this folder in one Markdown file."',
+        "---",
+        "",
+        f"# Flattened folder: {source_name}",
+        "",
+        f"Source: `{source_dir}`",
+        "",
+    ]
+    if not files:
+        lines.append("_No files found._")
+    else:
+        for path in files:
+            section_name = (
+                str(path.relative_to(source_dir)) if recursive else path.name
+            )
+            lines.append(f"## {section_name}")
+            lines.append("")
+            lines.append(f"```{_code_fence_for_file(path)}")
+            lines.append(_render_file_preview(path, max_bytes=max_bytes))
+            lines.append("```")
+            lines.append("")
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _flatten_output_without_script(
+    *,
+    output_dir: Path,
+    md_output_dir: Path,
+    max_bytes: int = _FLATTEN_MAX_BYTES,
+) -> None:
+    subdirs = sorted(path for path in output_dir.iterdir() if path.is_dir())
+    if subdirs:
+        for subdir in subdirs:
+            _write_flattened_markdown(
+                source_dir=subdir,
+                output_file=md_output_dir / f"{subdir.name}.md",
+                source_name=subdir.name,
+                recursive=False,
+                max_bytes=max_bytes,
+            )
+        return
+
+    _write_flattened_markdown(
+        source_dir=output_dir,
+        output_file=md_output_dir / f"{output_dir.name}.md",
+        source_name=output_dir.name,
+        recursive=True,
+        max_bytes=max_bytes,
+    )
 
 
 def _append_json_section(
@@ -235,17 +401,17 @@ def _flatten_output(
         if not flatten_script.is_absolute()
         else flatten_script
     )
-    if not script_path.is_file():
-        raise FileNotFoundError(f"Flatten script not found: {script_path}")
-
-    subprocess.run(
-        ["bash", str(script_path), str(output_dir)],
-        cwd=repo_root,
-        check=True,
-    )
-
     md_output_dir = output_dir.parent / f"{output_dir.name}_md"
     md_output_dir.mkdir(parents=True, exist_ok=True)
+    if script_path.is_file():
+        subprocess.run(
+            ["bash", str(script_path), str(output_dir)],
+            cwd=repo_root,
+            check=True,
+        )
+    else:
+        _flatten_output_without_script(output_dir=output_dir, md_output_dir=md_output_dir)
+
     for file_name in root_metadata_files:
         source = output_dir / file_name
         if source.is_file():

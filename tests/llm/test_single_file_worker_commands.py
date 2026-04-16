@@ -72,7 +72,7 @@ def test_task_summary_reports_direct_batch_progress_for_classification(
     summary = json.loads(capsys.readouterr().out)
 
     assert summary["current_unit_id"] == "knowledge::4"
-    assert summary["required_answer_keys"] == ["category", "grounding"]
+    assert summary["required_answer_keys"] == ["category"]
     assert "workflow" not in summary
     assert "helper_commands" not in summary
     assert "answer_schema_summary" not in summary
