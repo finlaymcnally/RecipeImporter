@@ -115,7 +115,7 @@ Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 - `segment_text` contains the labelable focus window for one task.
 - `source_map.rows[*]` carries the authoritative row-native mapping for that focus text, including stable `row_id`, row ordinals, and offsets.
 - New task generation writes only `source_map.rows[*]` plus `context_before_rows` / `context_after_rows`.
-- Some legacy pulled exports and fixtures may still carry `blocks` / `context_*_blocks`; compatibility readers may accept them, but they are not part of the supported new-task contract.
+- Export/import/eval readers now expect `source_map.rows[*]`; block-wide task payload compatibility is intentionally removed from the active contract.
 - Import writes `coverage.json` from focus + context block coverage and fails when extracted text is empty.
 
 ## 4) Freeform Prelabel Contracts
@@ -253,7 +253,7 @@ Canonical line-role projection note:
 - line-role gating (`--line-role-gated`) for row-based Milestone-5 regression checks
 - benchmark prediction-generation scratch stays inside the resolved `eval_output_dir` artifact root, so one benchmark session does not spill sibling timestamp roots under `data/golden/benchmark-vs-golden`
 - when processed outputs are requested, benchmark/prediction runs reuse the stage-produced authoritative label artifacts (`label_deterministic`, `label_refine`, `recipe_boundary`) and mirror the resulting `semantic_row_predictions.json` into the prediction run root
-- those processed outputs now also include `recipe_authority/<workbook_slug>/recipe_block_ownership.json`, and prediction-run scoring inherits the same ownership invariant: recipe-local evidence may not overlap final outside-recipe `KNOWLEDGE`
+- those processed outputs now also include `recipe_authority/<workbook_slug>/recipe_row_ownership.json`, and prediction-run scoring inherits the same ownership invariant: recipe-local evidence may not overlap final outside-recipe `KNOWLEDGE`
 - prediction generation no longer runs a second post-stage diagnostic `label_atomic_lines(...)` pass; freeform span projection reuses the authoritative labeled-line bundle from stage or builds the same bundle once in-memory for offline-only runs
 - source-row benchmark scoring follows the prediction manifest pointer pair; when authoritative line labels are projected, outside-recipe `KNOWLEDGE` versus `OTHER` still comes from the final non-recipe authority after knowledge refinement, and telemetry reports `mode=final_authority_projection`
 - source-row benchmark eval reports now also serialize structural segmentation metrics beside the older overlap-style `boundary` counts, so paired benchmark comparisons can tell whether a gain came from line classification, boundary structure, or both
@@ -284,7 +284,7 @@ Evaluation implementation:
 
 - `source-rows` path uses `cookimport/bench/eval_source_rows.py`.
 - Benchmark prediction generation now writes one authoritative stage run under `data/output/<timestamp>/...` and mirrors benchmark artifacts into the eval root.
-- Scoring reads only one prediction-run pointer pair from `manifest.json`: `stage_block_predictions_path` and `extracted_archive_path`.
+- Scoring reads only one prediction-run pointer pair from `manifest.json`: `semantic_row_predictions_path` and `extracted_archive_path`.
 - When line-role projection is enabled, those pointers are set to the projection outputs during generation (no scorer-side source switching).
 
 Benchmark eval artifacts include:
@@ -354,7 +354,7 @@ When source-row benchmark eval runs with `line_role_pipeline != off`, eval roots
 - Typical eval-root extras: `processing_timeseries_prediction.jsonl`, `processing_timeseries_evaluation.jsonl`, optional `eval_profile.pstats`/`eval_profile_top.txt`, and `run_manifest.json`.
 - interrupted eval roots now keep the same root shape and add `benchmark_status.json` plus `partial_benchmark_summary.json` so a killed run still leaves one top-level status/pointer package instead of only raw worker trees
 - If `line_role_pipeline != off`, benchmark manifests include line-role diagnostics pointers and an optional `line_role_pipeline_recipe_projection` summary.
-- Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `stage_block_predictions_path` and `extracted_archive_path`.
+- Manifest/return payloads no longer expose separate line-role stage/extracted scorer pointers; canonical scorer pointers are always `semantic_row_predictions_path` and `extracted_archive_path`.
 - Eval/benchmark manifests should resolve the prediction-run directory from `artifacts.artifact_root_dir`; do not add new readers that prefer eval-root-relative fallbacks when the prediction artifacts live elsewhere.
 - New-format benchmark/prediction runs do not write or consume the old knowledge-stage merge report; non-recipe route/finalize ownership is already baked into the reused stage artifacts.
 
@@ -362,7 +362,7 @@ When source-row benchmark eval runs with `line_role_pipeline != off`, eval roots
 
 - `labelstudio-export` writes only explicit spans; unlabeled text is implicit and benchmarks treat missing gold coverage as `OTHER`.
 - Overlapping exported spans are preserved. Stage-block and source-row scoring treat touched blocks/lines as multi-label gold, so macro/per-label metrics can lag overall accuracy.
-- Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, `cookimport/staging/stage_block_predictions.py`, and `cookimport/bench/eval_source_rows.py`.
+- Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, the row-prediction builder in `cookimport/staging/stage_block_predictions.py`, and `cookimport/bench/eval_source_rows.py`.
 - Reusing an older Label Studio project can leave stale `label_config`; if code labels and UI labels disagree, recreate or patch the project before changing scorers.
 - `labelstudio-benchmark compare` accepts either all-method benchmark report roots/files or single `eval_report.json` inputs.
 - If recipe-tail storage/use notes are scoring as `OTHER`, check both seams:

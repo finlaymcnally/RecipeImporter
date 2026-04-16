@@ -13,7 +13,7 @@ from cookimport.labelstudio.eval_freeform import (
 from cookimport.labelstudio.export import run_labelstudio_export
 from cookimport.labelstudio.freeform_tasks import (
     build_freeform_span_tasks,
-    map_span_offsets_to_blocks,
+    map_span_offsets_to_rows,
     resolve_segment_overlap_for_target,
 )
 from cookimport.labelstudio.label_config_freeform import (
@@ -59,7 +59,7 @@ def test_build_freeform_tasks_offsets_are_deterministic() -> None:
     assert source_rows[1]["segment_start"] == 7
     assert source_rows[1]["segment_end"] == 11
 
-    touched = map_span_offsets_to_blocks(first["source_map"], 0, 4)
+    touched = map_span_offsets_to_rows(first["source_map"], 0, 4)
     assert [item["block_index"] for item in touched] == [0]
 
 
@@ -121,18 +121,18 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     second_source_map = tasks[1]["data"]["source_map"]
     assert tasks[0]["data"]["segment_text"] == "B\n\nC"
     assert tasks[1]["data"]["segment_text"] == "E\n\nF"
-    assert first_source_map["focus_start_block_index"] == 1
-    assert first_source_map["focus_end_block_index"] == 2
-    assert first_source_map["focus_block_indices"] == [1, 2]
-    assert first_source_map["context_before_block_indices"] == [0]
-    assert first_source_map["context_after_block_indices"] == [3]
-    assert first_source_map["focus_block_range"] == "1-2"
-    assert first_source_map["context_before_block_range"] == "0"
-    assert first_source_map["context_after_block_range"] == "3"
-    assert first_source_map["rows"][0]["block_index"] == 1
+    assert first_source_map["focus_start_row_index"] == 1
+    assert first_source_map["focus_end_row_index"] == 2
+    assert first_source_map["focus_row_indices"] == [1, 2]
+    assert first_source_map["context_before_row_indices"] == [0]
+    assert first_source_map["context_after_row_indices"] == [3]
+    assert first_source_map["focus_row_range"] == "1-2"
+    assert first_source_map["context_before_row_range"] == "0"
+    assert first_source_map["context_after_row_range"] == "3"
+    assert first_source_map["rows"][0]["row_index"] == 1
     assert first_source_map["rows"][0]["segment_start"] == 0
     assert first_source_map["rows"][0]["segment_end"] == 1
-    assert first_source_map["rows"][1]["block_index"] == 2
+    assert first_source_map["rows"][1]["row_index"] == 2
     assert first_source_map["rows"][1]["segment_start"] == 3
     assert first_source_map["rows"][1]["segment_end"] == 4
     assert len(first_source_map["context_before_rows"]) == 1
@@ -145,14 +145,14 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
         "Label only rows 1-2. Context only: before 0; after 3."
     )
 
-    assert second_source_map["focus_start_block_index"] == 4
-    assert second_source_map["focus_end_block_index"] == 5
-    assert second_source_map["focus_block_indices"] == [4, 5]
-    assert second_source_map["context_before_block_indices"] == [3]
-    assert second_source_map["context_after_block_indices"] == []
-    assert second_source_map["focus_block_range"] == "4-5"
-    assert second_source_map["context_before_block_range"] == "3"
-    assert second_source_map["context_after_block_range"] == "none"
+    assert second_source_map["focus_start_row_index"] == 4
+    assert second_source_map["focus_end_row_index"] == 5
+    assert second_source_map["focus_row_indices"] == [4, 5]
+    assert second_source_map["context_before_row_indices"] == [3]
+    assert second_source_map["context_after_row_indices"] == []
+    assert second_source_map["focus_row_range"] == "4-5"
+    assert second_source_map["context_before_row_range"] == "3"
+    assert second_source_map["context_after_row_range"] == "none"
     assert len(second_source_map["context_before_rows"]) == 1
     assert second_source_map["context_before_rows"][0]["row_index"] == 3
     assert second_source_map["context_before_rows"][0]["text"] == "D"
@@ -302,20 +302,24 @@ def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:
                         "segment_text": "Alpha\n\nBeta",
                         "source_map": {
                             "separator": "\n\n",
-                            "start_block_index": 0,
-                            "end_block_index": 1,
-                            "blocks": [
+                            "start_row_index": 0,
+                            "end_row_index": 1,
+                            "rows": [
                                 {
-                                    "block_id": "urn:cookimport:block:hash123:0",
-                                    "block_index": 0,
+                                    "row_id": "urn:cookimport:row:hash123:0:0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
                                     "segment_start": 0,
                                     "segment_end": 5,
+                                    "text": "Alpha",
                                 },
                                 {
-                                    "block_id": "urn:cookimport:block:hash123:1",
-                                    "block_index": 1,
+                                    "row_id": "urn:cookimport:row:hash123:1:0",
+                                    "row_index": 1,
+                                    "source_block_index": 1,
                                     "segment_start": 7,
                                     "segment_end": 11,
+                                    "text": "Beta",
                                 },
                             ],
                         },
@@ -402,26 +406,32 @@ def _run_freeform_yield_time_export_fixture(tmp_path, monkeypatch):
                         "segment_text": "Serves 4\n\nPrep: 10 min\n\n1 cup flour",
                         "source_map": {
                             "separator": "\n\n",
-                            "start_block_index": 0,
-                            "end_block_index": 2,
-                            "blocks": [
+                            "start_row_index": 0,
+                            "end_row_index": 2,
+                            "rows": [
                                 {
-                                    "block_id": "urn:cookimport:block:hash456:0",
-                                    "block_index": 0,
+                                    "row_id": "urn:cookimport:row:hash456:0:0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
                                     "segment_start": 0,
                                     "segment_end": 8,
+                                    "text": "Serves 4",
                                 },
                                 {
-                                    "block_id": "urn:cookimport:block:hash456:1",
-                                    "block_index": 1,
+                                    "row_id": "urn:cookimport:row:hash456:1:0",
+                                    "row_index": 1,
+                                    "source_block_index": 1,
                                     "segment_start": 10,
                                     "segment_end": 22,
+                                    "text": "Prep: 10 min",
                                 },
                                 {
-                                    "block_id": "urn:cookimport:block:hash456:2",
-                                    "block_index": 2,
+                                    "row_id": "urn:cookimport:row:hash456:2:0",
+                                    "row_index": 2,
+                                    "source_block_index": 2,
                                     "segment_start": 24,
                                     "segment_end": 35,
+                                    "text": "1 cup flour",
                                 },
                             ],
                         },
@@ -550,20 +560,24 @@ def _run_freeform_recipe_header_summary_fixture(tmp_path, monkeypatch):
                         "segment_text": "Recipe A\n\n1 cup sugar",
                         "source_map": {
                             "separator": "\n\n",
-                            "start_block_index": 0,
-                            "end_block_index": 1,
-                            "blocks": [
+                            "start_row_index": 0,
+                            "end_row_index": 1,
+                            "rows": [
                                 {
-                                    "block_id": "urn:cookimport:block:hash789:0",
-                                    "block_index": 0,
+                                    "row_id": "urn:cookimport:row:hash789:0:0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
                                     "segment_start": 0,
                                     "segment_end": 8,
+                                    "text": "Recipe A",
                                 },
                                 {
-                                    "block_id": "urn:cookimport:block:hash789:1",
-                                    "block_index": 1,
+                                    "row_id": "urn:cookimport:row:hash789:1:0",
+                                    "row_index": 1,
+                                    "source_block_index": 1,
                                     "segment_start": 10,
                                     "segment_end": 21,
+                                    "text": "1 cup sugar",
                                 },
                             ],
                         },
@@ -599,20 +613,24 @@ def _run_freeform_recipe_header_summary_fixture(tmp_path, monkeypatch):
                         "segment_text": "Recipe A\n\nStep 1",
                         "source_map": {
                             "separator": "\n\n",
-                            "start_block_index": 0,
-                            "end_block_index": 2,
-                            "blocks": [
+                            "start_row_index": 0,
+                            "end_row_index": 2,
+                            "rows": [
                                 {
-                                    "block_id": "urn:cookimport:block:hash789:0",
-                                    "block_index": 0,
+                                    "row_id": "urn:cookimport:row:hash789:0:0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
                                     "segment_start": 0,
                                     "segment_end": 8,
+                                    "text": "Recipe A",
                                 },
                                 {
-                                    "block_id": "urn:cookimport:block:hash789:2",
-                                    "block_index": 2,
+                                    "row_id": "urn:cookimport:row:hash789:2:0",
+                                    "row_index": 2,
+                                    "source_block_index": 2,
                                     "segment_start": 10,
                                     "segment_end": 16,
+                                    "text": "Step 1",
                                 },
                             ],
                         },
@@ -648,20 +666,24 @@ def _run_freeform_recipe_header_summary_fixture(tmp_path, monkeypatch):
                         "segment_text": "Recipe B\n\n2 eggs",
                         "source_map": {
                             "separator": "\n\n",
-                            "start_block_index": 5,
-                            "end_block_index": 6,
-                            "blocks": [
+                            "start_row_index": 5,
+                            "end_row_index": 6,
+                            "rows": [
                                 {
-                                    "block_id": "urn:cookimport:block:hash789:5",
-                                    "block_index": 5,
+                                    "row_id": "urn:cookimport:row:hash789:5:0",
+                                    "row_index": 5,
+                                    "source_block_index": 5,
                                     "segment_start": 0,
                                     "segment_end": 8,
+                                    "text": "Recipe B",
                                 },
                                 {
-                                    "block_id": "urn:cookimport:block:hash789:6",
-                                    "block_index": 6,
+                                    "row_id": "urn:cookimport:row:hash789:6:0",
+                                    "row_index": 6,
+                                    "source_block_index": 6,
                                     "segment_start": 10,
                                     "segment_end": 16,
+                                    "text": "2 eggs",
                                 },
                             ],
                         },

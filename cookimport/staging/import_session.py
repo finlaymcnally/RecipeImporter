@@ -38,11 +38,9 @@ from cookimport.staging.writer import (
     write_raw_artifacts,
     write_recipe_authority_decisions,
     write_recipe_row_ownership,
-    write_recipe_block_ownership,
     write_report,
     write_semantic_row_predictions,
     write_section_outputs,
-    write_stage_block_predictions,
     write_table_outputs,
 )
 
@@ -78,10 +76,8 @@ __all__ = [
     "write_raw_artifacts",
     "write_recipe_authority_decisions",
     "write_recipe_row_ownership",
-    "write_recipe_block_ownership",
     "write_report",
     "write_semantic_row_predictions",
     "write_section_outputs",
-    "write_stage_block_predictions",
     "write_table_outputs",
 ]

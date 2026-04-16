@@ -98,10 +98,6 @@ class DeterministicPrepBundleResult:
     book_cache_root: Path | None = None
     conversion_cache_summary: dict[str, Any] | None = None
 
-    @property
-    def stage_block_predictions_path(self) -> Path | None:
-        return self.semantic_row_predictions_path
-
 
 def _coerce_float(value: Any) -> float | None:
     try:
@@ -247,11 +243,7 @@ def _bundle_result_from_manifest(
     ):
         return None
     processed_report_raw = str(manifest.get("processed_report_path") or "").strip()
-    stage_predictions_raw = str(
-        manifest.get("semantic_row_predictions_path")
-        or manifest.get("stage_block_predictions_path")
-        or ""
-    ).strip()
+    stage_predictions_raw = str(manifest.get("semantic_row_predictions_path") or "").strip()
     timing_payload = _coerce_dict(manifest.get("timing"))
     book_cache_root_raw = str(manifest.get("book_cache_root") or "").strip()
     workbook_slug = _resolve_cached_workbook_slug(

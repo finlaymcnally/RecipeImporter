@@ -781,19 +781,6 @@ def write_recipe_row_ownership(
     return out_path
 
 
-def write_recipe_block_ownership(
-    *,
-    ownership_result: RecipeOwnershipResult,
-    out_path: Path,
-    output_stats: OutputStats | None = None,
-) -> Path:
-    return write_recipe_row_ownership(
-        ownership_result=ownership_result,
-        out_path=out_path,
-        output_stats=output_stats,
-    )
-
-
 def write_raw_artifacts(
     results: ConversionResult,
     out_dir: Path,
@@ -1010,37 +997,6 @@ def write_semantic_row_predictions(
         category=_OUTPUT_CATEGORY_BENCH,
     )
     return out_path
-
-
-def write_stage_block_predictions(
-    *,
-    results: ConversionResult,
-    run_root: Path,
-    workbook_slug: str,
-    recipe_ownership_result: RecipeOwnershipResult,
-    authoritative_payloads_by_recipe_id: Mapping[str, AuthoritativeRecipeSemantics | dict[str, Any]] | None = None,
-    recipe_authority_decisions_by_recipe_id: Mapping[str, RecipeAuthorityDecision | dict[str, Any]] | None = None,
-    source_file: str | None = None,
-    source_hash: str | None = None,
-    archive_blocks: list[dict[str, Any]] | None = None,
-    nonrecipe_stage_result: NonRecipeStageResult | None = None,
-    output_stats: OutputStats | None = None,
-    label_first_result: LabelFirstStageResult | None = None,
-) -> Path:
-    return write_semantic_row_predictions(
-        results=results,
-        run_root=run_root,
-        workbook_slug=workbook_slug,
-        recipe_ownership_result=recipe_ownership_result,
-        authoritative_payloads_by_recipe_id=authoritative_payloads_by_recipe_id,
-        recipe_authority_decisions_by_recipe_id=recipe_authority_decisions_by_recipe_id,
-        source_file=source_file,
-        source_hash=source_hash,
-        archive_blocks=archive_blocks,
-        nonrecipe_stage_result=nonrecipe_stage_result,
-        output_stats=output_stats,
-        label_first_result=label_first_result,
-    )
 
 
 def write_nonrecipe_stage_outputs(

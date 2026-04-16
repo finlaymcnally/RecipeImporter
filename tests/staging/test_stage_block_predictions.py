@@ -24,7 +24,7 @@ from cookimport.staging.stage_block_predictions import (
     _is_howto_section_text,
     build_stage_block_predictions,
 )
-from cookimport.staging.writer import write_stage_block_predictions
+from cookimport.staging.writer import write_semantic_row_predictions
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
     make_candidate_status_result,
@@ -442,7 +442,7 @@ def test_build_stage_block_predictions_marks_notes_from_description_only() -> No
     assert 7 in payload["label_blocks"]["RECIPE_NOTES"]
 
 
-def test_write_stage_block_predictions_prefers_final_nonrecipe_authority(
+def test_write_semantic_row_predictions_prefers_final_nonrecipe_authority(
     tmp_path: Path,
 ) -> None:
     result = _build_result()
@@ -466,7 +466,7 @@ def test_write_stage_block_predictions_prefers_final_nonrecipe_authority(
         ],
     )
 
-    output_path = write_stage_block_predictions(
+    output_path = write_semantic_row_predictions(
         results=result,
         run_root=tmp_path,
         workbook_slug="simple",

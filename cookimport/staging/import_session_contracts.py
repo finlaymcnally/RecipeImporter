@@ -43,11 +43,3 @@ class StageImportSessionResult:
     recipe_refine_result: RecipeRefineResult | None = None
     nonrecipe_route_result: NonrecipeRouteResult | None = None
     nonrecipe_finalize_result: NonrecipeFinalizeResult | None = None
-
-    @property
-    def stage_block_predictions_path(self) -> Path:
-        return self.semantic_row_predictions_path
-
-    @property
-    def recipe_block_ownership_path(self) -> Path | None:
-        return self.recipe_row_ownership_path

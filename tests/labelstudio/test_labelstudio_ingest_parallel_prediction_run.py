@@ -2164,11 +2164,11 @@ def test_generate_pred_run_artifacts_freeform_focus_and_target_manifest_fields(
     assert isinstance(result.get("timing"), dict)
     assert result["timing"]["total_seconds"] >= 0.0
     first_source_map = result["tasks"][0]["data"]["source_map"]
-    assert first_source_map["focus_start_block_index"] == 1
-    assert first_source_map["focus_end_block_index"] == 2
-    assert first_source_map["focus_block_indices"] == [1, 2]
-    assert first_source_map["context_before_block_range"] == "0"
-    assert first_source_map["context_after_block_range"] == "3"
+    assert first_source_map["focus_start_row_index"] == 1
+    assert first_source_map["focus_end_row_index"] == 2
+    assert first_source_map["focus_row_indices"] == [1, 2]
+    assert first_source_map["context_before_row_range"] == "0"
+    assert first_source_map["context_after_row_range"] == "3"
 
 
 def test_generate_pred_run_artifacts_freeform_focus_floor_adjusts_overlap_without_target(

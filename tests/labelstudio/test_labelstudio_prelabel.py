@@ -19,7 +19,6 @@ from cookimport.labelstudio.prelabel import (
     codex_reasoning_effort_from_cmd,
     list_codex_models,
     is_rate_limit_message,
-    parse_block_label_output,
     parse_span_label_output,
     preflight_codex_model_access,
     prelabel_freeform_task,
@@ -102,26 +101,6 @@ def _single_block_task(text: str) -> dict[str, object]:
             },
         },
     }
-
-
-def test_parse_block_label_output_extracts_embedded_json() -> None:
-    raw = (
-        "Here is the answer:\n"
-        '[{"block_index": 0, "label": "YIELD"}, '
-        '{"block_index": 1, "label": "time"}, '
-        '{"block_index": 2, "label": "TIP"}, '
-        '{"block_index": 3, "label": "notes"}, '
-        '{"block_index": 4, "label": "variant"}]\n'
-        "done."
-    )
-    parsed = parse_block_label_output(raw)
-    assert parsed == [
-        {"block_index": 0, "label": "YIELD_LINE"},
-        {"block_index": 1, "label": "TIME_LINE"},
-        {"block_index": 2, "label": "KNOWLEDGE"},
-        {"block_index": 3, "label": "RECIPE_NOTES"},
-        {"block_index": 4, "label": "RECIPE_VARIANT"},
-    ]
 
 
 def test_parse_span_label_output_extracts_quote_and_absolute_items() -> None:

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from cookimport.labelstudio.client import LabelStudioClient
-from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_blocks
+from cookimport.labelstudio.freeform_tasks import map_span_offsets_to_rows
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
 from cookimport.labelstudio.row_gold import derive_row_gold_bundle, write_row_gold_rows
 from cookimport.runs import RunManifest, RunSource, write_run_manifest
@@ -570,19 +570,15 @@ def run_labelstudio_export(
             source_map = {}
         authoritative_rows = source_map.get("rows")
         if not isinstance(authoritative_rows, list):
-            authoritative_rows = source_map.get("blocks")
-        if not isinstance(authoritative_rows, list):
             authoritative_rows = []
         for row in authoritative_rows:
             if not isinstance(row, dict):
                 continue
             row_id = str(row.get("row_id") or "").strip()
             if not row_id:
-                block_index = _parse_int(
-                    row.get("source_block_index", row.get("block_index"))
-                )
-                if block_index is not None:
-                    row_id = f"block:{block_index}"
+                row_index = _parse_int(row.get("row_index"))
+                if row_index is not None:
+                    row_id = f"row:{row_index}"
             if not row_id:
                 continue
             row_text = str(row.get("text") or "")
@@ -640,7 +636,7 @@ def run_labelstudio_export(
             if end_offset > len(segment_text):
                 counts["skipped"] += 1
                 continue
-            raw_touched_rows = map_span_offsets_to_blocks(
+            raw_touched_rows = map_span_offsets_to_rows(
                 source_map,
                 start_offset,
                 end_offset,

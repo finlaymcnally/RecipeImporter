@@ -259,8 +259,8 @@ from cookimport.staging.writer import (
     write_draft_outputs,
     write_intermediate_outputs,
     write_report,
+    write_semantic_row_predictions,
     write_section_outputs,
-    write_stage_block_predictions,
     write_table_outputs,
 )
 

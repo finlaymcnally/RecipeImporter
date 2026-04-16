@@ -52,7 +52,7 @@ Architecture priorities:
 - `cookimport/staging/pipeline_runtime.py` now makes the post-import semantic session explicit as five stage-owned runtime steps: `extract`, `recipe-boundary`, `recipe-refine`, `nonrecipe-route`, and `nonrecipe-finalize`.
 - `cookimport/staging/import_session.py` remains the composition root, but it now threads stage-owned results instead of treating `ConversionResult` as the only post-import carrier.
 - `cookimport/staging/deterministic_prep.py` is the shared per-book cache seam for benchmark and stage reuse. It owns the deterministic prep manifest contract under the repo-level shared cache root (`.cache/cookimport/book-cache/` by default), can reconstruct cached recipe-boundary state so later execution can resume below source conversion and label-first prep, and can persist stage-run deterministic artifacts back into that shared cache after a cold run.
-- `recipe-boundary` now builds one explicit recipe block-ownership contract, and later stages read `recipe_authority/<workbook_slug>/recipe_block_ownership.json` instead of re-deriving recipe-owned blocks from recipe provenance or raw spans.
+- `recipe-boundary` now builds one explicit recipe row-ownership contract, and later stages read `recipe_authority/<workbook_slug>/recipe_row_ownership.json` instead of re-deriving recipe-owned rows from recipe provenance or raw spans.
 - `cookimport/staging/nonrecipe_stage.py` and `cookimport/staging/stage_block_predictions.py` are now thin public seams. The owned logic lives under `nonrecipe_authority_contract.py`, `nonrecipe_seed.py`, `nonrecipe_routing.py`, `nonrecipe_authority.py`, `nonrecipe_finalize_status.py`, `recipe_block_evidence.py`, `knowledge_block_evidence.py`, and `block_label_resolution.py`.
 - output-writing primitives live in `cookimport/staging/writer.py`.
 - recipe-ID reassignment logic lives in `cookimport/staging/pdf_jobs.py`.
@@ -200,7 +200,7 @@ For `cookimport stage`, each run uses a timestamped root:
 - `<out>/<timestamp>/09_nonrecipe_authority.json`
 - `<out>/<timestamp>/09_nonrecipe_knowledge_groups.json`
 - `<out>/<timestamp>/09_nonrecipe_finalize_status.json`
-- `<out>/<timestamp>/recipe_authority/<workbook_slug>/recipe_block_ownership.json`
+- `<out>/<timestamp>/recipe_authority/<workbook_slug>/recipe_row_ownership.json`
 - `<out>/<timestamp>/raw/<importer>/<source_hash>/<location_id>.<ext>`
 - `<out>/<timestamp>/raw/source/<workbook_slug>/source_blocks.jsonl`
 - `<out>/<timestamp>/raw/source/<workbook_slug>/source_support.json`
@@ -421,7 +421,7 @@ Keep these flowchart/runtime invariants aligned:
   - stage/benchmark flows require explicit extractor choice; there is no auto-resolution branch.
 - Freeform Label Studio prelabeling has two behavior-changing permutations that should stay visible in flow docs:
   - upload mode: `annotations` vs `predictions`
-  - granularity: `span` (actual freeform) vs `block` (block-based mode)
+  - granularity: `span` only; block-wide freeform prelabeling is no longer supported
 
 Anti-loop note:
 - If flowcharts and runtime behavior diverge, update this file and the README chart in the same change so future debugging does not branch on stale docs.

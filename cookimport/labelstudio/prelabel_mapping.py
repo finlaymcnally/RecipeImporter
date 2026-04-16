@@ -41,12 +41,7 @@ _PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "
 _FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
 _SPAN_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-span.prompt.md"
 _PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
-PRELABEL_GRANULARITY_BLOCK = "block"
 PRELABEL_GRANULARITY_SPAN = "span"
-_PRELABEL_GRANULARITY_ALIASES = {
-    PRELABEL_GRANULARITY_BLOCK: PRELABEL_GRANULARITY_BLOCK,
-    PRELABEL_GRANULARITY_SPAN: PRELABEL_GRANULARITY_SPAN,
-}
 CODEX_REASONING_EFFORT_VALUES = (
     "none",
     "minimal",
@@ -230,12 +225,10 @@ def _extract_task_data(task: dict[str, Any]) -> tuple[str, str, list[dict[str, A
         raise ValueError("task missing data.source_map")
     blocks = source_map.get("rows")
     if not isinstance(blocks, list) or not blocks:
-        blocks = source_map.get("blocks")
-    if not isinstance(blocks, list) or not blocks:
-        raise ValueError("task source_map.rows/blocks missing/empty")
+        raise ValueError("task source_map.rows missing/empty")
     source_blocks = [item for item in blocks if isinstance(item, dict)]
     if not source_blocks:
-        raise ValueError("task source_map.rows/blocks has no valid entries")
+        raise ValueError("task source_map.rows has no valid entries")
     return segment_id, segment_text, source_blocks
 def _build_block_map(task: dict[str, Any]) -> dict[int, tuple[int, int]]:
     _segment_id, segment_text, source_blocks = _extract_task_data(task)
@@ -539,42 +532,6 @@ def _touched_block_indices_for_span(
             continue
         touched.add(block_index)
     return touched
-def _build_results_for_block_mode(
-    *,
-    selections: list[dict[str, Any]],
-    segment_id: str,
-    segment_text: str,
-    block_map: dict[int, tuple[int, int]],
-    focus_block_indices: set[int],
-    allowed_labels: set[str],
-) -> list[dict[str, Any]]:
-    seen_keys: set[tuple[str, int, int]] = set()
-    generated: list[dict[str, Any]] = []
-    for selection in selections:
-        block_index = int(selection["block_index"])
-        if block_index not in focus_block_indices:
-            continue
-        label = normalize_freeform_label(str(selection["label"]))
-        if label not in allowed_labels:
-            continue
-        block_offsets = block_map.get(block_index)
-        if block_offsets is None:
-            continue
-        start, end = block_offsets
-        result_item = _build_annotation_result_item(
-            segment_id=segment_id,
-            segment_text=segment_text,
-            block_index=block_index,
-            start=start,
-            end=end,
-            label=label,
-        )
-        result_key = _result_key(result_item)
-        if result_key in seen_keys:
-            continue
-        generated.append(result_item)
-        seen_keys.add(result_key)
-    return generated
 def _build_results_for_span_mode(
     *,
     selections: list[dict[str, Any]],

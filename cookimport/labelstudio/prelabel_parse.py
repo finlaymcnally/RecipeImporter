@@ -40,12 +40,7 @@ _PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "
 _FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
 _SPAN_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-span.prompt.md"
 _PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
-PRELABEL_GRANULARITY_BLOCK = "block"
 PRELABEL_GRANULARITY_SPAN = "span"
-_PRELABEL_GRANULARITY_ALIASES = {
-    PRELABEL_GRANULARITY_BLOCK: PRELABEL_GRANULARITY_BLOCK,
-    PRELABEL_GRANULARITY_SPAN: PRELABEL_GRANULARITY_SPAN,
-}
 CODEX_REASONING_EFFORT_VALUES = (
     "none",
     "minimal",
@@ -241,28 +236,6 @@ def _coerce_selection_items(payload: Any) -> list[dict[str, Any]]:
 def _normalize_prelabel_selection_label(raw: str) -> str:
     normalized = normalize_freeform_label(raw)
     return _PRELABEL_SELECTION_LABEL_ALIASES.get(normalized, normalized)
-def parse_block_label_output(raw: str) -> list[dict[str, Any]]:
-    """Parse model output into `{block_index, label}` records."""
-    payload = extract_first_json_value(raw)
-    items = _coerce_selection_items(payload)
-    parsed: list[dict[str, Any]] = []
-    seen: set[tuple[int, str]] = set()
-    for item in items:
-        block_index_raw = item.get("block_index")
-        label_raw = item.get("label") or item.get("tag") or item.get("category")
-        if block_index_raw is None or not label_raw:
-            continue
-        try:
-            block_index = int(block_index_raw)
-        except (TypeError, ValueError):
-            continue
-        label = _normalize_prelabel_selection_label(str(label_raw))
-        key = (block_index, label)
-        if key in seen:
-            continue
-        seen.add(key)
-        parsed.append({"block_index": block_index, "label": label})
-    return parsed
 def _parse_optional_occurrence(value: Any) -> int | None:
     if value is None:
         return None

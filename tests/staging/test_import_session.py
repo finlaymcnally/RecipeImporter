@@ -49,7 +49,7 @@ def _label_block(index: int, label: str) -> AuthoritativeBlockLabel:
 def _no_op_writers(monkeypatch) -> None:
     monkeypatch.setattr(import_session, "write_nonrecipe_stage_outputs", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_knowledge_outputs_artifact", lambda *args, **kwargs: None)
-    monkeypatch.setattr(import_session, "write_recipe_block_ownership", lambda *args, **kwargs: None)
+    monkeypatch.setattr(import_session, "write_recipe_row_ownership", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_authoritative_recipe_semantics", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_recipe_authority_decisions", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_intermediate_outputs", lambda *args, **kwargs: None)
@@ -58,7 +58,7 @@ def _no_op_writers(monkeypatch) -> None:
     monkeypatch.setattr(import_session, "write_chunk_outputs", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_table_outputs", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "write_raw_artifacts", lambda *args, **kwargs: None)
-    monkeypatch.setattr(import_session, "write_stage_block_predictions", lambda *args, **kwargs: None)
+    monkeypatch.setattr(import_session, "write_semantic_row_predictions", lambda *args, **kwargs: None)
     monkeypatch.setattr(import_session, "enrich_report_with_stats", lambda *args, **kwargs: None)
 
     def _write_report(report, run_root, _stem):

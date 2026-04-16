@@ -320,8 +320,8 @@ Primary owners:
 Narrow normalization/repair seams:
 
 - `_normalize_prelabel_selection_label(...)` normalizes worker label aliases such as `YIELD -> YIELD_LINE`, `TIME -> TIME_LINE`, `TIP -> KNOWLEDGE`, and `VARIANT -> RECIPE_VARIANT`.
-- `parse_block_label_output(...)` and `parse_span_label_output(...)` dedupe repeated selections and drop malformed items instead of promoting them.
-- `_build_results_for_block_mode(...)` and `_build_results_for_span_mode(...)` keep only allowed labels and only focus-block selections; out-of-scope or invalid selections are discarded.
+- `parse_span_label_output(...)` dedupes repeated selections and drops malformed items instead of promoting them.
+- `_build_results_for_span_mode(...)` keeps only allowed labels and only focus-block selections; out-of-scope or invalid selections are discarded.
 - `_repair_quote_selection(...)` is the one deterministic location-repair seam:
   - if the worker points a quote at the wrong focus block but the same quote resolves uniquely in a nearby or uniquely matching focus block, repo code repairs the block assignment
   - if the quote is ambiguous or cannot be resolved safely, repo code drops that selection
@@ -425,7 +425,7 @@ Knowledge-stage writes:
 - `data/output/<ts>/09_nonrecipe_authority.json`
 - `data/output/<ts>/09_nonrecipe_knowledge_groups.json`
 - `data/output/<ts>/09_nonrecipe_finalize_status.json`
-- `data/output/<ts>/recipe_authority/<workbook_slug>/recipe_block_ownership.json`
+- `data/output/<ts>/recipe_authority/<workbook_slug>/recipe_row_ownership.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/knowledge_manifest.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/in/*.json`
 - `data/output/<ts>/raw/llm/<workbook_slug>/nonrecipe_finalize/phase_manifest.json`

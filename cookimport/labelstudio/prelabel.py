@@ -42,12 +42,7 @@ _PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "
 _FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
 _SPAN_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-span.prompt.md"
 _PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
-PRELABEL_GRANULARITY_BLOCK = "block"
 PRELABEL_GRANULARITY_SPAN = "span"
-_PRELABEL_GRANULARITY_ALIASES = {
-    PRELABEL_GRANULARITY_BLOCK: PRELABEL_GRANULARITY_BLOCK,
-    PRELABEL_GRANULARITY_SPAN: PRELABEL_GRANULARITY_SPAN,
-}
 CODEX_REASONING_EFFORT_VALUES = (
     "none",
     "minimal",
@@ -265,30 +260,13 @@ from .prelabel_codex import (
 )
 from .prelabel_parse import (
     extract_first_json_value,
-    _coerce_selection_items,
-    _normalize_prelabel_selection_label,
-    parse_block_label_output,
-    _parse_optional_occurrence,
     parse_span_label_output,
 )
 from .prelabel_mapping import (
+    annotation_labels,
     _extract_task_data,
     _build_block_map,
-    _available_block_indices,
-    _resolve_focus_block_indices,
     _resolve_focus_block_index_set,
-    _result_key,
-    annotation_labels,
-    _build_annotation_result_item,
-    _find_substring_matches,
-    _resolve_quote_offsets,
-    _contiguous_block_index_span,
-    _quote_match_count,
-    _candidate_focus_block_indices_for_quote_repair,
-    _resolve_quote_span_in_block,
-    _repair_quote_selection,
-    _touched_block_indices_for_span,
-    _build_results_for_block_mode,
     _build_results_for_span_mode,
 )
 from .prelabel_prompt import (
@@ -379,27 +357,16 @@ def prelabel_freeform_task(
     raw = provider.complete(prompt)
     payload = extract_first_json_value(raw)
     raw_was_empty_array = isinstance(payload, list) and not payload
-    if normalized_granularity == PRELABEL_GRANULARITY_SPAN:
-        selections = parse_span_label_output(raw)
-        generated = _build_results_for_span_mode(
-            selections=selections,
-            segment_id=segment_id,
-            segment_text=segment_text,
-            block_map=block_map,
-            source_blocks=source_blocks,
-            focus_block_indices=focus_block_indices,
-            allowed_labels=normalized_allowed,
-        )
-    else:
-        selections = parse_block_label_output(raw)
-        generated = _build_results_for_block_mode(
-            selections=selections,
-            segment_id=segment_id,
-            segment_text=segment_text,
-            block_map=block_map,
-            focus_block_indices=focus_block_indices,
-            allowed_labels=normalized_allowed,
-        )
+    selections = parse_span_label_output(raw)
+    generated = _build_results_for_span_mode(
+        selections=selections,
+        segment_id=segment_id,
+        segment_text=segment_text,
+        block_map=block_map,
+        source_blocks=source_blocks,
+        focus_block_indices=focus_block_indices,
+        allowed_labels=normalized_allowed,
+    )
 
     if not generated:
         if raw_was_empty_array:

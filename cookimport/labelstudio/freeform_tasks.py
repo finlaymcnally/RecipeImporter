@@ -34,9 +34,6 @@ class SegmentTaskData:
                 "segment_index": self.segment_index,
                 "segment_text": self.segment_text,
                 "source_map": self.source_map,
-                "focus_block_range": self.focus_row_range,
-                "context_before_block_range": self.context_before_row_range,
-                "context_after_block_range": self.context_after_row_range,
                 "focus_row_range": self.focus_row_range,
                 "context_before_row_range": self.context_before_row_range,
                 "context_after_row_range": self.context_after_row_range,
@@ -419,18 +416,18 @@ def build_freeform_span_tasks(
         context_after_indices = [
             row.row_index for row in segment_rows_slice[focus_end_offset:]
         ]
-        focus_block_range = _collapse_block_index_ranges(focus_indices)
-        context_before_block_range = _collapse_block_index_ranges(context_before_indices)
-        context_after_block_range = _collapse_block_index_ranges(context_after_indices)
-        if context_before_block_range == "none" and context_after_block_range == "none":
+        focus_row_range = _collapse_block_index_ranges(focus_indices)
+        context_before_row_range = _collapse_block_index_ranges(context_before_indices)
+        context_after_row_range = _collapse_block_index_ranges(context_after_indices)
+        if context_before_row_range == "none" and context_after_row_range == "none":
             focus_scope_hint = (
-                f"Label all rows in this task ({focus_block_range}); no extra context-only "
+                f"Label all rows in this task ({focus_row_range}); no extra context-only "
                 "rows are present."
             )
         else:
             focus_scope_hint = (
-                f"Label only rows {focus_block_range}. Context only: "
-                f"before {context_before_block_range}; after {context_after_block_range}."
+                f"Label only rows {focus_row_range}. Context only: "
+                f"before {context_before_row_range}; after {context_after_row_range}."
             )
         source_map = {
             "separator": SEGMENT_SEPARATOR,
@@ -439,19 +436,11 @@ def build_freeform_span_tasks(
             "focus_start_row_index": focus_indices[0],
             "focus_end_row_index": focus_indices[-1],
             "focus_row_indices": focus_indices,
-            "focus_row_range": focus_block_range,
+            "focus_row_range": focus_row_range,
             "context_before_row_indices": context_before_indices,
             "context_after_row_indices": context_after_indices,
-            "context_before_row_range": context_before_block_range,
-            "context_after_row_range": context_after_block_range,
-            "focus_start_block_index": focus_indices[0],
-            "focus_end_block_index": focus_indices[-1],
-            "focus_block_indices": focus_indices,
-            "focus_block_range": focus_block_range,
-            "context_before_block_indices": context_before_indices,
-            "context_after_block_indices": context_after_indices,
-            "context_before_block_range": context_before_block_range,
-            "context_after_block_range": context_after_block_range,
+            "context_before_row_range": context_before_row_range,
+            "context_after_row_range": context_after_row_range,
             "context_before_rows": context_before_rows,
             "context_after_rows": context_after_rows,
             "rows": source_rows,
@@ -464,9 +453,9 @@ def build_freeform_span_tasks(
             segment_index=segment_index,
             segment_text=segment_text,
             source_map=source_map,
-            focus_row_range=focus_block_range,
-            context_before_row_range=context_before_block_range,
-            context_after_row_range=context_after_block_range,
+            focus_row_range=focus_row_range,
+            context_before_row_range=context_before_row_range,
+            context_after_row_range=context_after_row_range,
             focus_scope_hint=focus_scope_hint,
         )
         tasks.append(task_data.to_task())
@@ -487,14 +476,12 @@ def sample_freeform_tasks(
     return list(tasks)
 
 
-def map_span_offsets_to_blocks(
+def map_span_offsets_to_rows(
     source_map: dict[str, Any], start_offset: int, end_offset: int
 ) -> list[dict[str, Any]]:
     if end_offset <= start_offset:
         return []
     source_rows = source_map.get("rows")
-    if not isinstance(source_rows, list):
-        source_rows = source_map.get("blocks")
     if not isinstance(source_rows, list):
         return []
 

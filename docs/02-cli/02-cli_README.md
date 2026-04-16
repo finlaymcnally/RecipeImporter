@@ -349,7 +349,7 @@ Developer note:
    - optional `target_task_count` (blank disables auto-tuning).
 4. Configure optional AI prelabeling:
    - choose prelabel mode (`off`, strict/allow-partial annotations, or advanced predictions mode variants).
-   - if enabled, choose labeling style (`actual freeform` span mode vs `block based` mode).
+   - if enabled, prelabel uses actual freeform span mode only.
    - interactive mode uses the resolved Codex Exec command (`COOKIMPORT_CODEX_CMD`, `COOKIMPORT_CODEX_FARM_CMD`, or `codex-farm`), shows the resolved account when available, then prompts for model (`use default`, discovered models, or custom model id) and thinking effort (model-compatible subset of `none|low|medium|high|xhigh`; `minimal` is intentionally hidden for this workflow).
    - freeform prelabel task calls run in parallel by default (`15` workers).
 5. Enter Label Studio URL and API key if needed.
@@ -852,7 +852,7 @@ Options:
 - `--prelabel-cache-dir PATH`: optional prompt/response cache directory.
 - `--prelabel-workers INTEGER>=1` (default `15`): concurrent freeform prelabel provider calls (`1` keeps serialized behavior).
 - `--prelabel-upload-as TEXT` (default `annotations`): `annotations|predictions`.
-- `--prelabel-granularity TEXT` (default `block`): `block|span` (`block` = block based; `span` = actual freeform).
+- `--prelabel-granularity TEXT` (default `span`): `span` only (`span` = actual freeform).
 - `--prelabel-allow-partial / --no-prelabel-allow-partial` (default disabled): continue upload when some prelabels fail.
 - `--llm-recipe-pipeline TEXT` (default `off`): `off|codex-recipe-shard-v1`.
 - `--codex-farm-cmd TEXT` (default `codex-farm`): subprocess command used when `--llm-recipe-pipeline` is enabled.

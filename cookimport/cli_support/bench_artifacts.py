@@ -68,10 +68,6 @@ class PredRunContext:
     tokens_reasoning: int | None
     tokens_total: int | None
 
-    @property
-    def stage_block_predictions_path(self) -> str:
-        return self.semantic_row_predictions_path
-
 
 @dataclass(frozen=True)
 class BenchmarkPredictionBundle:
@@ -154,11 +150,7 @@ def _load_pred_run_recipe_context(
     source_file = str(payload.get("source_file") or "")
     source_hash = str(payload.get("source_hash") or "").strip() or None
     processed_report_path = str(payload.get("processed_report_path") or "")
-    semantic_row_predictions_path = str(
-        payload.get("semantic_row_predictions_path")
-        or payload.get("stage_block_predictions_path")
-        or ""
-    )
+    semantic_row_predictions_path = str(payload.get("semantic_row_predictions_path") or "")
     extracted_archive_path = str(payload.get("extracted_archive_path") or "")
     run_config = payload.get("run_config")
     if not isinstance(run_config, dict):
