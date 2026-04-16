@@ -595,11 +595,8 @@ def run_labelstudio_export(
                 row_id,
                 {
                     "row_id": row_id,
-                    "row_index": row.get("row_index", row.get("block_index")),
-                    "block_index": row.get(
-                        "source_block_index",
-                        row.get("block_index"),
-                    ),
+                    "row_index": row.get("row_index"),
+                    "source_block_index": row.get("source_block_index"),
                     "row_ordinal": row.get("row_ordinal"),
                     "text": row_text,
                     "source_hash": source_hash,
@@ -668,10 +665,10 @@ def run_labelstudio_export(
                 if isinstance(row, dict) and row.get("row_id")
             ]
             touched_row_indices = [
-                int(row.get("row_index", row.get("block_index")))
+                int(row.get("row_index"))
                 for row in touched_rows
                 if isinstance(row, dict)
-                and row.get("row_index", row.get("block_index")) is not None
+                and row.get("row_index") is not None
             ]
             selected_text = str(span.get("selected_text") or "")
             span_rows.append(

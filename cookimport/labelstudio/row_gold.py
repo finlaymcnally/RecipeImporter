@@ -35,7 +35,7 @@ def derive_row_gold_bundle(
             {
                 "row_id": row_id,
                 "row_index": normalized.get("row_index"),
-                "block_index": normalized.get("block_index"),
+                "source_block_index": normalized.get("source_block_index"),
                 "row_ordinal": normalized.get("row_ordinal"),
                 "text": normalized.get("text", ""),
                 "source_hash": normalized.get("source_hash", "unknown"),
@@ -73,23 +73,15 @@ def derive_row_gold_bundle(
                 continue
             row_id = str(touched.get("row_id") or "").strip()
             if not row_id:
-                block_index = _coerce_int(
-                    touched.get("source_block_index", touched.get("block_index"))
-                )
-                if block_index is not None:
-                    row_id = f"block:{block_index}"
-            if not row_id:
                 continue
-            row_index = _coerce_int(touched.get("row_index", touched.get("block_index")))
-            source_block_index = _coerce_int(
-                touched.get("source_block_index", touched.get("block_index"))
-            )
+            row_index = _coerce_int(touched.get("row_index"))
+            source_block_index = _coerce_int(touched.get("source_block_index"))
             entry = row_state.setdefault(
                 row_id,
                 {
                     "row_id": row_id,
                     "row_index": row_index,
-                    "block_index": source_block_index,
+                    "source_block_index": source_block_index,
                     "row_ordinal": _coerce_int(touched.get("row_ordinal")),
                     "text": str(touched.get("text") or span_row.get("selected_text") or ""),
                     "source_hash": str(span_row.get("source_hash") or "unknown"),
@@ -115,7 +107,7 @@ def derive_row_gold_bundle(
         row_payload = {
             "row_id": row_id,
             "row_index": entry.get("row_index"),
-            "block_index": entry.get("block_index"),
+            "block_index": entry.get("source_block_index"),
             "row_ordinal": entry.get("row_ordinal"),
             "text": entry.get("text"),
             "source_hash": entry.get("source_hash"),
@@ -149,21 +141,13 @@ def _normalize_authoritative_row(row: dict[str, Any]) -> dict[str, Any] | None:
         return None
     row_id = str(row.get("row_id") or "").strip()
     if not row_id:
-        block_index = _coerce_int(
-            row.get("source_block_index", row.get("block_index"))
-        )
-        if block_index is not None:
-            row_id = f"block:{block_index}"
-    if not row_id:
         return None
-    row_index = _coerce_int(row.get("row_index", row.get("block_index")))
-    block_index = _coerce_int(
-        row.get("source_block_index", row.get("block_index"))
-    )
+    row_index = _coerce_int(row.get("row_index"))
+    source_block_index = _coerce_int(row.get("source_block_index"))
     return {
         "row_id": row_id,
         "row_index": row_index,
-        "block_index": block_index,
+        "source_block_index": source_block_index,
         "row_ordinal": _coerce_int(row.get("row_ordinal")),
         "text": str(row.get("text") or ""),
         "source_hash": str(row.get("source_hash") or "unknown"),
