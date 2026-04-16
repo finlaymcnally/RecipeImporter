@@ -13,9 +13,9 @@ class RecipeAuthorityDecision:
     semantic_outcome: str
     publish_status: str
     ownership_action: str
-    owned_block_indices: list[int]
-    divested_block_indices: list[int]
-    retained_block_indices: list[int]
+    owned_row_indices: list[int]
+    divested_row_indices: list[int]
+    retained_row_indices: list[int]
     worker_repair_status: str | None = None
     status_reason: str | None = None
     single_correction_status: str | None = None
@@ -30,14 +30,14 @@ class RecipeAuthorityDecision:
 
 def classify_recipe_ownership_action(
     *,
-    owned_block_indices: list[int],
-    divested_block_indices: list[int],
+    owned_row_indices: list[int],
+    divested_row_indices: list[int],
 ) -> str:
-    if not divested_block_indices:
+    if not divested_row_indices:
         return "retain"
-    owned_block_index_set = {int(index) for index in owned_block_indices}
-    divested_block_index_set = {int(index) for index in divested_block_indices}
-    if owned_block_index_set and owned_block_index_set.issubset(divested_block_index_set):
+    owned_row_index_set = {int(index) for index in owned_row_indices}
+    divested_row_index_set = {int(index) for index in divested_row_indices}
+    if owned_row_index_set and owned_row_index_set.issubset(divested_row_index_set):
         return "fully_divested"
     return "partially_divested"
 
@@ -51,9 +51,9 @@ def recipe_authority_decision_to_payload(
             "semantic_outcome": decision.semantic_outcome,
             "publish_status": decision.publish_status,
             "ownership_action": decision.ownership_action,
-            "owned_block_indices": list(decision.owned_block_indices),
-            "divested_block_indices": list(decision.divested_block_indices),
-            "retained_block_indices": list(decision.retained_block_indices),
+            "owned_row_indices": list(decision.owned_row_indices),
+            "divested_row_indices": list(decision.divested_row_indices),
+            "retained_row_indices": list(decision.retained_row_indices),
             "worker_repair_status": decision.worker_repair_status,
             "status_reason": decision.status_reason,
             "single_correction_status": decision.single_correction_status,

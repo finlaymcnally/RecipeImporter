@@ -68,7 +68,7 @@ def _build_recipe_task_file_unit(*, task_plan: _RecipeTaskPlan) -> dict[str, Any
     return {'unit_id': f'recipe::{recipe_id}', 'owned_id': recipe_id, 'evidence': {'recipe_id': recipe_id, 'source_text': source_text, 'source_rows': source_rows}, 'answer': {}}
 
 def _recipe_task_file_answer_schema() -> dict[str, Any]:
-    return {'editable_pointer_pattern': '/units/*/answer', 'required_keys': ['status', 'canonical_recipe', 'ingredient_step_mapping', 'ingredient_step_mapping_reason', 'divested_block_indices', 'selected_tags', 'warnings'], 'allowed_values': {'status': ['repaired', 'fragmentary', 'not_a_recipe']}, 'example_answers': [{'status': 'repaired', 'status_reason': None, 'canonical_recipe': {'title': 'Toast', 'ingredients': ['1 slice bread'], 'steps': ['Toast the bread.'], 'description': None, 'recipe_yield': None}, 'ingredient_step_mapping': [], 'ingredient_step_mapping_reason': 'not_needed_single_step', 'divested_block_indices': [], 'selected_tags': [], 'warnings': []}]}
+    return {'editable_pointer_pattern': '/units/*/answer', 'required_keys': ['status', 'canonical_recipe', 'ingredient_step_mapping', 'ingredient_step_mapping_reason', 'divested_row_indices', 'selected_tags', 'warnings'], 'allowed_values': {'status': ['repaired', 'fragmentary', 'not_a_recipe']}, 'example_answers': [{'status': 'repaired', 'status_reason': None, 'canonical_recipe': {'title': 'Toast', 'ingredients': ['1 slice bread'], 'steps': ['Toast the bread.'], 'description': None, 'recipe_yield': None}, 'ingredient_step_mapping': [], 'ingredient_step_mapping_reason': 'not_needed_single_step', 'divested_row_indices': [], 'selected_tags': [], 'warnings': []}]}
 
 def _build_recipe_task_file(*, assignment: WorkerAssignmentV1, runnable_tasks: Sequence[_RecipeTaskPlan]) -> dict[str, Any]:
     return build_task_file(stage_key='recipe_refine', assignment_id=assignment.worker_id, worker_id=assignment.worker_id, units=[_build_recipe_task_file_unit(task_plan=task_plan) for task_plan in runnable_tasks], answer_schema=_recipe_task_file_answer_schema())
@@ -142,9 +142,9 @@ def _build_recipe_task_file_worker_prompt(*, task_count: int, repair_mode: bool,
             '- `status` must be one of `repaired`, `fragmentary`, or `not_a_recipe`.',
             '- When `status=repaired`, provide `canonical_recipe.title`, `ingredients`, and `steps`.',
             '- Use `ingredient_step_mapping` only for real ingredient-to-step links.',
-            '- `divested_block_indices` must list any owned evidence block indices that no longer belong to the recipe.',
+            '- `divested_row_indices` must list any owned evidence rows that no longer belong to the recipe.',
             '- `status=fragmentary` may keep blocks recipe-owned when the source is still a real but incomplete recipe.',
-            '- `status=not_a_recipe` must divest every owned evidence block.',
+            '- `status=not_a_recipe` must divest every owned evidence row.',
             '- Keep `selected_tags` as a short list of obvious semantic tag labels.',
             '- Keep `warnings` concise.',
             heading='Recipe answer rules',

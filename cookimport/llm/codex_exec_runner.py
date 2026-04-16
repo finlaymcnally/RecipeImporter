@@ -1123,7 +1123,7 @@ class FakeCodexExecRunner:
             "canonical_recipe",
             "ingredient_step_mapping",
             "ingredient_step_mapping_reason",
-            "divested_block_indices",
+            "divested_row_indices",
             "selected_tags",
             "warnings",
         }

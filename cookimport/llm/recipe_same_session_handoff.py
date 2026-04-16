@@ -359,7 +359,7 @@ def _recipe_answer_to_compact_payload(
                 "mr": answer_payload.get("ingredient_step_mapping_reason"),
                 "db": [
                     int(value)
-                    for value in (answer_payload.get("divested_block_indices") or [])
+                    for value in (answer_payload.get("divested_row_indices") or [])
                     if str(value).strip()
                 ],
                 "g": [

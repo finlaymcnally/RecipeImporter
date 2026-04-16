@@ -56,8 +56,8 @@ class _TaskRow:
     source_kind: str | None = None
 
 
-def build_segment_id(source_hash: str, start_block_index: int, end_block_index: int) -> str:
-    return f"urn:cookimport:segment:{source_hash}:{start_block_index}:{end_block_index}"
+def build_segment_id(source_hash: str, start_row_index: int, end_row_index: int) -> str:
+    return f"urn:cookimport:segment:{source_hash}:{start_row_index}:{end_row_index}"
 
 
 def build_block_id(source_hash: str, block_index: int) -> str:
@@ -193,7 +193,7 @@ def _segment_ranges(
     return ranges
 
 
-def _collapse_block_index_ranges(indices: Sequence[int]) -> str:
+def _collapse_row_index_ranges(indices: Sequence[int]) -> str:
     if not indices:
         return "none"
     ordered = sorted({int(value) for value in indices})
@@ -416,9 +416,9 @@ def build_freeform_span_tasks(
         context_after_indices = [
             row.row_index for row in segment_rows_slice[focus_end_offset:]
         ]
-        focus_row_range = _collapse_block_index_ranges(focus_indices)
-        context_before_row_range = _collapse_block_index_ranges(context_before_indices)
-        context_after_row_range = _collapse_block_index_ranges(context_after_indices)
+        focus_row_range = _collapse_row_index_ranges(focus_indices)
+        context_before_row_range = _collapse_row_index_ranges(context_before_indices)
+        context_after_row_range = _collapse_row_index_ranges(context_after_indices)
         if context_before_row_range == "none" and context_after_row_range == "none":
             focus_scope_hint = (
                 f"Label all rows in this task ({focus_row_range}); no extra context-only "

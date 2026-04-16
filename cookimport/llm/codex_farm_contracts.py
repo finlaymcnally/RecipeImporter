@@ -400,7 +400,7 @@ class MergedRecipeRepairOutput(BaseModel):
     canonical_recipe: MergedCanonicalRecipe | None = Field(alias="cr")
     ingredient_step_mapping: dict[str, Any] = Field(alias="m")
     ingredient_step_mapping_reason: str | None = Field(default=None, alias="mr")
-    divested_block_indices: list[int] = Field(alias="db")
+    divested_row_indices: list[int] = Field(alias="db")
     selected_tags: list["RecipeSelectedTag"] = Field(default_factory=list, alias="g")
     warnings: list[str] = Field(default_factory=list, alias="w")
 
@@ -428,10 +428,10 @@ class MergedRecipeRepairOutput(BaseModel):
     def _coerce_ingredient_step_mapping(cls, value: Any) -> dict[str, Any]:
         return _coerce_ingredient_step_mapping_field(value, "ingredient_step_mapping")
 
-    @field_validator("divested_block_indices", mode="before")
+    @field_validator("divested_row_indices", mode="before")
     @classmethod
-    def _coerce_divested_block_indices(cls, value: Any) -> list[int]:
-        return _coerce_nonnegative_int_list(value, "divested_block_indices")
+    def _coerce_divested_row_indices(cls, value: Any) -> list[int]:
+        return _coerce_nonnegative_int_list(value, "divested_row_indices")
 
     @field_validator("warnings", mode="before")
     @classmethod

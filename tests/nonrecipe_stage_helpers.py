@@ -72,39 +72,28 @@ def make_routing_result(
     *,
     candidate_row_indices: Sequence[int] | None = None,
     excluded_row_indices: Sequence[int] | None = None,
-    candidate_block_indices: Sequence[int] | None = None,
-    excluded_block_indices: Sequence[int] = (),
     candidate_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
     excluded_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
-    route_by_block: Mapping[int, str] | None = None,
-    block_preview_by_index: Mapping[int, str] | None = None,
+    row_preview_by_index: Mapping[int, str] | None = None,
     warnings: Sequence[str] | None = None,
 ) -> NonRecipeRoutingResult:
     candidate_indices = [
         int(index)
         for index in (
-            candidate_row_indices
-            if candidate_row_indices is not None
-            else (candidate_block_indices or ())
+            candidate_row_indices or ()
         )
     ]
     excluded_indices = [
         int(index)
         for index in (
-            excluded_row_indices
-            if excluded_row_indices is not None
-            else excluded_block_indices
+            excluded_row_indices or ()
         )
     ]
     return NonRecipeRoutingResult(
-        route_by_row=(
-            {
-                **{int(index): "candidate" for index in candidate_indices},
-                **{int(index): "exclude" for index in excluded_indices},
-            }
-            if route_by_block is None
-            else {int(index): str(route) for index, route in route_by_block.items()}
-        ),
+        route_by_row={
+            **{int(index): "candidate" for index in candidate_indices},
+            **{int(index): "exclude" for index in excluded_indices},
+        },
         candidate_nonrecipe_spans=(
             list(candidate_nonrecipe_spans)
             if candidate_nonrecipe_spans is not None
@@ -119,30 +108,22 @@ def make_routing_result(
         excluded_row_indices=excluded_indices,
         row_preview_by_index={
             int(index): str(preview)
-            for index, preview in (block_preview_by_index or {}).items()
+            for index, preview in (row_preview_by_index or {}).items()
         },
         warnings=[str(warning) for warning in (warnings or [])],
     )
 
 
 def make_authority_result(
-    block_category_by_index: Mapping[int, str],
+    row_category_by_index: Mapping[int, str],
     *,
-    row_category_by_index: Mapping[int, str] | None = None,
     row_source_block_index_by_index: Mapping[int, int] | None = None,
 ) -> NonRecipeAuthorityResult:
     authoritative_map = {
         int(index): str(category)
-        for index, category in block_category_by_index.items()
+        for index, category in row_category_by_index.items()
     }
-    authoritative_row_map = (
-        {
-            int(index): str(category)
-            for index, category in row_category_by_index.items()
-        }
-        if row_category_by_index is not None
-        else dict(authoritative_map)
-    )
+    authoritative_row_map = dict(authoritative_map)
     authoritative_spans = spans_from_category_map(authoritative_row_map)
     return NonRecipeAuthorityResult(
         authoritative_row_indices=sorted(authoritative_row_map),
@@ -166,7 +147,6 @@ def make_authority_result(
 def make_candidate_status_result(
     *,
     finalized_candidate_row_indices: Sequence[int] | None = None,
-    finalized_candidate_block_indices: Sequence[int] = (),
     unresolved_candidate_route_by_index: Mapping[int, str],
 ) -> NonRecipeCandidateStatusResult:
     unresolved_map = {
@@ -176,11 +156,7 @@ def make_candidate_status_result(
     return NonRecipeCandidateStatusResult(
         finalized_candidate_row_indices=[
             int(index)
-            for index in (
-                finalized_candidate_row_indices
-                if finalized_candidate_row_indices is not None
-                else finalized_candidate_block_indices
-            )
+            for index in (finalized_candidate_row_indices or ())
         ],
         unresolved_candidate_row_indices=sorted(unresolved_map),
         unresolved_candidate_route_by_index=unresolved_map,
@@ -190,14 +166,12 @@ def make_candidate_status_result(
 
 def make_finalize_status_result(
     *,
-    reviewed_row_indices: Sequence[int] | None = None,
-    reviewed_block_indices: Sequence[int] = (),
-    unreviewed_block_category_by_index: Mapping[int, str],
+    reviewed_row_indices: Sequence[int],
+    unreviewed_row_category_by_index: Mapping[int, str],
 ) -> NonRecipeCandidateStatusResult:
     return make_candidate_status_result(
-        finalized_candidate_row_indices=reviewed_row_indices,
-        finalized_candidate_block_indices=reviewed_block_indices,
-        unresolved_candidate_route_by_index=unreviewed_block_category_by_index,
+        finalized_candidate_row_indices=list(reviewed_row_indices),
+        unresolved_candidate_route_by_index=unreviewed_row_category_by_index,
     )
 
 
@@ -221,13 +195,13 @@ def make_recipe_ownership_result(
         )
         for recipe_id, indices in owned_by_recipe_id.items()
     ]
-    block_owner_by_index = {
+    row_owner_by_index = {
         int(index): str(recipe_id)
         for recipe_id, indices in owned_by_recipe_id.items()
         for index in indices
     }
-    owned_block_indices = sorted(block_owner_by_index)
-    divested_block_indices = sorted(
+    owned_row_indices = sorted(row_owner_by_index)
+    divested_row_indices = sorted(
         {
             int(index)
             for indices in resolved_divested.values()
@@ -238,52 +212,52 @@ def make_recipe_ownership_result(
     return RecipeOwnershipResult(
         ownership_mode=ownership_mode,
         recipe_entries=entries,
-        row_owner_by_index=block_owner_by_index,
-        owned_row_indices=owned_block_indices,
-        divested_row_indices=divested_block_indices,
+        row_owner_by_index=row_owner_by_index,
+        owned_row_indices=owned_row_indices,
+        divested_row_indices=divested_row_indices,
         available_to_nonrecipe_row_indices=[
-            index for index in all_indices if index not in block_owner_by_index
+            index for index in all_indices if index not in row_owner_by_index
         ],
         all_row_indices=all_indices,
     )
 
 
-def spans_for_indices(block_indices: Sequence[int], *, category: str) -> list[NonRecipeSpan]:
-    return spans_from_category_map({int(index): category for index in block_indices})
+def spans_for_indices(row_indices: Sequence[int], *, category: str) -> list[NonRecipeSpan]:
+    return spans_from_category_map({int(index): category for index in row_indices})
 
 
 def spans_from_category_map(
-    block_category_by_index: Mapping[int, str],
+    row_category_by_index: Mapping[int, str],
 ) -> list[NonRecipeSpan]:
     spans: list[NonRecipeSpan] = []
     current_category: str | None = None
     current_indices: list[int] = []
     previous_index: int | None = None
 
-    for block_index in sorted(int(index) for index in block_category_by_index):
-        category = str(block_category_by_index[block_index])
+    for row_index in sorted(int(index) for index in row_category_by_index):
+        category = str(row_category_by_index[row_index])
         if (
             current_category is None
             or previous_index is None
-            or block_index != previous_index + 1
+            or row_index != previous_index + 1
             or category != current_category
         ):
             if current_indices:
                 spans.append(_build_span(current_indices, current_category or "other"))
             current_category = category
-            current_indices = [block_index]
-            previous_index = block_index
+            current_indices = [row_index]
+            previous_index = row_index
             continue
-        current_indices.append(block_index)
-        previous_index = block_index
+        current_indices.append(row_index)
+        previous_index = row_index
 
     if current_indices:
         spans.append(_build_span(current_indices, current_category or "other"))
     return spans
 
 
-def _build_span(block_indices: Sequence[int], category: str) -> NonRecipeSpan:
-    ordered_indices = [int(index) for index in block_indices]
+def _build_span(row_indices: Sequence[int], category: str) -> NonRecipeSpan:
+    ordered_indices = [int(index) for index in row_indices]
     start = ordered_indices[0]
     end = ordered_indices[-1] + 1
     return NonRecipeSpan(

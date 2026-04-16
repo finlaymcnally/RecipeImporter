@@ -230,7 +230,7 @@ def _build_valid_recipe_task_output(task_payload: dict[str, object]) -> dict[str
             },
             "ingredient_step_mapping": [],
             "ingredient_step_mapping_reason": mapping_reason,
-            "divested_block_indices": [],
+            "divested_row_indices": [],
             "selected_tags": [],
             "warnings": [],
         }

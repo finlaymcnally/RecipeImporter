@@ -102,7 +102,7 @@ def build_nonrecipe_authority_contract(
     candidate_queue_rows = _rows_for_indices(
         full_rows_by_index=full_rows_by_index,
         row_indices=stage_result.routing.candidate_row_indices,
-        row_category_by_index=stage_result.candidate_block_route_by_index(),
+        row_category_by_index=stage_result.candidate_row_route_by_index(),
     )
     excluded_rows = _rows_for_indices(
         full_rows_by_index=full_rows_by_index,
@@ -134,7 +134,7 @@ def build_nonrecipe_authority_contract(
     )
 
 
-def block_rows_for_nonrecipe_stage(
+def rows_for_nonrecipe_stage(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     stage_result: NonRecipeStageResult,
@@ -147,7 +147,7 @@ def block_rows_for_nonrecipe_stage(
     )
 
 
-def block_rows_for_nonrecipe_authority(
+def rows_for_nonrecipe_authority(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     stage_result: NonRecipeStageResult,
@@ -156,11 +156,11 @@ def block_rows_for_nonrecipe_authority(
         build_nonrecipe_authority_contract(
             full_blocks=full_blocks,
             stage_result=stage_result,
-        ).final_blocks
+        ).final_rows
     )
 
 
-def block_rows_for_nonrecipe_candidate_queue(
+def rows_for_nonrecipe_candidate_queue(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     stage_result: NonRecipeStageResult,
@@ -169,11 +169,11 @@ def block_rows_for_nonrecipe_candidate_queue(
         build_nonrecipe_authority_contract(
             full_blocks=full_blocks,
             stage_result=stage_result,
-        ).candidate_queue_blocks
+        ).candidate_queue_rows
     )
 
 
-def block_rows_for_nonrecipe_late_outputs(
+def rows_for_nonrecipe_late_outputs(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     stage_result: NonRecipeStageResult,
@@ -182,11 +182,11 @@ def block_rows_for_nonrecipe_late_outputs(
         build_nonrecipe_authority_contract(
             full_blocks=full_blocks,
             stage_result=stage_result,
-        ).late_output_blocks
+        ).late_output_rows
     )
 
 
-def block_rows_for_nonrecipe_span(
+def rows_for_nonrecipe_span(
     *,
     full_blocks: Sequence[Mapping[str, Any]],
     span: NonRecipeSpan,

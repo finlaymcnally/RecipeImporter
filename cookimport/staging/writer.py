@@ -1027,7 +1027,7 @@ def _block_id_for_stage_result(
         + list(stage_result.routing.candidate_nonrecipe_spans)
         + list(stage_result.routing.excluded_nonrecipe_spans)
     ):
-        for candidate_index, block_id in zip(span.block_indices, span.block_ids, strict=False):
+        for candidate_index, block_id in zip(span.row_indices, span.row_ids, strict=False):
             if int(candidate_index) == int(block_index):
                 return str(block_id)
     return f"b{int(block_index)}"

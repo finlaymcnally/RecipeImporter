@@ -65,7 +65,7 @@ def _build_recipe_output(payload: dict[str, object] | None) -> dict[str, object]
             },
             "ingredient_step_mapping": [],
             "ingredient_step_mapping_reason": "not_needed_single_step",
-            "divested_block_indices": [],
+            "divested_row_indices": [],
             "selected_tags": [
                 {
                     "category": "meal",

@@ -7,7 +7,7 @@ from typing import Any, Mapping, Sequence
 
 from cookimport.staging.nonrecipe_stage import (
     NonRecipeSpan,
-    block_rows_for_nonrecipe_span,
+    rows_for_nonrecipe_span,
 )
 from cookimport.staging.recipe_ownership import RecipeOwnershipResult
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
@@ -90,13 +90,13 @@ def build_knowledge_jobs(
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
-    owned_block_indices = set(recipe_ownership_result.owned_block_indices)
+    owned_block_indices = set(recipe_ownership_result.owned_row_indices)
     planning_warnings: list[str] = []
     ordered_review_rows: list[dict[str, Any]] = []
     source_span_ids_by_index: dict[int, list[str]] = {}
 
     for stage_span in candidate_spans:
-        sequence = block_rows_for_nonrecipe_span(
+        sequence = rows_for_nonrecipe_span(
             full_blocks=full_blocks,
             span=stage_span,
         )

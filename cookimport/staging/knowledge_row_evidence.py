@@ -29,27 +29,27 @@ def build_knowledge_row_evidence(
         )
 
     authoritative_categories = dict(
-        nonrecipe_stage_result.authority.authoritative_block_category_by_index
+        nonrecipe_stage_result.authority.authoritative_row_category_by_index
     )
     unresolved_categories = {
-        int(block_index): str(category)
-        for block_index, category in (
+        int(row_index): str(category)
+        for row_index, category in (
             nonrecipe_stage_result.candidate_status.unresolved_candidate_route_by_index.items()
         )
     }
     unresolved_row_indices = sorted(unresolved_categories)
     knowledge_indices = {
-        int(block_index)
-        for block_index, category in authoritative_categories.items()
+        int(row_index)
+        for row_index, category in authoritative_categories.items()
         if category == "knowledge"
     }
     if knowledge_indices:
         notes.append("KNOWLEDGE labels were derived from final non-recipe authority.")
-    if nonrecipe_stage_result.candidate_status.unresolved_candidate_block_indices:
+    if nonrecipe_stage_result.candidate_status.unresolved_candidate_row_indices:
         notes.append(
             "Candidate non-recipe rows without final authority were marked unresolved and excluded from semantic scoring."
         )
-    elif nonrecipe_stage_result.routing.candidate_block_indices:
+    elif nonrecipe_stage_result.routing.candidate_row_indices:
         notes.append(
             "All candidate non-recipe rows had final authority before scoring."
         )

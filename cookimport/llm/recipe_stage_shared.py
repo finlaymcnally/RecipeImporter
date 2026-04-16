@@ -100,7 +100,7 @@ class _PreparedRecipeInput:
     state: _RecipeState
     correction_input: MergedRecipeRepairInput
     evidence_refs: tuple[str, ...]
-    block_indices: tuple[int, ...]
+    owned_row_indices: tuple[int, ...]
     pre_context_rows: tuple[tuple[int, str], ...]
     post_context_rows: tuple[tuple[int, str], ...]
 
@@ -172,10 +172,10 @@ def _build_recipe_shard_recipe_input(*, correction_input: MergedRecipeRepairInpu
 def _build_prepared_recipe_input(*, state: _RecipeState, workbook_slug: str, source_hash: str, included_blocks: list[dict[str, Any]], full_blocks_by_index: Mapping[int, Mapping[str, Any]]) -> _PreparedRecipeInput:
     correction_input = _build_recipe_correction_input(state=state, workbook_slug=workbook_slug, source_hash=source_hash, included_blocks=included_blocks)
     evidence_refs = tuple((str(block.get('block_id') or f'b{int(block.get('index', 0))}') for block in included_blocks))
-    block_indices = tuple((int(block.get('index', 0)) for block in included_blocks))
+    owned_row_indices = tuple((int(block.get('index', 0)) for block in included_blocks))
     pre_context_rows = _build_recipe_boundary_context_rows(state=state, full_blocks_by_index=full_blocks_by_index, side='before')
     post_context_rows = _build_recipe_boundary_context_rows(state=state, full_blocks_by_index=full_blocks_by_index, side='after')
-    return _PreparedRecipeInput(state=state, correction_input=correction_input, evidence_refs=evidence_refs, block_indices=block_indices, pre_context_rows=pre_context_rows, post_context_rows=post_context_rows)
+    return _PreparedRecipeInput(state=state, correction_input=correction_input, evidence_refs=evidence_refs, owned_row_indices=owned_row_indices, pre_context_rows=pre_context_rows, post_context_rows=post_context_rows)
 
 def _requested_recipe_worker_count(run_settings: RunSettings) -> int | None:
     candidate = run_settings.recipe_worker_count
@@ -559,13 +559,13 @@ def _classify_recipe_publish_status(*, correction_output_status: str | None, fin
         return 'rejected'
     return 'unknown'
 
-def _build_recipe_authority_decision(*, recipe_id: str, correction_output_status: str | None, status_reason: str | None, owned_block_indices: Sequence[int], divested_block_indices: Sequence[int], single_correction_status: str | None, final_assembly_status: str, structural_status: str, structural_reason_codes: Sequence[str], mapping_status: str | None, mapping_reason: str | None) -> RecipeAuthorityDecision:
+def _build_recipe_authority_decision(*, recipe_id: str, correction_output_status: str | None, status_reason: str | None, owned_row_indices: Sequence[int], divested_row_indices: Sequence[int], single_correction_status: str | None, final_assembly_status: str, structural_status: str, structural_reason_codes: Sequence[str], mapping_status: str | None, mapping_reason: str | None) -> RecipeAuthorityDecision:
     final_recipe_authority_status, final_recipe_authority_reason = _classify_final_recipe_authority_status(correction_output_status=correction_output_status, final_assembly_status=final_assembly_status)
-    normalized_owned_block_indices = sorted({int(index) for index in owned_block_indices})
-    normalized_divested_block_indices = sorted({int(index) for index in divested_block_indices})
-    divested_block_index_set = set(normalized_divested_block_indices)
-    retained_block_indices = [index for index in normalized_owned_block_indices if index not in divested_block_index_set]
-    return RecipeAuthorityDecision(recipe_id=recipe_id, semantic_outcome=_classify_recipe_semantic_outcome(correction_output_status=correction_output_status), publish_status=_classify_recipe_publish_status(correction_output_status=correction_output_status, final_assembly_status=final_assembly_status), ownership_action=classify_recipe_ownership_action(owned_block_indices=normalized_owned_block_indices, divested_block_indices=normalized_divested_block_indices), owned_block_indices=normalized_owned_block_indices, divested_block_indices=normalized_divested_block_indices, retained_block_indices=retained_block_indices, worker_repair_status=str(correction_output_status or '').strip() or None, status_reason=str(status_reason or '').strip() or None, single_correction_status=str(single_correction_status or '').strip() or None, final_assembly_status=final_assembly_status, structural_status=structural_status, structural_reason_codes=[str(code).strip() for code in structural_reason_codes if str(code).strip()], mapping_status=str(mapping_status or '').strip() or None, mapping_reason=str(mapping_reason or '').strip() or None, final_recipe_authority_status=final_recipe_authority_status, final_recipe_authority_reason=final_recipe_authority_reason)
+    normalized_owned_row_indices = sorted({int(index) for index in owned_row_indices})
+    normalized_divested_row_indices = sorted({int(index) for index in divested_row_indices})
+    divested_row_index_set = set(normalized_divested_row_indices)
+    retained_row_indices = [index for index in normalized_owned_row_indices if index not in divested_row_index_set]
+    return RecipeAuthorityDecision(recipe_id=recipe_id, semantic_outcome=_classify_recipe_semantic_outcome(correction_output_status=correction_output_status), publish_status=_classify_recipe_publish_status(correction_output_status=correction_output_status, final_assembly_status=final_assembly_status), ownership_action=classify_recipe_ownership_action(owned_row_indices=normalized_owned_row_indices, divested_row_indices=normalized_divested_row_indices), owned_row_indices=normalized_owned_row_indices, divested_row_indices=normalized_divested_row_indices, retained_row_indices=retained_row_indices, worker_repair_status=str(correction_output_status or '').strip() or None, status_reason=str(status_reason or '').strip() or None, single_correction_status=str(single_correction_status or '').strip() or None, final_assembly_status=final_assembly_status, structural_status=structural_status, structural_reason_codes=[str(code).strip() for code in structural_reason_codes if str(code).strip()], mapping_status=str(mapping_status or '').strip() or None, mapping_reason=str(mapping_reason or '').strip() or None, final_recipe_authority_status=final_recipe_authority_status, final_recipe_authority_reason=final_recipe_authority_reason)
 
 def _load_pipeline_assets(*, pipeline_root: Path, pipeline_id: str) -> dict[str, Any]:
     pipeline_path = pipeline_root / 'pipelines' / f'{pipeline_id}.json'
@@ -711,22 +711,22 @@ def _recipe_answer_to_compact_payload(*, task_plan: _RecipeTaskPlan, answer_payl
         step_indexes = [int(value) for value in mapping_row.get('step_indexes') or [] if str(value).strip()]
         for ingredient_index in ingredient_indexes:
             mapping_rows.append({'i': ingredient_index, 's': step_indexes})
-    divested_block_indices = [int(value) for value in answer_payload.get('divested_block_indices') or [] if str(value).strip()]
-    return {'v': '1', 'sid': task_plan.task_id, 'r': [{'v': '1', 'rid': recipe_id, 'st': str(answer_payload.get('status') or '').strip(), 'sr': answer_payload.get('status_reason'), 'cr': {'t': canonical_recipe.get('title'), 'i': list(canonical_recipe.get('ingredients') or []), 's': list(canonical_recipe.get('steps') or []), 'd': canonical_recipe.get('description'), 'y': canonical_recipe.get('recipe_yield')} if canonical_recipe is not None else None, 'm': mapping_rows, 'mr': answer_payload.get('ingredient_step_mapping_reason'), 'db': divested_block_indices, 'g': [{'c': 'selected', 'l': str(tag).strip()} for tag in answer_payload.get('selected_tags') or [] if str(tag).strip()], 'w': [str(value).strip() for value in answer_payload.get('warnings') or [] if str(value).strip()]}]}
+    divested_row_indices = [int(value) for value in answer_payload.get('divested_row_indices') or [] if str(value).strip()]
+    return {'v': '1', 'sid': task_plan.task_id, 'r': [{'v': '1', 'rid': recipe_id, 'st': str(answer_payload.get('status') or '').strip(), 'sr': answer_payload.get('status_reason'), 'cr': {'t': canonical_recipe.get('title'), 'i': list(canonical_recipe.get('ingredients') or []), 's': list(canonical_recipe.get('steps') or []), 'd': canonical_recipe.get('description'), 'y': canonical_recipe.get('recipe_yield')} if canonical_recipe is not None else None, 'm': mapping_rows, 'mr': answer_payload.get('ingredient_step_mapping_reason'), 'db': divested_row_indices, 'g': [{'c': 'selected', 'l': str(tag).strip()} for tag in answer_payload.get('selected_tags') or [] if str(tag).strip()], 'w': [str(value).strip() for value in answer_payload.get('warnings') or [] if str(value).strip()]}]}
 
 def _validate_recipe_output_divestments(*, prepared: _PreparedRecipeInput, correction_output: MergedRecipeRepairOutput) -> list[RecipeDivestment]:
-    owned_block_indices = [int(index) for index in prepared.block_indices]
-    owned_block_index_set = set(owned_block_indices)
-    requested_divestments = [int(index) for index in correction_output.divested_block_indices]
-    unexpected = [index for index in requested_divestments if index not in owned_block_index_set]
+    owned_row_indices = [int(index) for index in prepared.owned_row_indices]
+    owned_row_index_set = set(owned_row_indices)
+    requested_divestments = [int(index) for index in correction_output.divested_row_indices]
+    unexpected = [index for index in requested_divestments if index not in owned_row_index_set]
     if unexpected:
-        raise ValueError(f'recipe output divested unknown block indices {unexpected}; owned block indices are {owned_block_indices}')
+        raise ValueError(f'recipe output divested unknown row indices {unexpected}; owned row indices are {owned_row_indices}')
     if correction_output.repair_status == 'not_a_recipe':
-        missing = [index for index in owned_block_indices if index not in requested_divestments]
+        missing = [index for index in owned_row_indices if index not in requested_divestments]
         if missing:
-            raise ValueError(f'recipe outputs with status {correction_output.repair_status!r} must divest every owned block; missing {missing}')
-    elif correction_output.repair_status == 'repaired' and owned_block_indices and len(requested_divestments) == len(owned_block_indices):
-        raise ValueError("recipe outputs with status 'repaired' cannot divest every owned block")
+            raise ValueError(f'recipe outputs with status {correction_output.repair_status!r} must divest every owned row; missing {missing}')
+    elif correction_output.repair_status == 'repaired' and owned_row_indices and len(requested_divestments) == len(owned_row_indices):
+        raise ValueError("recipe outputs with status 'repaired' cannot divest every owned row")
     if not requested_divestments:
         return []
     return [RecipeDivestment(recipe_id=prepared.state.recipe_id, row_indices=requested_divestments, reason=str(correction_output.status_reason or correction_output.repair_status).strip() or 'explicit_recipe_divestment')]
@@ -1546,18 +1546,18 @@ def _run_single_correction_recipe_pipeline(*, conversion_result: ConversionResul
             authoritative_recipe_payloads[state.recipe_id] = authoritative_payload
             final_overrides[state.recipe_id] = draft_model.model_dump(mode='json', by_alias=True, exclude_none=True)
             updated_recipes_by_id[state.recipe_id] = corrected_candidate
-    divested_block_indices_by_recipe_id: dict[str, list[int]] = {}
+    divested_row_indices_by_recipe_id: dict[str, list[int]] = {}
     for divestment in recipe_divestments:
-        divested_block_indices_by_recipe_id.setdefault(divestment.recipe_id, []).extend(
+        divested_row_indices_by_recipe_id.setdefault(divestment.recipe_id, []).extend(
             (int(index) for index in divestment.row_indices)
         )
-    for recipe_id, indices in list(divested_block_indices_by_recipe_id.items()):
-        divested_block_indices_by_recipe_id[recipe_id] = sorted(set(indices))
+    for recipe_id, indices in list(divested_row_indices_by_recipe_id.items()):
+        divested_row_indices_by_recipe_id[recipe_id] = sorted(set(indices))
     for state in states:
         prepared = prepared_inputs_by_recipe_id.get(state.recipe_id)
         if prepared is None or not state.correction_output_status:
             continue
-        recipe_authority_decisions_by_recipe_id[state.recipe_id] = _build_recipe_authority_decision(recipe_id=state.recipe_id, correction_output_status=state.correction_output_status, status_reason=state.correction_output_reason, owned_block_indices=prepared.block_indices, divested_block_indices=divested_block_indices_by_recipe_id.get(state.recipe_id, []), single_correction_status=state.single_correction_status, final_assembly_status=state.final_assembly_status, structural_status=state.structural_status, structural_reason_codes=state.structural_reason_codes, mapping_status=state.correction_mapping_status, mapping_reason=state.correction_mapping_reason)
+        recipe_authority_decisions_by_recipe_id[state.recipe_id] = _build_recipe_authority_decision(recipe_id=state.recipe_id, correction_output_status=state.correction_output_status, status_reason=state.correction_output_reason, owned_row_indices=prepared.owned_row_indices, divested_row_indices=divested_row_indices_by_recipe_id.get(state.recipe_id, []), single_correction_status=state.single_correction_status, final_assembly_status=state.final_assembly_status, structural_status=state.structural_status, structural_reason_codes=state.structural_reason_codes, mapping_status=state.correction_mapping_status, mapping_reason=state.correction_mapping_reason)
     updated_result.recipes = [updated_recipes_by_id.get(str(recipe.identifier or ''), recipe) for recipe in updated_result.recipes if str(recipe.identifier or '') not in explicitly_rejected_recipe_ids]
     manifest_path = llm_raw_dir / RECIPE_MANIFEST_FILE_NAME
     manifest = _build_single_correction_manifest(run_settings=run_settings, llm_raw_dir=llm_raw_dir, correction_audit_dir=correction_audit_dir, manifest_path=manifest_path, states=states, process_runs=process_runs, output_schema_paths=output_schema_paths, timing_seconds=correction_seconds, recipe_shards=recipe_shards, phase_runtime_dir=phase_runtime_dir if recipe_shards else None, phase_runtime_summary=phase_runtime_summary)

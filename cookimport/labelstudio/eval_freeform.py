@@ -25,12 +25,12 @@ class LabeledRange:
     source_hash: str | None
     source_file: str
     label: str
-    start_block_index: int
-    end_block_index: int
+    start_row_index: int
+    end_row_index: int
 
     def normalized(self) -> "LabeledRange":
-        start = self.start_block_index
-        end = self.end_block_index
+        start = self.start_row_index
+        end = self.end_row_index
         if start > end:
             start, end = end, start
         return LabeledRange(
@@ -38,8 +38,8 @@ class LabeledRange:
             source_hash=self.source_hash,
             source_file=self.source_file,
             label=self.label,
-            start_block_index=start,
-            end_block_index=end,
+            start_row_index=start,
+            end_row_index=end,
         )
 
 
@@ -55,8 +55,8 @@ class LabeledMatch:
 class GoldConflict:
     source_hash: str | None
     source_file: str
-    start_block_index: int
-    end_block_index: int
+    start_row_index: int
+    end_row_index: int
     label_counts: dict[str, int]
     resolution: str
     selected_label: str | None
@@ -98,7 +98,7 @@ def load_gold_freeform_ranges(path: Path) -> list[LabeledRange]:
         normalized_label = _normalize_freeform_label(str(label))
         if normalized_label not in FREEFORM_ALLOWED_LABELS:
             raise ValueError(f"Invalid freeform label in {path}: {label!r}")
-        touched_indices = _extract_block_indices(payload)
+        touched_indices = _extract_row_indices(payload)
         if not touched_indices:
             continue
         span_id = payload.get("span_id") or f"gold:{len(spans)}"
@@ -109,14 +109,14 @@ def load_gold_freeform_ranges(path: Path) -> list[LabeledRange]:
                 source_hash=str(source_hash) if source_hash else None,
                 source_file=str(source_file),
                 label=normalized_label,
-                start_block_index=min(touched_indices),
-                end_block_index=max(touched_indices),
+                start_row_index=min(touched_indices),
+                end_row_index=max(touched_indices),
             ).normalized()
         )
     return spans
 
 
-def _extract_block_indices(payload: dict[str, Any]) -> list[int]:
+def _extract_row_indices(payload: dict[str, Any]) -> list[int]:
     values = payload.get("touched_row_indices")
     if not isinstance(values, list):
         values = payload.get("touched_block_indices")
@@ -204,8 +204,8 @@ def load_predicted_labeled_ranges(run_dir: Path) -> list[LabeledRange]:
                     source_hash=str(source_hash) if source_hash else None,
                     source_file=str(source_file),
                     label=label,
-                    start_block_index=start,
-                    end_block_index=end,
+                    start_row_index=start,
+                    end_row_index=end,
                 ).normalized()
             )
     return spans
@@ -299,6 +299,8 @@ def _parse_chunk_id(chunk_id: str) -> str | None:
 
 def _location_to_range(location: dict[str, Any]) -> tuple[int | None, int | None]:
     for start_key, end_key in (
+        ("start_row", "end_row"),
+        ("row_index", "row_index"),
         ("start_block", "end_block"),
         ("start_line", "end_line"),
         ("block_index", "block_index"),
@@ -319,15 +321,15 @@ def _overlap_ratio(a: LabeledRange, b: LabeledRange) -> float:
     b = b.normalized()
     intersection = max(
         0,
-        min(a.end_block_index, b.end_block_index)
-        - max(a.start_block_index, b.start_block_index)
+        min(a.end_row_index, b.end_row_index)
+        - max(a.start_row_index, b.start_row_index)
         + 1,
     )
     if intersection == 0:
         return 0.0
     union = (
-        (a.end_block_index - a.start_block_index + 1)
-        + (b.end_block_index - b.start_block_index + 1)
+        (a.end_row_index - a.start_row_index + 1)
+        + (b.end_row_index - b.start_row_index + 1)
         - intersection
     )
     if union <= 0:
@@ -340,8 +342,8 @@ def _ranges_overlap(a: LabeledRange, b: LabeledRange) -> bool:
     b = b.normalized()
     intersection = max(
         0,
-        min(a.end_block_index, b.end_block_index)
-        - max(a.start_block_index, b.start_block_index)
+        min(a.end_row_index, b.end_row_index)
+        - max(a.start_row_index, b.start_row_index)
         + 1,
     )
     return intersection > 0
@@ -362,7 +364,7 @@ def _safe_int(value: Any) -> int | None:
 
 def _range_width(span: LabeledRange) -> int:
     normalized = span.normalized()
-    return max(0, normalized.end_block_index - normalized.start_block_index + 1)
+    return max(0, normalized.end_row_index - normalized.start_row_index + 1)
 
 
 def _percentile(values: list[int], q: float) -> float:
@@ -423,18 +425,18 @@ def _classify_boundary(pred: LabeledRange, gold: LabeledRange) -> str:
     pred = pred.normalized()
     gold = gold.normalized()
     if (
-        pred.start_block_index == gold.start_block_index
-        and pred.end_block_index == gold.end_block_index
+        pred.start_row_index == gold.start_row_index
+        and pred.end_row_index == gold.end_row_index
     ):
         return "correct"
     if (
-        pred.start_block_index <= gold.start_block_index
-        and pred.end_block_index >= gold.end_block_index
+        pred.start_row_index <= gold.start_row_index
+        and pred.end_row_index >= gold.end_row_index
     ):
         return "over"
     if (
-        pred.start_block_index >= gold.start_block_index
-        and pred.end_block_index <= gold.end_block_index
+        pred.start_row_index >= gold.start_row_index
+        and pred.end_row_index <= gold.end_row_index
     ):
         return "under"
     return "partial"
@@ -680,8 +682,8 @@ def _dedupe_predicted_ranges(predicted: list[LabeledRange]) -> list[LabeledRange
             str(span.source_hash or ""),
             span.source_file,
             span.label,
-            span.start_block_index,
-            span.end_block_index,
+            span.start_row_index,
+            span.end_row_index,
         )
         if key in seen:
             continue
@@ -694,8 +696,8 @@ def _gold_dedupe_key(span: LabeledRange) -> tuple[str, str, int, int]:
     return (
         str(span.source_hash or ""),
         span.source_file,
-        span.start_block_index,
-        span.end_block_index,
+        span.start_row_index,
+        span.end_row_index,
     )
 
 
@@ -713,7 +715,7 @@ def _resolve_howto_section_ranges(
     for group_spans in grouped.values():
         labels_by_index: dict[int, set[str]] = {}
         for span in group_spans:
-            for index in range(span.start_block_index, span.end_block_index + 1):
+            for index in range(span.start_row_index, span.end_row_index + 1):
                 labels_by_index.setdefault(index, set()).add(span.label)
         resolved_labels_by_index = resolve_howto_label_sets_by_index(
             labels_by_index,
@@ -725,8 +727,8 @@ def _resolve_howto_section_ranges(
                 resolved_ranges.append(span)
                 continue
             resolved_label = resolve_howto_label_for_range(
-                start_index=span.start_block_index,
-                end_index=span.end_block_index,
+                start_index=span.start_row_index,
+                end_index=span.end_row_index,
                 label_sets_by_index=resolved_labels_by_index,
                 default_label=default_label,
             )
@@ -774,8 +776,8 @@ def _dedupe_gold_ranges(gold: list[LabeledRange]) -> tuple[list[LabeledRange], d
                 GoldConflict(
                     source_hash=exemplar.source_hash,
                     source_file=exemplar.source_file,
-                    start_block_index=exemplar.start_block_index,
-                    end_block_index=exemplar.end_block_index,
+                    start_row_index=exemplar.start_row_index,
+                    end_row_index=exemplar.end_row_index,
                     label_counts=dict(label_counts),
                     resolution="majority_vote",
                     selected_label=winning_label,
@@ -790,8 +792,8 @@ def _dedupe_gold_ranges(gold: list[LabeledRange]) -> tuple[list[LabeledRange], d
             GoldConflict(
                 source_hash=exemplar.source_hash,
                 source_file=exemplar.source_file,
-                start_block_index=exemplar.start_block_index,
-                end_block_index=exemplar.end_block_index,
+                start_row_index=exemplar.start_row_index,
+                end_row_index=exemplar.end_row_index,
                 label_counts=dict(label_counts),
                 resolution="dropped_tie",
                 selected_label=None,
@@ -806,7 +808,7 @@ def _dedupe_gold_ranges(gold: list[LabeledRange]) -> tuple[list[LabeledRange], d
 
     return deduped, {
         "enabled": True,
-        "key": "source_hash+source_file+start_block_index+end_block_index",
+        "key": "source_hash+source_file+start_row_index+end_row_index",
         "input_gold_total": input_total,
         "deduped_gold_total": deduped_total,
         "rows_removed": rows_removed,
@@ -1009,7 +1011,7 @@ def _build_classification_only_report(
         "supported_same_label_any_overlap_rate": supported_same_label_any_overlap_rate,
         "per_label": per_label,
         "confusion_by_gold_label": confusion,
-        "dedupe_key": "source_hash+source_file+label+start_block_index+end_block_index",
+        "dedupe_key": "source_hash+source_file+label+start_row_index+end_row_index",
     }
 
 
@@ -1431,8 +1433,8 @@ def format_freeform_eval_report_md(report: dict[str, Any]) -> str:
         rows_removed = int(gold_dedupe.get("rows_removed", 0))
         if rows_removed > 0:
             lines.append(
-                "- Why counts can shrink: export rows are spans, eval units are block ranges; "
-                "multiple spans that map to the same block range are deduped."
+                "- Why counts can shrink: export rows are spans, eval units are row ranges; "
+                "multiple spans that map to the same row range are deduped."
             )
         conflict_rows_dropped_tie = int(gold_dedupe.get("conflict_rows_dropped_tie", 0))
         if conflict_rows_dropped_tie > 0:

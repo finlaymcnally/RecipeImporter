@@ -759,8 +759,7 @@ def _build_final_nonrecipe_authority_fixture(
         authority=make_authority_result({2: "knowledge"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[2],
-            reviewed_block_indices=[2],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "enabled": True,
@@ -937,8 +936,7 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
         authority=make_authority_result({10: "other"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[10],
-            reviewed_block_indices=[10],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
@@ -978,8 +976,7 @@ def test_nonrecipe_authority_projection_ignores_unresolved_candidate_without_fin
         authority=make_authority_result({}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[],
-            reviewed_block_indices=[],
-            unreviewed_block_category_by_index={10: "candidate"},
+            unreviewed_row_category_by_index={10: "candidate"},
         ),
         refinement_report={
             "authority_mode": "deterministic_route_only",
@@ -1018,8 +1015,7 @@ def test_nonrecipe_authority_projection_marks_reviewed_candidate_as_codex_withou
         authority=make_authority_result({10: "other"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[10],
-            reviewed_block_indices=[10],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "nonrecipe_finalized_candidates",
@@ -1061,8 +1057,7 @@ def test_nonrecipe_authority_projection_preserves_row_level_exclude_inside_knowl
         authority=make_authority_result({10: "knowledge"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[10],
-            reviewed_block_indices=[10],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
@@ -1112,14 +1107,12 @@ def test_nonrecipe_authority_projection_uses_row_level_authority_inside_mixed_so
         seed=make_seed_result({10: "candidate", 11: "candidate"}),
         routing=make_routing_result(candidate_row_indices=[10, 11]),
         authority=make_authority_result(
-            {10: "knowledge"},
-            row_category_by_index={10: "other", 11: "knowledge"},
+            {10: "other", 11: "knowledge"},
             row_source_block_index_by_index={10: 10, 11: 10},
         ),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[10, 11],
-            reviewed_block_indices=[10, 11],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
@@ -1205,8 +1198,7 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
         authority=make_authority_result({}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[],
-            reviewed_block_indices=[],
-            unreviewed_block_category_by_index={2: "candidate"},
+            unreviewed_row_category_by_index={2: "candidate"},
         ),
         refinement_report={
             "authority_mode": "deterministic_route_only",
@@ -1306,8 +1298,7 @@ def test_line_role_artifacts_write_semantic_predictions_for_reviewed_nonrecipe_c
         authority=make_authority_result({1: "other"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[1],
-            reviewed_block_indices=[1],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "nonrecipe_finalized_candidates",
@@ -1384,8 +1375,7 @@ def test_line_role_stage_payload_overrides_outside_recipe_howto_with_final_autho
         authority=make_authority_result({23: "knowledge"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[23],
-            reviewed_block_indices=[23],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
@@ -1505,8 +1495,7 @@ def test_authoritative_line_role_artifacts_preserve_runtime_telemetry_summary(
         authority=make_authority_result({1: "knowledge"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[1],
-            reviewed_block_indices=[1],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",

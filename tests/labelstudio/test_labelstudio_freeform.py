@@ -217,42 +217,42 @@ def test_eval_freeform_maps_howto_section_to_neighboring_structural_label(tmp_pa
             "source_hash": "h1",
             "source_file": "book.epub",
             "label": "INGREDIENT_LINE",
-            "touched_block_indices": [1],
+            "touched_row_indices": [1],
         },
         {
             "span_id": "g2",
             "source_hash": "h1",
             "source_file": "book.epub",
             "label": "HowToSection",
-            "touched_block_indices": [2],
+            "touched_row_indices": [2],
         },
         {
             "span_id": "g3",
             "source_hash": "h1",
             "source_file": "book.epub",
             "label": "INGREDIENT_LINE",
-            "touched_block_indices": [3],
+            "touched_row_indices": [3],
         },
         {
             "span_id": "g4",
             "source_hash": "h1",
             "source_file": "book.epub",
             "label": "INSTRUCTION_LINE",
-            "touched_block_indices": [5],
+            "touched_row_indices": [5],
         },
         {
             "span_id": "g5",
             "source_hash": "h1",
             "source_file": "book.epub",
             "label": "HOWTO_SECTION",
-            "touched_block_indices": [6],
+            "touched_row_indices": [6],
         },
         {
             "span_id": "g6",
             "source_hash": "h1",
             "source_file": "book.epub",
             "label": "INSTRUCTION_LINE",
-            "touched_block_indices": [7],
+            "touched_row_indices": [7],
         },
     ]
     gold_path.write_text(
@@ -279,6 +279,75 @@ def test_eval_freeform_maps_howto_section_to_neighboring_structural_label(tmp_pa
     assert report["per_label"]["INGREDIENT_LINE"]["gold_total"] == 3
     assert report["per_label"]["INSTRUCTION_LINE"]["gold_total"] == 3
     assert "HOWTO_SECTION" not in report["per_label"]
+
+
+def test_eval_freeform_accepts_row_native_and_legacy_range_keys(tmp_path) -> None:
+    gold_path = tmp_path / "gold.jsonl"
+    gold_rows = [
+        {
+            "span_id": "g1",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "INGREDIENT_LINE",
+            "touched_block_indices": [4],
+        },
+        {
+            "span_id": "g2",
+            "source_hash": "h1",
+            "source_file": "book.epub",
+            "label": "INSTRUCTION_LINE",
+            "touched_rows": [{"row_index": 7}],
+        },
+    ]
+    gold_path.write_text(
+        "\n".join(json.dumps(row) for row in gold_rows) + "\n",
+        encoding="utf-8",
+    )
+    gold = load_gold_freeform_ranges(gold_path)
+    assert [(span.label, span.start_row_index, span.end_row_index) for span in gold] == [
+        ("INGREDIENT_LINE", 4, 4),
+        ("INSTRUCTION_LINE", 7, 7),
+    ]
+
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "label_studio_tasks.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "data": {
+                            "chunk_id": "urn:recipeimport:chunk:text:h1:atomic:loc:block_index=8:a",
+                            "source_hash": "h1",
+                            "source_file": "book.epub",
+                            "chunk_level": "atomic",
+                            "chunk_type": "ingredient_line",
+                            "location": {"start_row": 8, "end_row": 9},
+                        }
+                    }
+                ),
+                json.dumps(
+                    {
+                        "data": {
+                            "chunk_id": "urn:recipeimport:chunk:text:h1:atomic:loc:block_index=11:b",
+                            "source_hash": "h1",
+                            "source_file": "book.epub",
+                            "chunk_level": "atomic",
+                            "chunk_type": "step_line",
+                            "location": {"row_index": 11},
+                        }
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    predicted = load_predicted_labeled_ranges(run_dir)
+    assert [(span.label, span.start_row_index, span.end_row_index) for span in predicted] == [
+        ("INGREDIENT_LINE", 8, 9),
+        ("INSTRUCTION_LINE", 11, 11),
+    ]
 
 
 def test_export_freeform_spans_jsonl(tmp_path, monkeypatch) -> None:
@@ -833,21 +902,21 @@ def test_eval_freeform_ranges_smoke(tmp_path) -> None:
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
             "label": "INGREDIENT_LINE",
-            "touched_block_indices": [1],
+            "touched_row_indices": [1],
         },
         {
             "span_id": "gold-2",
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
             "label": "INSTRUCTION_LINE",
-            "touched_block_indices": [2],
+            "touched_row_indices": [2],
         },
         {
             "span_id": "gold-3",
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
             "label": "RECIPE_NOTES",
-            "touched_block_indices": [5],
+            "touched_row_indices": [5],
         },
     ]
     gold_path.write_text(
@@ -932,7 +1001,7 @@ def test_eval_freeform_dedupes_duplicate_gold_ranges_by_default(tmp_path) -> Non
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "INGREDIENT_LINE",
-                        "touched_block_indices": [3],
+                        "touched_row_indices": [3],
                     }
                 ),
                 json.dumps(
@@ -941,7 +1010,7 @@ def test_eval_freeform_dedupes_duplicate_gold_ranges_by_default(tmp_path) -> Non
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "INGREDIENT_LINE",
-                        "touched_block_indices": [3],
+                        "touched_row_indices": [3],
                     }
                 ),
             ]
@@ -997,7 +1066,7 @@ def test_eval_freeform_gold_dedupe_conflict_majority_vote(tmp_path) -> None:
                         "source_hash": "h2",
                         "source_file": "book.epub",
                         "label": "INGREDIENT_LINE",
-                        "touched_block_indices": [4],
+                        "touched_row_indices": [4],
                     }
                 ),
                 json.dumps(
@@ -1006,7 +1075,7 @@ def test_eval_freeform_gold_dedupe_conflict_majority_vote(tmp_path) -> None:
                         "source_hash": "h2",
                         "source_file": "book.epub",
                         "label": "OTHER",
-                        "touched_block_indices": [4],
+                        "touched_row_indices": [4],
                     }
                 ),
                 json.dumps(
@@ -1015,7 +1084,7 @@ def test_eval_freeform_gold_dedupe_conflict_majority_vote(tmp_path) -> None:
                         "source_hash": "h2",
                         "source_file": "book.epub",
                         "label": "INGREDIENT_LINE",
-                        "touched_block_indices": [4],
+                        "touched_row_indices": [4],
                     }
                 ),
             ]
@@ -1071,7 +1140,7 @@ def test_eval_freeform_gold_dedupe_conflict_tie_is_dropped(tmp_path) -> None:
                         "source_hash": "h3",
                         "source_file": "book.epub",
                         "label": "INGREDIENT_LINE",
-                        "touched_block_indices": [5],
+                        "touched_row_indices": [5],
                     }
                 ),
                 json.dumps(
@@ -1080,7 +1149,7 @@ def test_eval_freeform_gold_dedupe_conflict_tie_is_dropped(tmp_path) -> None:
                         "source_hash": "h3",
                         "source_file": "book.epub",
                         "label": "OTHER",
-                        "touched_block_indices": [5],
+                        "touched_row_indices": [5],
                     }
                 ),
             ]
@@ -1171,21 +1240,21 @@ def _run_app_aligned_freeform_fixture(tmp_path) -> dict[str, object]:
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
             "label": "INGREDIENT_LINE",
-            "touched_block_indices": [11, 12],
+            "touched_row_indices": [11, 12],
         },
         {
             "span_id": "gold-title",
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
             "label": "RECIPE_TITLE",
-            "touched_block_indices": [22],
+            "touched_row_indices": [22],
         },
         {
             "span_id": "gold-tip",
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
             "label": "KNOWLEDGE",
-            "touched_block_indices": [30],
+            "touched_row_indices": [30],
         },
     ]
     gold_path = tmp_path / "gold.jsonl"
@@ -1302,7 +1371,7 @@ def test_eval_freeform_prefers_recipe_title_over_recipe_block(tmp_path) -> None:
             "source_hash": "deadbeefcafebabe",
             "source_file": "book.epub",
             "label": "RECIPE_TITLE",
-            "touched_block_indices": [22],
+            "touched_row_indices": [22],
         }
     ]
     gold_path = tmp_path / "gold.jsonl"
@@ -1335,7 +1404,7 @@ def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "TIP",
-                        "touched_block_indices": [10],
+                        "touched_row_indices": [10],
                     }
                 ),
                 json.dumps(
@@ -1344,7 +1413,7 @@ def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "NOTES",
-                        "touched_block_indices": [11],
+                        "touched_row_indices": [11],
                     }
                 ),
                 json.dumps(
@@ -1353,7 +1422,7 @@ def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "NOTE",
-                        "touched_block_indices": [12],
+                        "touched_row_indices": [12],
                     }
                 ),
                 json.dumps(
@@ -1362,7 +1431,7 @@ def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "VARIANT",
-                        "touched_block_indices": [13],
+                        "touched_row_indices": [13],
                     }
                 ),
                 json.dumps(
@@ -1371,7 +1440,7 @@ def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "NARRATIVE",
-                        "touched_block_indices": [14],
+                        "touched_row_indices": [14],
                     }
                 ),
                 json.dumps(
@@ -1380,7 +1449,7 @@ def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "YIELD",
-                        "touched_block_indices": [15],
+                        "touched_row_indices": [15],
                     }
                 ),
                 json.dumps(
@@ -1389,7 +1458,7 @@ def test_eval_freeform_rejects_removed_label_aliases(tmp_path) -> None:
                         "source_hash": "h1",
                         "source_file": "book.epub",
                         "label": "TIME",
-                        "touched_block_indices": [16],
+                        "touched_row_indices": [16],
                     }
                 ),
             ]
@@ -1451,21 +1520,21 @@ def _run_freeform_yield_time_additive_fixture(tmp_path) -> dict[str, object]:
             "source_hash": "abc123",
             "source_file": "book.epub",
             "label": "INGREDIENT_LINE",
-            "touched_block_indices": [1],
+            "touched_row_indices": [1],
         },
         {
             "span_id": "gold-yield",
             "source_hash": "abc123",
             "source_file": "book.epub",
             "label": "YIELD_LINE",
-            "touched_block_indices": [5],
+            "touched_row_indices": [5],
         },
         {
             "span_id": "gold-time",
             "source_hash": "abc123",
             "source_file": "book.epub",
             "label": "TIME_LINE",
-            "touched_block_indices": [6],
+            "touched_row_indices": [6],
         },
     ]
     gold_path = tmp_path / "gold.jsonl"
@@ -1546,7 +1615,7 @@ def test_eval_freeform_force_source_match_allows_mismatched_source_identity(tmp_
                 "source_hash": "full_hash",
                 "source_file": "thefoodlab.epub",
                 "label": "INGREDIENT_LINE",
-                "touched_block_indices": [10],
+                "touched_row_indices": [10],
             }
         )
         + "\n",

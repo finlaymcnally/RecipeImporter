@@ -6,11 +6,11 @@ from cookimport.parsing.canonical_line_roles.contracts import RECIPE_LOCAL_LINE_
 from cookimport.parsing.label_source_of_truth import AuthoritativeBlockLabel, AuthoritativeLabeledLine
 
 from .nonrecipe_authority import (
-    block_rows_for_nonrecipe_authority,
-    block_rows_for_nonrecipe_candidate_queue,
-    block_rows_for_nonrecipe_late_outputs,
-    block_rows_for_nonrecipe_span,
-    block_rows_for_nonrecipe_stage,
+    rows_for_nonrecipe_authority,
+    rows_for_nonrecipe_candidate_queue,
+    rows_for_nonrecipe_late_outputs,
+    rows_for_nonrecipe_span,
+    rows_for_nonrecipe_stage,
     build_nonrecipe_authority_contract,
     build_nonrecipe_authority_result,
 )
@@ -465,9 +465,9 @@ def refine_nonrecipe_stage_result(
 __all__ = [
     "NonRecipeAuthorityContract", "NonRecipeAuthorityResult", "NonRecipeCandidateStatusResult",
     "NonRecipeRoutingResult", "NonRecipeScoringView", "NonRecipeSeedResult",
-    "NonRecipeSpan", "NonRecipeStageResult", "block_rows_for_nonrecipe_authority",
-    "block_rows_for_nonrecipe_candidate_queue", "block_rows_for_nonrecipe_late_outputs",
-    "block_rows_for_nonrecipe_span", "block_rows_for_nonrecipe_stage",
+    "NonRecipeSpan", "NonRecipeStageResult", "rows_for_nonrecipe_authority",
+    "rows_for_nonrecipe_candidate_queue", "rows_for_nonrecipe_late_outputs",
+    "rows_for_nonrecipe_span", "rows_for_nonrecipe_stage",
     "build_nonrecipe_authority_contract", "build_nonrecipe_stage_result",
     "build_nonrecipe_stage_result_from_labeled_rows",
     "refine_nonrecipe_stage_result",

@@ -34,7 +34,7 @@ from cookimport.staging.nonrecipe_stage import (
     NonRecipeCandidateStatusResult,
     NonRecipeRoutingResult,
     NonRecipeStageResult,
-    block_rows_for_nonrecipe_span,
+    rows_for_nonrecipe_span,
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
     build_nonrecipe_stage_result_from_labeled_rows,
@@ -271,7 +271,7 @@ def _build_default_recipe_authority_decisions(
         divested_row_indices = (
             list(ownership_entry.divested_row_indices) if ownership_entry is not None else []
         )
-        retained_block_indices = [
+        retained_row_indices = [
             index for index in owned_row_indices if index not in set(divested_row_indices)
         ]
         decisions[recipe_id] = RecipeAuthorityDecision(
@@ -279,12 +279,12 @@ def _build_default_recipe_authority_decisions(
             semantic_outcome="recipe",
             publish_status="published",
             ownership_action=classify_recipe_ownership_action(
-                owned_block_indices=owned_row_indices,
-                divested_block_indices=divested_row_indices,
+                owned_row_indices=owned_row_indices,
+                divested_row_indices=divested_row_indices,
             ),
-            owned_block_indices=owned_row_indices,
-            divested_block_indices=divested_row_indices,
-            retained_block_indices=retained_block_indices,
+            owned_row_indices=owned_row_indices,
+            divested_row_indices=divested_row_indices,
+            retained_row_indices=retained_row_indices,
             final_recipe_authority_status="promoted",
             final_recipe_authority_reason="deterministic_recipe_projection",
         )
@@ -417,12 +417,12 @@ def run_nonrecipe_route_stage(
         routing=stage_result.routing,
         candidate_queue_nonrecipe_blocks=_block_rows_for_indices(
             nonrecipe_rows,
-            stage_result.routing.candidate_block_indices,
+            stage_result.routing.candidate_row_indices,
         ),
         excluded_final_other_blocks=[
             row
             for span in stage_result.routing.excluded_nonrecipe_spans
-            for row in block_rows_for_nonrecipe_span(
+            for row in rows_for_nonrecipe_span(
                 full_blocks=nonrecipe_rows,
                 span=span,
             )
@@ -489,7 +489,7 @@ def run_nonrecipe_finalize_stage(
     )
     unresolved_candidate_blocks = _block_rows_for_indices(
         nonrecipe_rows,
-        stage_result.candidate_status.unresolved_candidate_block_indices,
+        stage_result.candidate_status.unresolved_candidate_row_indices,
         stage_result.candidate_status.unresolved_candidate_route_by_index,
     )
     return NonrecipeFinalizeResult(
@@ -499,8 +499,8 @@ def run_nonrecipe_finalize_stage(
         authority_contract=authority_contract,
         authority=stage_result.authority,
         candidate_status=stage_result.candidate_status,
-        authoritative_nonrecipe_blocks=list(authority_contract.final_blocks),
-        late_output_nonrecipe_blocks=list(authority_contract.late_output_blocks),
+        authoritative_nonrecipe_blocks=list(authority_contract.final_rows),
+        late_output_nonrecipe_blocks=list(authority_contract.late_output_rows),
         unresolved_candidate_blocks=unresolved_candidate_blocks,
         llm_report=llm_report,
         nonrecipe_finalize_write_report=nonrecipe_finalize_write_report,

@@ -843,8 +843,7 @@ def _build_final_nonrecipe_authority_fixture(
         authority=make_authority_result({2: "knowledge"}),
         candidate_status=make_finalize_status_result(
             reviewed_row_indices=[2],
-            reviewed_block_indices=[2],
-            unreviewed_block_category_by_index={},
+            unreviewed_row_category_by_index={},
         ),
         refinement_report={
             "enabled": True,

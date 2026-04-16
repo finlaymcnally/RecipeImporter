@@ -115,9 +115,9 @@ own small per-book ledger there.
 
 ### 3.1 Deterministic task IDs
 
-Freeform task IDs use deterministic segment URNs:
+Freeform task IDs use deterministic segment URNs keyed by row range:
 
-- `urn:cookimport:segment:{source_hash}:{start_block_index}:{end_block_index}`
+- `urn:cookimport:segment:{source_hash}:{start_row_index}:{end_row_index}`
 
 Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 

@@ -638,18 +638,18 @@ def test_prompt_preview_knowledge_uses_unresolved_candidate_spans_not_seed_spans
     candidate_span = NonRecipeSpan(
         span_id="nr.candidate.2.3",
         category="candidate",
-        block_start_index=2,
-        block_end_index=3,
-        block_indices=[2],
-        block_ids=["block:2"],
+        row_start_index=2,
+        row_end_index=3,
+        row_indices=[2],
+        row_ids=["block:2"],
     )
     excluded_span = NonRecipeSpan(
         span_id="nr.exclude.3.4",
         category="exclude",
-        block_start_index=3,
-        block_end_index=4,
-        block_indices=[3],
-        block_ids=["block:3"],
+        row_start_index=3,
+        row_end_index=4,
+        row_indices=[3],
+        row_ids=["block:3"],
     )
 
     def _fake_build_nonrecipe_stage_result(**_: object) -> NonRecipeStageResult:
@@ -661,12 +661,12 @@ def test_prompt_preview_knowledge_uses_unresolved_candidate_spans_not_seed_spans
                 excluded_spans=[excluded_span],
             ),
             routing=make_routing_result(
-                candidate_block_indices=[2],
-                excluded_block_indices=[3],
+                candidate_row_indices=[2],
+                excluded_row_indices=[3],
             ),
             authority=make_authority_result({3: "other"}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[],
+                finalized_candidate_row_indices=[],
                 unresolved_candidate_route_by_index={2: "candidate"},
             ),
         )

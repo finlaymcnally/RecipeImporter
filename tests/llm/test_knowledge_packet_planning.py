@@ -44,10 +44,10 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
             NonRecipeSpan(
                 span_id="nr.2.3",
                 category="knowledge",
-                block_start_index=2,
-                block_end_index=3,
-                block_indices=[2],
-                block_ids=["b2"],
+                row_start_index=2,
+                row_end_index=3,
+                row_indices=[2],
+                row_ids=["b2"],
             )
         ],
         recipe_ownership_result=_ownership(all_indices=[0, 1, 2], owned_indices=[0, 1]),
@@ -86,10 +86,10 @@ def test_build_knowledge_jobs_treats_prompt_target_as_cap_without_fragmenting_bu
             NonRecipeSpan(
                 span_id=f"nr.{index}.{index + 1}",
                 category="knowledge",
-                block_start_index=index,
-                block_end_index=index + 1,
-                block_indices=[index],
-                block_ids=[f"b{index}"],
+                row_start_index=index,
+                row_end_index=index + 1,
+                row_indices=[index],
+                row_ids=[f"b{index}"],
             )
             for index in range(5)
         ],
@@ -124,10 +124,10 @@ def test_build_knowledge_jobs_splits_by_explicit_char_budgets_when_no_target_cou
             NonRecipeSpan(
                 span_id=f"nr.{index}.{index + 1}",
                 category="knowledge",
-                block_start_index=index,
-                block_end_index=index + 1,
-                block_indices=[index],
-                block_ids=[f"b{index}"],
+                row_start_index=index,
+                row_end_index=index + 1,
+                row_indices=[index],
+                row_ids=[f"b{index}"],
             )
             for index in range(4)
         ],
@@ -175,10 +175,10 @@ def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(
             NonRecipeSpan(
                 span_id=f"nr.{index}.{index + 1}",
                 category="knowledge",
-                block_start_index=index,
-                block_end_index=index + 1,
-                block_indices=[index],
-                block_ids=[f"b{index}"],
+                row_start_index=index,
+                row_end_index=index + 1,
+                row_indices=[index],
+                row_ids=[f"b{index}"],
             )
             for index in range(4)
         ],
@@ -217,10 +217,10 @@ def test_build_knowledge_stage_phase_plan_centralizes_worker_and_survivability_f
             NonRecipeSpan(
                 span_id=f"nr.{index}.{index + 1}",
                 category="knowledge",
-                block_start_index=index,
-                block_end_index=index + 1,
-                block_indices=[index],
-                block_ids=[f"b{index}"],
+                row_start_index=index,
+                row_end_index=index + 1,
+                row_indices=[index],
+                row_ids=[f"b{index}"],
             )
             for index in range(4)
         ],
@@ -268,10 +268,10 @@ def test_build_knowledge_jobs_caps_grouping_output_budget_by_group_task_max_unit
             NonRecipeSpan(
                 span_id=f"nr.{index}.{index + 1}",
                 category="knowledge",
-                block_start_index=index,
-                block_end_index=index + 1,
-                block_indices=[index],
-                block_ids=[f"b{index}"],
+                row_start_index=index,
+                row_end_index=index + 1,
+                row_indices=[index],
+                row_ids=[f"b{index}"],
             )
             for index in range(80)
         ],
@@ -300,10 +300,10 @@ def test_build_knowledge_jobs_keeps_review_order_inside_each_shard(tmp_path: Pat
             NonRecipeSpan(
                 span_id="nr.4.6",
                 category="knowledge",
-                block_start_index=4,
-                block_end_index=6,
-                block_indices=[4, 5],
-                block_ids=["b4", "b5"],
+                row_start_index=4,
+                row_end_index=6,
+                row_indices=[4, 5],
+                row_ids=["b4", "b5"],
             )
         ],
         recipe_ownership_result=_ownership(all_indices=[4, 5]),

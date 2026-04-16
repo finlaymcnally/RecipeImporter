@@ -101,11 +101,11 @@ def _build_result(
 
 def _single_recipe_ownership(
     result: ConversionResult,
-    owned_block_indices: range | list[int],
+    owned_row_indices: range | list[int],
 ) -> object:
     recipe_id = str(result.recipes[0].identifier)
     return make_recipe_ownership_result(
-        owned_by_recipe_id={recipe_id: list(owned_block_indices)},
+        owned_by_recipe_id={recipe_id: list(owned_row_indices)},
         all_block_indices=list(range(len(result.source_blocks))),
     )
 
@@ -119,10 +119,10 @@ def test_build_semantic_row_predictions_assigns_one_label_per_row(tmp_path: Path
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
-            routing=make_routing_result(candidate_block_indices=[8]),
+            routing=make_routing_result(candidate_row_indices=[8]),
             authority=make_authority_result({8: "knowledge"}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[8],
+                finalized_candidate_row_indices=[8],
                 unresolved_candidate_route_by_index={},
             ),
         ),
@@ -189,10 +189,10 @@ def test_build_semantic_row_predictions_ignores_nonrecipe_finalize_other_rows() 
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
-            routing=make_routing_result(candidate_block_indices=[8]),
+            routing=make_routing_result(candidate_row_indices=[8]),
             authority=make_authority_result({8: "other"}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[8],
+                finalized_candidate_row_indices=[8],
                 unresolved_candidate_route_by_index={},
             ),
         ),
@@ -218,10 +218,10 @@ def test_build_semantic_row_predictions_ignores_divested_non_promoted_recipe_ent
         ),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
-            routing=make_routing_result(candidate_block_indices=[8]),
+            routing=make_routing_result(candidate_row_indices=[8]),
             authority=make_authority_result({8: "knowledge"}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[8],
+                finalized_candidate_row_indices=[8],
                 unresolved_candidate_route_by_index={},
             ),
         ),
@@ -239,10 +239,10 @@ def test_build_semantic_row_predictions_ignores_unresolved_candidate_knowledge()
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
-            routing=make_routing_result(candidate_block_indices=[8]),
+            routing=make_routing_result(candidate_row_indices=[8]),
             authority=make_authority_result({}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[],
+                finalized_candidate_row_indices=[],
                 unresolved_candidate_route_by_index={8: "candidate"},
             ),
         ),
@@ -276,9 +276,9 @@ def test_build_semantic_row_predictions_uses_boundary_labels_for_withheld_fragme
                 "semantic_outcome": "partial_recipe",
                 "publish_status": "withheld_partial",
                 "ownership_action": "retain",
-                "owned_block_indices": list(range(8)),
-                "divested_block_indices": [],
-                "retained_block_indices": list(range(8)),
+                "owned_row_indices": list(range(8)),
+                "divested_row_indices": [],
+                "retained_row_indices": list(range(8)),
                 "worker_repair_status": "fragmentary",
             }
         },
@@ -332,9 +332,9 @@ def test_build_semantic_row_predictions_marks_recipe_owned_rows_unresolved_when_
                 "semantic_outcome": "partial_recipe",
                 "publish_status": "withheld_partial",
                 "ownership_action": "retain",
-                "owned_block_indices": [0, 1, 2],
-                "divested_block_indices": [],
-                "retained_block_indices": [0, 1, 2],
+                "owned_row_indices": [0, 1, 2],
+                "divested_row_indices": [],
+                "retained_row_indices": [0, 1, 2],
                 "worker_repair_status": "fragmentary",
             }
         },
@@ -474,10 +474,10 @@ def test_write_semantic_row_predictions_prefers_final_nonrecipe_authority(
         source_file="/tmp/simple.txt",
         nonrecipe_stage_result=make_stage_result(
             seed=make_seed_result({8: "candidate"}),
-            routing=make_routing_result(candidate_block_indices=[8]),
+            routing=make_routing_result(candidate_row_indices=[8]),
             authority=make_authority_result({8: "knowledge"}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[8],
+                finalized_candidate_row_indices=[8],
                 unresolved_candidate_route_by_index={},
             ),
         ),

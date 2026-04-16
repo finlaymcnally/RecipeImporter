@@ -1224,10 +1224,10 @@ def generate_pred_run_artifacts(
         if (
             run_settings.llm_knowledge_pipeline.value == "off"
             and authority_contract is not None
-            and authority_contract.late_output_blocks
+            and authority_contract.late_output_rows
         ):
             result.chunks = chunks_from_non_recipe_blocks(
-                authority_contract.late_output_blocks
+                authority_contract.late_output_rows
             )
         else:
             result.chunks = []
@@ -1292,10 +1292,10 @@ def generate_pred_run_artifacts(
         )
         if (
             run_settings.llm_knowledge_pipeline.value == "off"
-            and authority_contract.late_output_blocks
+            and authority_contract.late_output_rows
         ):
             result.chunks = chunks_from_non_recipe_blocks(
-                authority_contract.late_output_blocks
+                authority_contract.late_output_rows
             )
         else:
             result.chunks = []

@@ -11,7 +11,7 @@ from cookimport.parsing.label_source_of_truth import (
 )
 from cookimport.parsing.recipe_span_grouping import recipe_boundary_from_labels
 from cookimport.staging.nonrecipe_stage import (
-    block_rows_for_nonrecipe_late_outputs,
+    rows_for_nonrecipe_late_outputs,
     build_nonrecipe_authority_contract,
     build_nonrecipe_stage_result,
     build_nonrecipe_stage_result_from_labeled_rows,
@@ -132,8 +132,8 @@ def test_nonrecipe_stage_normalizes_divested_recipe_local_labels_to_candidates()
     )
 
     assert result.seed.seed_route_by_index == {1: "candidate", 2: "exclude"}
-    assert result.routing.candidate_block_indices == [1]
-    assert result.routing.excluded_block_indices == [2]
+    assert result.routing.candidate_row_indices == [1]
+    assert result.routing.excluded_row_indices == [2]
     assert result.routing.warnings == [
         "row 1: divested recipe-local label 'RECIPE_NOTES' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
     ]
@@ -207,8 +207,8 @@ def test_nonrecipe_stage_from_labeled_rows_keeps_mixed_rows_from_same_source_blo
         block_category_updates={1: "knowledge"},
     )
 
-    assert seed.routing.excluded_block_indices == [0]
-    assert seed.routing.candidate_block_indices == [1]
+    assert seed.routing.excluded_row_indices == [0]
+    assert seed.routing.candidate_row_indices == [1]
     assert refined.authority.authoritative_row_category_by_index == {
         0: "other",
         1: "knowledge",
@@ -268,8 +268,8 @@ def test_nonrecipe_stage_routes_rejected_recipe_boundary_span_to_candidate_queue
     assert ownership.owned_row_indices == []
     assert ownership.available_to_nonrecipe_row_indices == [0, 1]
     assert result.seed.seed_route_by_index == {0: "candidate", 1: "candidate"}
-    assert result.routing.candidate_block_indices == [0, 1]
-    assert result.routing.excluded_block_indices == []
+    assert result.routing.candidate_row_indices == [0, 1]
+    assert result.routing.excluded_row_indices == []
 
 
 def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path) -> None:
@@ -328,10 +328,10 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     assert candidate_status_payload["unresolved_candidate_spans"][0]["span_id"] == (
         "nr.candidate.1.2"
     )
-    assert stage_result.routing.candidate_block_indices == [1]
+    assert stage_result.routing.candidate_row_indices == [1]
     assert stage_result.authority.authoritative_block_indices == [0]
-    assert stage_result.candidate_status.finalized_candidate_block_indices == []
-    assert stage_result.candidate_status.unresolved_candidate_block_indices == [1]
+    assert stage_result.candidate_status.finalized_candidate_row_indices == []
+    assert stage_result.candidate_status.unresolved_candidate_row_indices == [1]
 
 
 def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
@@ -348,12 +348,12 @@ def test_nonrecipe_stage_splits_routing_from_final_authority() -> None:
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
-    assert seed.routing.excluded_block_indices == [0]
-    assert seed.routing.candidate_block_indices == [1]
+    assert seed.routing.excluded_row_indices == [0]
+    assert seed.routing.candidate_row_indices == [1]
     assert seed.authority.authoritative_block_indices == [0]
-    assert seed.authority.authoritative_block_category_by_index == {0: "other"}
-    assert seed.candidate_status.finalized_candidate_block_indices == []
-    assert seed.candidate_status.unresolved_candidate_block_indices == [1]
+    assert seed.authority.authoritative_row_category_by_index == {0: "other"}
+    assert seed.candidate_status.finalized_candidate_row_indices == []
+    assert seed.candidate_status.unresolved_candidate_row_indices == [1]
     assert seed.candidate_status.unresolved_candidate_route_by_index == {1: "candidate"}
 
 
@@ -375,9 +375,9 @@ def test_nonrecipe_stage_refinement_tracks_reviewed_blocks_without_reviewer_meta
 
     assert refined.seed.seed_route_by_index == {0: "candidate"}
     assert refined.authority.authoritative_block_indices == [0]
-    assert refined.authority.authoritative_block_category_by_index == {0: "other"}
-    assert refined.candidate_status.finalized_candidate_block_indices == [0]
-    assert refined.candidate_status.unresolved_candidate_block_indices == []
+    assert refined.authority.authoritative_row_category_by_index == {0: "other"}
+    assert refined.candidate_status.finalized_candidate_row_indices == [0]
+    assert refined.candidate_status.unresolved_candidate_row_indices == []
     assert refined.refinement_report["reviewed_candidate_row_count"] == 1
 
 
@@ -523,7 +523,7 @@ def test_nonrecipe_stage_normalizes_recipe_only_labels_outside_recipe() -> None:
     )
 
     assert result.seed.seed_route_by_index == {0: "candidate"}
-    assert result.routing.candidate_block_indices == [0]
+    assert result.routing.candidate_row_indices == [0]
     assert result.routing.warnings == [
         "row 0: available recipe-local label 'RECIPE_TITLE' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
     ]
@@ -543,7 +543,7 @@ def test_nonrecipe_late_output_rows_use_candidate_queue_before_review() -> None:
         recipe_ownership_result=_ownership_result(full_blocks=full_blocks),
     )
 
-    rows = block_rows_for_nonrecipe_late_outputs(
+    rows = rows_for_nonrecipe_late_outputs(
         full_blocks=full_blocks,
         stage_result=stage_result,
     )
@@ -572,11 +572,11 @@ def test_nonrecipe_authority_contract_uses_candidate_queue_before_review() -> No
     )
 
     assert contract.late_output_mode == "candidate_queue"
-    assert [row["index"] for row in contract.final_blocks] == [0]
-    assert [row["index"] for row in contract.candidate_queue_blocks] == [1]
-    assert [row["index"] for row in contract.excluded_blocks] == [0]
-    assert [row["index"] for row in contract.late_output_blocks] == [1]
-    assert contract.scoring_view.authoritative_block_category_by_index == {0: "other"}
+    assert [row["index"] for row in contract.final_rows] == [0]
+    assert [row["index"] for row in contract.candidate_queue_rows] == [1]
+    assert [row["index"] for row in contract.excluded_rows] == [0]
+    assert [row["index"] for row in contract.late_output_rows] == [1]
+    assert contract.scoring_view.authoritative_row_category_by_index == {0: "other"}
     assert contract.scoring_view.unresolved_candidate_route_by_index == {1: "candidate"}
 
 
@@ -605,9 +605,9 @@ def test_nonrecipe_authority_contract_uses_final_authority_after_review() -> Non
     )
 
     assert contract.late_output_mode == "final_authority"
-    assert [row["index"] for row in contract.final_blocks] == [0]
-    assert [row["index"] for row in contract.late_output_blocks] == [0]
-    assert contract.scoring_view.unresolved_candidate_block_indices == [1]
+    assert [row["index"] for row in contract.final_rows] == [0]
+    assert [row["index"] for row in contract.late_output_rows] == [0]
+    assert contract.scoring_view.unresolved_candidate_row_indices == [1]
 
 
 def test_nonrecipe_stage_forces_excluded_rows_to_final_other_even_if_bad_map_leaks_in() -> None:
@@ -631,7 +631,7 @@ def test_nonrecipe_stage_forces_excluded_rows_to_final_other_even_if_bad_map_lea
     )
 
     assert refined.authority.authoritative_block_indices == [0, 1]
-    assert refined.authority.authoritative_block_category_by_index == {
+    assert refined.authority.authoritative_row_category_by_index == {
         0: "other",
         1: "knowledge",
     }

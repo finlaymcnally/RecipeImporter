@@ -25,10 +25,10 @@ def test_build_knowledge_jobs_emits_shard_entries(tmp_path: Path) -> None:
             NonRecipeSpan(
                 span_id="nr.knowledge.0.3",
                 category="knowledge",
-                block_start_index=0,
-                block_end_index=3,
-                block_indices=[0, 1, 2],
-                block_ids=["b0", "b1", "b2"],
+                row_start_index=0,
+                row_end_index=3,
+                row_indices=[0, 1, 2],
+                row_ids=["b0", "b1", "b2"],
             )
         ],
         recipe_ownership_result=make_recipe_ownership_result(

@@ -15,8 +15,8 @@ def _span(span_id: str, label: str, start: int, end: int) -> LabeledRange:
         source_hash="src-hash",
         source_file="book.epub",
         label=label,
-        start_block_index=start,
-        end_block_index=end,
+        start_row_index=start,
+        end_row_index=end,
     )
 
 

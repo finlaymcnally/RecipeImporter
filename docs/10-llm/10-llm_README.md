@@ -241,10 +241,10 @@ Deterministic authority override seams after recipe output validates:
   - only `repair_status="repaired"` is promotable
   - valid `fragmentary` and `not_a_recipe` outputs are explicitly `not_promoted`
 - `_validate_recipe_output_divestments(...)` now treats divestment as an explicit ownership handoff rather than an automatic semantic rewrite:
-  - `repaired` may divest some owned blocks, but not all of them
-  - `fragmentary` may divest none, some, or all owned blocks
-  - `not_a_recipe` must still divest every owned block
-  - this is the main deterministic bridge where recipe LLM decisions can hand blocks back to nonrecipe authority.
+  - `repaired` may divest some owned rows, but not all of them
+  - `fragmentary` may divest none, some, or all owned rows
+  - `not_a_recipe` must still divest every owned row
+  - this is the main deterministic bridge where recipe LLM decisions can hand rows back to nonrecipe authority.
 - in `run_codex_farm_recipe_pipeline(...)`, any validated recipe result whose `repair_status != "repaired"` is accepted as a valid task outcome but still removed from final recipe authority.
   - `fragmentary` now means partial recipe authority, not automatic nonrecipe fallback
   - published recipe drafts come only from promoted `repaired` outputs
@@ -302,7 +302,7 @@ Promotion/staging override seams after packet validation:
 - invalid post-validation nonrecipe final categories now fail the knowledge finalize step closed and surface `runtime_failed` status instead of being silently coerced to `other`.
 - `build_nonrecipe_authority_result(...)` forces all excluded rows to final `other` even if some later map tried to carry them as `knowledge`.
 - `_resolve_available_nonrecipe_route_label(...)` in `nonrecipe_stage.py` converts divested recipe-local labels back to `NONRECIPE_CANDIDATE` for outside-recipe review instead of letting recipe-local labels leak into nonrecipe routing.
-- recipe-owned blocks are forbidden from entering nonrecipe routing at all; if a later LLM output implies that, staging raises an ownership invariant instead of accepting it.
+- recipe-owned rows are forbidden from entering nonrecipe routing at all; if a later LLM output implies that, staging raises an ownership invariant instead of accepting it.
 
 Observability-only knowledge seams:
 
@@ -401,13 +401,13 @@ Recipe runtime note:
 - recipe worker assignments now have two transport shapes:
   - default `inline-json-v1`: one structured shard prompt per planned shard, no worker-visible `task.json`, shell disabled, deterministic validation still authoritative
   - fallback `taskfile-v1`: one long-lived `taskfile` Codex session per worker assignment with repo-written `task.json`; each unit owns one `recipe_id`, the worker edits only answer fields in that file, deterministic code writes the final `out/<task_id>.json` artifacts, and shard proposals are rebuilt from the accepted answers
-- recipe taskfile unit answers now use only the current direct answer shape: `status`, `status_reason`, `canonical_recipe`, `ingredient_step_mapping`, `ingredient_step_mapping_reason`, `divested_block_indices`, `selected_tags`, and `warnings`
+- recipe taskfile unit answers now use only the current direct answer shape: `status`, `status_reason`, `canonical_recipe`, `ingredient_step_mapping`, `ingredient_step_mapping_reason`, `divested_row_indices`, `selected_tags`, and `warnings`
 - recipe runtime still writes `task_manifest.jsonl` for reporting, but the live worker surface is the editable task file rather than a repo-advanced packet queue or task inventory dump
 - recipe source worker roots still carry `worker_manifest.json` and the usual repo artifacts, but the mirrored worker-visible cwd is just `task.json` plus `AGENTS.md`
 - worker assignments now launch concurrently and then merge results back in planned assignment order so runtime artifacts stay stable while multi-worker runs become real
 - deterministic code still validates and normalizes recipe outputs locally, but the live promotion seam is now one canonical `AuthoritativeRecipeSemantics` payload per recipe. Codex still emits compact `ingredient_step_mapping` plus raw `selected_tags`, and promotion now records the merged semantic result under `recipe_authority/<workbook_slug>/authoritative_recipe_payloads.json` before intermediate/final drafts are written.
 - `CodexFarmApplyResult` now exposes only the canonical `authoritative_recipe_payloads_by_recipe_id` map plus the updated conversion result and recipe-stage telemetry; the older intermediate/final override maps are no longer part of the live orchestrator result contract.
-- the model-facing recipe shard now includes only raw owned source rows, a quick-read `txt` copy, and the broad recipe tag catalog `tg.c`; the old candidate-quality hint `q`, attempted-parse hint payload, and per-candidate tag suggestions are gone. Each recipe result still carries compact status/divestment fields (`st`, `sr`, `db`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits, recipe-refine can explicitly return owned blocks to nonrecipe, and only `repaired` results promote into final recipe outputs
+- the model-facing recipe shard now includes only raw owned source rows, a quick-read `txt` copy, and the broad recipe tag catalog `tg.c`; the old candidate-quality hint `q`, attempted-parse hint payload, and per-candidate tag suggestions are gone. Each recipe result still carries compact status/divestment fields (`st`, `sr`, `db`) so `fragmentary` / `not_a_recipe` candidates stay visible in proposals/audits, recipe-refine can explicitly return owned rows to nonrecipe, and only `repaired` results promote into final recipe outputs
 - `recipe_phase_runtime/promotion_report.json` now distinguishes validated recipe task outcomes from final-authority eligibility: `repair_status` still tells you the valid task result, while `final_recipe_authority_eligibility` tells you whether that result is promotable.
 - `recipe_manifest.json` and `recipe_correction_audit/*.json` now carry the final-authority decision explicitly. `repaired` plus successful deterministic assembly becomes `final_recipe_authority_status="promoted"`, while valid `fragmentary` / `not_a_recipe` outcomes remain visible as `final_recipe_authority_status="not_promoted"`.
 - recipe tag guidance now stays intentionally thin: `recipe_tagging_guide.v4` exposes only the category catalog plus a few grounding rules, with no deterministic per-candidate shortlist or preference order.
@@ -447,7 +447,7 @@ Knowledge runtime note:
 - the live knowledge implementation is no longer one direct `knowledge/in -> knowledge/out` CodexFarm call
 - knowledge classification still carries grouping-limit metadata inside the repo-authored classification `task.json`, but the active runtime now keeps grouping shard-local and single-turn on the happy path instead of fanning one shard out into several grouping batches.
 - deterministic repo code now decides only shard sizing and ordering. It does not decide final `knowledge|other` labels or final grouping.
-- knowledge shard planning now reads the stage-owned recipe block-ownership contract. Recipe-owned blocks are excluded from owned packet rows and from prompt context text; only nearby owned indices may survive as compact guardrail metadata.
+- knowledge shard planning now reads the stage-owned recipe block-ownership contract. Recipe-owned rows are excluded from owned packet rows and from prompt context text; only nearby owned indices may survive as compact guardrail metadata.
 - `codex_farm_knowledge_jobs.py` now writes one ordered shard payload per file under `knowledge/in/*.json`. `knowledge_prompt_target_count` is a hard cap on the number of shard files, and packet-budget pressure is recorded as metadata/warnings rather than silently increasing shard count.
 - the live knowledge model call now goes through `codex_exec_runner.py`, and the worker surface is assignment-first rather than leased-packet-first or phase-ledger-first
 - knowledge worker assignments now use one happy-path `taskfile` Codex session per worker assignment with repo-written `task.json`: classification starts first, the same session runs one repo-owned validate-and-advance helper, and that helper either rewrites `task.json` into repair mode, rewrites it into the grouping file, or finishes the final `out/*.json` shard artifacts directly when everything is `other`
@@ -458,7 +458,7 @@ Knowledge runtime note:
 - classification `task.json` now includes immutable task-scope `ontology` loaded from the checked-in `cookimport/llm/knowledge_tag_catalog.json` snapshot plus only unit-local text/context/structure evidence; workers are expected to ground to existing tags first, and deterministic code validates grounding catalog membership/shape without post-answer semantic demotion
 - the repo now adds one local ontology extension on top of that snapshot: proposed tags may use `category_key="ingredients"` even though that category is not present in the upstream checked-in catalog export yet
 - exact existing-tag restatements are now rejected deterministically too: if a proposed tag key collides with an existing tag key, or its display name normalizes to an existing catalog tag display name, repo code requires the worker to use the existing tag instead of treating the duplicate proposal as valid grounding
-- classification `task.json` now also carries a repo-written `review_contract`. The intended mindset is close semantic review of each owned block, not inventing a packet-wide heuristic or shell-script classifier. The live happy path is direct-batch rather than queue-style: open `task.json` directly, answer all owned units in place, run `task-handoff`, and continue in the same workspace only if the helper rewrites the file into repair mode or grouping mode. `task-template`, `task-apply`, `answers.json`, and the older queue helpers are no longer part of the normal knowledge classification path.
+- classification `task.json` now also carries a repo-written `review_contract`. The intended mindset is close semantic review of each owned row, not inventing a packet-wide heuristic or shell-script classifier. The live happy path is direct-batch rather than queue-style: open `task.json` directly, answer all owned units in place, run `task-handoff`, and continue in the same workspace only if the helper rewrites the file into repair mode or grouping mode. `task-template`, `task-apply`, `answers.json`, and the older queue helpers are no longer part of the normal knowledge classification path.
 - `live_status.json` plus deterministic validation metadata is now the repo-side truth surface for no-result classification. The happy path no longer depends on `packet_lease_status.json`, `current_packet.json`, or repo-advanced pass control files.
 - the old `knowledge_phase_workspace_tools.py` lease/packet helper surface has been removed. The normal paved road is: open `task.json`, edit only the answer fields, save, run the repo-owned same-session helper, and stop when it reports completion.
 - knowledge progress now treats shards as the live truth: stage counters use shard totals, worker labels show active shard progress, and follow-up recovery stays scoped to the affected shard

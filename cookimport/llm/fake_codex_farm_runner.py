@@ -172,6 +172,7 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
         if isinstance(payload, dict) and (
             isinstance(payload.get("structured_packet_rows"), list)
             or isinstance(payload.get("rows"), list)
+            or isinstance(payload.get("blocks"), list)
         ):
             return _default_structured_line_role_output(payload)
         if (
@@ -206,6 +207,50 @@ def _structured_knowledge_row_parts(row: Any) -> tuple[str, str]:
     if len(parts) < 3:
         return "", ""
     return str(parts[0]).strip(), str(parts[2]).strip()
+
+
+def _structured_line_role_rows(payload: Mapping[str, Any]) -> list[dict[str, str]]:
+    raw_rows = payload.get("structured_packet_rows") or payload.get("rows") or []
+    structured_rows: list[dict[str, str]] = []
+
+    if isinstance(raw_rows, list):
+        for row in raw_rows:
+            if not isinstance(row, Mapping):
+                continue
+            row_id = str(row.get("row_id") or "").strip()
+            if not row_id or row_id.startswith("ctx"):
+                continue
+            structured_rows.append(
+                {
+                    "row_id": row_id,
+                    "text": str(row.get("text") or "").strip(),
+                }
+            )
+    if structured_rows:
+        return structured_rows
+
+    raw_blocks = payload.get("blocks") or []
+    if not isinstance(raw_blocks, list):
+        return []
+    for block in raw_blocks:
+        if not isinstance(block, Mapping):
+            continue
+        block_rows = block.get("rows") or []
+        if not isinstance(block_rows, list):
+            continue
+        for row in block_rows:
+            if not isinstance(row, (list, tuple)) or len(row) < 2:
+                continue
+            row_id = str(row[0] or "").strip()
+            if not row_id or row_id.startswith("ctx"):
+                continue
+            structured_rows.append(
+                {
+                    "row_id": row_id,
+                    "text": str(row[1] or "").strip(),
+                }
+            )
+    return structured_rows
 
 
 def _structured_knowledge_row_facts(
@@ -345,16 +390,9 @@ def _default_structured_knowledge_grouping_output(
 
 
 def _default_structured_line_role_output(payload: Mapping[str, Any]) -> dict[str, Any]:
-    raw_rows = list(
-        payload.get("structured_packet_rows")
-        or payload.get("rows")
-        or []
-    )
+    raw_rows = _structured_line_role_rows(payload)
     output_rows: list[dict[str, Any]] = []
     for row in raw_rows:
-        if not isinstance(row, Mapping):
-            continue
-        row = dict(row)
         row_id = str(row.get("row_id") or "").strip()
         if not row_id:
             continue
@@ -489,7 +527,7 @@ def _default_recipe_refine_task_output(payload: dict[str, Any]) -> dict[str, Any
         },
         "ingredient_step_mapping": [],
         "ingredient_step_mapping_reason": mapping_reason,
-        "divested_block_indices": [],
+        "divested_row_indices": [],
         "selected_tags": [
             {
                 "category": tag.get("c"),

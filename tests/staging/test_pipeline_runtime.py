@@ -164,9 +164,9 @@ def test_run_recipe_refine_stage_keeps_fragmentary_recipe_owned_when_not_diveste
                     semantic_outcome="partial_recipe",
                     publish_status="withheld_partial",
                     ownership_action="retain",
-                    owned_block_indices=[0, 1, 2],
-                    divested_block_indices=[],
-                    retained_block_indices=[0, 1, 2],
+                    owned_row_indices=[0, 1, 2],
+                    divested_row_indices=[],
+                    retained_row_indices=[0, 1, 2],
                     worker_repair_status="fragmentary",
                     final_recipe_authority_status="not_promoted",
                     final_recipe_authority_reason="valid_task_outcome_fragmentary",
@@ -202,22 +202,22 @@ def test_run_recipe_refine_stage_keeps_fragmentary_recipe_owned_when_not_diveste
 def test_classify_recipe_ownership_action_marks_full_divestment_when_all_owned_blocks_divested() -> None:
     assert (
         classify_recipe_ownership_action(
-            owned_block_indices=[10, 11, 12],
-            divested_block_indices=[10, 11, 12],
+            owned_row_indices=[10, 11, 12],
+            divested_row_indices=[10, 11, 12],
         )
         == "fully_divested"
     )
     assert (
         classify_recipe_ownership_action(
-            owned_block_indices=[10, 11, 12],
-            divested_block_indices=[10, 12],
+            owned_row_indices=[10, 11, 12],
+            divested_row_indices=[10, 12],
         )
         == "partially_divested"
     )
     assert (
         classify_recipe_ownership_action(
-            owned_block_indices=[10, 11, 12],
-            divested_block_indices=[],
+            owned_row_indices=[10, 11, 12],
+            divested_row_indices=[],
         )
         == "retain"
     )

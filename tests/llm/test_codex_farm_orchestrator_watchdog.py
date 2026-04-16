@@ -222,7 +222,7 @@ def _run_retryable_watchdog_fixture(tmp_path: Path) -> dict[str, object]:
                 },
                 "ingredient_step_mapping": [],
                 "ingredient_step_mapping_reason": "retry_pass",
-                "divested_block_indices": [],
+                "divested_row_indices": [],
                 "selected_tags": [],
                 "warnings": [],
             }
@@ -409,7 +409,7 @@ def _run_packed_watchdog_retry_fixture(tmp_path: Path) -> dict[str, object]:
                 },
                 "ingredient_step_mapping": [],
                 "ingredient_step_mapping_reason": "packed_retry_pass",
-                "divested_block_indices": [],
+                "divested_row_indices": [],
                 "selected_tags": [],
                 "warnings": [],
             }

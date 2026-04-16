@@ -94,10 +94,10 @@ def knowledge_span(*block_indices: int) -> NonRecipeSpan:
     return NonRecipeSpan(
         span_id=f"nr.candidate.{start}.{end}",
         category="candidate",
-        block_start_index=start,
-        block_end_index=end,
-        block_indices=ordered,
-        block_ids=[f"b{index}" for index in ordered],
+        row_start_index=start,
+        row_end_index=end,
+        row_indices=ordered,
+        row_ids=[f"b{index}" for index in ordered],
     )
 
 
@@ -105,25 +105,25 @@ def make_runtime_nonrecipe_stage_result(
     *,
     spans: list[NonRecipeSpan],
 ) -> NonRecipeStageResult:
-    block_category_by_index = {
-        int(block_index): "candidate"
+    row_category_by_index = {
+        int(row_index): "candidate"
         for span in spans
-        for block_index in span.block_indices
+        for row_index in span.row_indices
     }
     return make_stage_result(
         seed=make_seed_result(
-            block_category_by_index,
+            row_category_by_index,
             nonrecipe_spans=spans,
             candidate_spans=spans,
             excluded_spans=[],
         ),
         routing=make_routing_result(
-            candidate_block_indices=sorted(block_category_by_index),
+            candidate_row_indices=sorted(row_category_by_index),
         ),
         authority=make_authority_result({}),
         candidate_status=make_candidate_status_result(
-            finalized_candidate_block_indices=[],
-            unresolved_candidate_route_by_index=block_category_by_index,
+            finalized_candidate_row_indices=[],
+            unresolved_candidate_route_by_index=row_category_by_index,
         ),
     )
 

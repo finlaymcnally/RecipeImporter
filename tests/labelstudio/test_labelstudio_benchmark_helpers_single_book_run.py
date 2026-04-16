@@ -926,8 +926,8 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_prefers_sour
                     {
                         "recipe_id": "urn:recipe:test:toast",
                         "recipe_span_id": "recipe_span_0",
-                        "owned_block_indices": [0, 1, 2],
-                        "divested_block_indices": [],
+                        "owned_row_indices": [0, 1, 2],
+                        "divested_row_indices": [],
                     }
                 ],
             },
@@ -1149,8 +1149,8 @@ def test_load_recipe_boundary_result_from_deterministic_prep_bundle_reads_line_r
                     {
                         "recipe_id": "urn:test:toast",
                         "recipe_span_id": "span-1",
-                        "owned_block_indices": [0],
-                        "divested_block_indices": [],
+                        "owned_row_indices": [0],
+                        "divested_row_indices": [],
                     }
                 ],
             },

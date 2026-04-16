@@ -158,11 +158,11 @@ def _build_recipe_workspace_output(
             mapping_reason = "not_needed_single_ingredient"
         else:
             mapping_reason = "unclear_alignment"
-        divested_block_indices: list[int] = []
+        divested_row_indices: list[int] = []
         if repair_status != "repaired":
             for row in shard_payload.get("source_rows") or []:
                 if isinstance(row, (list, tuple)) and row:
-                    divested_block_indices.append(int(row[0]))
+                    divested_row_indices.append(int(row[0]))
         return {
             "status": repair_status,
             "status_reason": status_reason,
@@ -179,7 +179,7 @@ def _build_recipe_workspace_output(
             ),
             "ingredient_step_mapping": [],
             "ingredient_step_mapping_reason": mapping_reason,
-            "divested_block_indices": divested_block_indices,
+            "divested_row_indices": divested_row_indices,
             "selected_tags": [],
             "warnings": warnings,
         }
@@ -219,9 +219,9 @@ def _build_recipe_workspace_output(
         elif repair_status == "not_a_recipe":
             status_reason = "owned text is not a recipe"
             mapping_reason = "not_applicable_not_a_recipe"
-        divested_block_indices = []
+        divested_row_indices = []
         if repair_status != "repaired":
-            divested_block_indices = [
+            divested_row_indices = [
                 int(row[0])
                 for row in recipe_payload.get("ev", [])
                 if isinstance(row, list | tuple) and row
@@ -235,7 +235,7 @@ def _build_recipe_workspace_output(
                 "cr": canonical_recipe,
                 "m": [],
                 "mr": mapping_reason,
-                "db": divested_block_indices,
+                "db": divested_row_indices,
                 "g": [],
                 "w": warnings,
             }

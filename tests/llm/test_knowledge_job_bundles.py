@@ -34,10 +34,10 @@ def test_build_knowledge_jobs_writes_one_shard_ledger_per_planned_shard(
             NonRecipeSpan(
                 span_id="nr.knowledge.3.6",
                 category="knowledge",
-                block_start_index=3,
-                block_end_index=6,
-                block_indices=[3, 4, 5],
-                block_ids=["b3", "b4", "b5"],
+                row_start_index=3,
+                row_end_index=6,
+                row_indices=[3, 4, 5],
+                row_ids=["b3", "b4", "b5"],
             )
         ],
         recipe_ownership_result=make_recipe_ownership_result(
@@ -59,7 +59,7 @@ def test_build_knowledge_jobs_writes_one_shard_ledger_per_planned_shard(
     assert payloads[0]["g"]["r"] == [1, 2]
 
 
-def test_build_knowledge_jobs_splits_review_queue_by_requested_shard_count(
+def test_build_knowledge_jobs_preserves_budget_native_packets_when_requested_count_is_only_a_cap(
     tmp_path: Path,
 ) -> None:
     report = build_knowledge_jobs(
@@ -71,10 +71,10 @@ def test_build_knowledge_jobs_splits_review_queue_by_requested_shard_count(
             NonRecipeSpan(
                 span_id=f"nr.{index}.{index + 1}",
                 category="knowledge",
-                block_start_index=index,
-                block_end_index=index + 1,
-                block_indices=[index],
-                block_ids=[f"b{index}"],
+                row_start_index=index,
+                row_end_index=index + 1,
+                row_indices=[index],
+                row_ids=[f"b{index}"],
             )
             for index in range(6)
         ],
@@ -89,15 +89,11 @@ def test_build_knowledge_jobs_splits_review_queue_by_requested_shard_count(
     )
 
     payloads = _load_jobs(tmp_path / "in")
-    assert report.shards_written == 2
-    assert report.packets_written == 2
-    assert [entry.shard_id for entry in report.shard_entries] == [
-        "book.ks0000.nr",
-        "book.ks0001.nr",
-    ]
+    assert report.shards_written == 1
+    assert report.packets_written == 1
+    assert [entry.shard_id for entry in report.shard_entries] == ["book.ks0000.nr"]
     assert [[block["i"] for block in payload["b"]] for payload in payloads] == [
-        [0, 1, 2],
-        [3, 4, 5],
+        [0, 1, 2, 3, 4, 5]
     ]
 
 def test_build_knowledge_jobs_is_idempotent(
@@ -112,10 +108,10 @@ def test_build_knowledge_jobs_is_idempotent(
             NonRecipeSpan(
                 span_id="nr.4.6",
                 category="knowledge",
-                block_start_index=4,
-                block_end_index=6,
-                block_indices=[4, 5],
-                block_ids=["b4", "b5"],
+                row_start_index=4,
+                row_end_index=6,
+                row_indices=[4, 5],
+                row_ids=["b4", "b5"],
             )
         ],
         "recipe_ownership_result": make_recipe_ownership_result(
@@ -154,10 +150,10 @@ def test_build_knowledge_jobs_metadata_is_shard_owned(
             NonRecipeSpan(
                 span_id="nr.7.9",
                 category="knowledge",
-                block_start_index=7,
-                block_end_index=9,
-                block_indices=[7, 8],
-                block_ids=["b7", "b8"],
+                row_start_index=7,
+                row_end_index=9,
+                row_indices=[7, 8],
+                row_ids=["b7", "b8"],
             )
         ],
         recipe_ownership_result=make_recipe_ownership_result(

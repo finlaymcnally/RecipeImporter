@@ -357,14 +357,16 @@ def test_recipe_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     runtime_dir = apply_result.llm_raw_dir / "recipe_phase_runtime"
     worker_root = runtime_dir / "workers" / "worker-001"
     status = json.loads((worker_root / "status.json").read_text(encoding="utf-8"))
+    proposal_files = sorted(path.name for path in (runtime_dir / "proposals").glob("*.json"))
 
     assert status["runtime_mode_audit"]["output_schema_enforced"] is False
     assert status["runtime_mode_audit"]["tool_affordances_requested"] is True
-    assert sorted(path.name for path in (worker_root / "out").glob("*.json")) == [
+    assert proposal_files == [
         "recipe-shard-0000-r0000-r0000.json",
         "recipe-shard-0001-r0001-r0001.json",
         "recipe-shard-0002-r0002-r0002.json",
     ]
+    assert (worker_root / "task.json").exists()
 
 
 def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
@@ -393,48 +395,48 @@ def test_knowledge_orchestrator_can_run_through_fake_codex_farm_subprocess(
                     NonRecipeSpan(
                         span_id="nr.exclude.0.1",
                         category="exclude",
-                        block_start_index=0,
-                        block_end_index=1,
-                        block_indices=[0],
-                        block_ids=["b0"],
+                        row_start_index=0,
+                        row_end_index=1,
+                        row_indices=[0],
+                        row_ids=["b0"],
                     ),
                     NonRecipeSpan(
                         span_id="nr.candidate.4.5",
                         category="candidate",
-                        block_start_index=4,
-                        block_end_index=5,
-                        block_indices=[4],
-                        block_ids=["b4"],
+                        row_start_index=4,
+                        row_end_index=5,
+                        row_indices=[4],
+                        row_ids=["b4"],
                     ),
                 ],
                 candidate_spans=[
                     NonRecipeSpan(
                         span_id="nr.candidate.4.5",
                         category="candidate",
-                        block_start_index=4,
-                        block_end_index=5,
-                        block_indices=[4],
-                        block_ids=["b4"],
+                        row_start_index=4,
+                        row_end_index=5,
+                        row_indices=[4],
+                        row_ids=["b4"],
                     )
                 ],
                 excluded_spans=[
                     NonRecipeSpan(
                         span_id="nr.exclude.0.1",
                         category="exclude",
-                        block_start_index=0,
-                        block_end_index=1,
-                        block_indices=[0],
-                        block_ids=["b0"],
+                        row_start_index=0,
+                        row_end_index=1,
+                        row_indices=[0],
+                        row_ids=["b0"],
                     )
                 ],
             ),
             routing=make_routing_result(
-                candidate_block_indices=[4],
-                excluded_block_indices=[0],
+                candidate_row_indices=[4],
+                excluded_row_indices=[0],
             ),
             authority=make_authority_result({0: "other"}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[],
+                finalized_candidate_row_indices=[],
                 unresolved_candidate_route_by_index={4: "candidate"},
             ),
         ),
@@ -489,48 +491,48 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
                     NonRecipeSpan(
                         span_id="nr.exclude.0.1",
                         category="exclude",
-                        block_start_index=0,
-                        block_end_index=1,
-                        block_indices=[0],
-                        block_ids=["b0"],
+                        row_start_index=0,
+                        row_end_index=1,
+                        row_indices=[0],
+                        row_ids=["b0"],
                     ),
                     NonRecipeSpan(
                         span_id="nr.candidate.4.5",
                         category="candidate",
-                        block_start_index=4,
-                        block_end_index=5,
-                        block_indices=[4],
-                        block_ids=["b4"],
+                        row_start_index=4,
+                        row_end_index=5,
+                        row_indices=[4],
+                        row_ids=["b4"],
                     ),
                 ],
                 candidate_spans=[
                     NonRecipeSpan(
                         span_id="nr.candidate.4.5",
                         category="candidate",
-                        block_start_index=4,
-                        block_end_index=5,
-                        block_indices=[4],
-                        block_ids=["b4"],
+                        row_start_index=4,
+                        row_end_index=5,
+                        row_indices=[4],
+                        row_ids=["b4"],
                     )
                 ],
                 excluded_spans=[
                     NonRecipeSpan(
                         span_id="nr.exclude.0.1",
                         category="exclude",
-                        block_start_index=0,
-                        block_end_index=1,
-                        block_indices=[0],
-                        block_ids=["b0"],
+                        row_start_index=0,
+                        row_end_index=1,
+                        row_indices=[0],
+                        row_ids=["b0"],
                     )
                 ],
             ),
             routing=make_routing_result(
-                candidate_block_indices=[4],
-                excluded_block_indices=[0],
+                candidate_row_indices=[4],
+                excluded_row_indices=[0],
             ),
             authority=make_authority_result({0: "other"}),
             candidate_status=make_candidate_status_result(
-                finalized_candidate_block_indices=[],
+                finalized_candidate_row_indices=[],
                 unresolved_candidate_route_by_index={4: "candidate"},
             ),
         ),
@@ -583,6 +585,11 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
     assert shard_output["block_decisions"][0]["category"] == "knowledge"
     grounding = shard_output["block_decisions"][0]["grounding"]
     assert grounding["tag_keys"] or grounding["proposed_tags"]
+    expected_why_no_existing_tag = None
+    expected_retrieval_query = None
+    if grounding["proposed_tags"]:
+        expected_why_no_existing_tag = "No existing tag names this exact retrieval concept."
+        expected_retrieval_query = "fake knowledge concept cooking"
     assert shard_output["idea_groups"] == [
         {
             "block_indices": [4],
@@ -592,9 +599,9 @@ def test_knowledge_taskfile_worker_can_run_through_fake_codex_farm_subprocess(
                 "tag_keys": grounding["tag_keys"],
             },
             "group_id": "g01",
-            "retrieval_query": None,
+            "retrieval_query": expected_retrieval_query,
             "topic_label": "Fake knowledge group",
-            "why_no_existing_tag": None,
+            "why_no_existing_tag": expected_why_no_existing_tag,
         }
     ]
 
