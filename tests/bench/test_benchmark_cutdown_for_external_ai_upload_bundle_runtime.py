@@ -428,7 +428,7 @@ def test_build_upload_bundle_merges_realistic_codex_call_telemetry_with_prompt_b
                 "timestamp_utc": "2026-03-03T10:00:09Z",
                 "model": "gpt-test",
                 "parsed_response": {"draft_v1": {"recipe": {"title": "Dish Title"}}},
-                "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+                "request_input_payload": {"rows_candidate": [{"text": "Mix gently"}]},
                 "request_telemetry": {
                     "duration_ms": 900,
                     "status": "ok",

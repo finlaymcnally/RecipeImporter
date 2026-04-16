@@ -53,12 +53,11 @@ Prompt convention note:
 
 ## Label Studio freeform AI templates
 
-Freeform prelabel (full mode) is file-backed and editable:
+Freeform prelabel is span-only now and remains file-backed/editable through:
 
-- `prompts/freeform-prelabel-full.prompt.md`
-- `prompts/freeform-prelabel-span.prompt.md` (actual freeform span mode)
+- `prompts/freeform-prelabel-span.prompt.md`
 
-Span mode prompt should keep quote/offset JSON output shape while mirroring full-mode label heuristics and tie-break logic.
+The span prompt should keep quote/offset JSON output shape while preserving the active label heuristics and tie-break logic.
 Span mode now uses one markerized block stream (`START/STOP` focus markers) so focus text is not duplicated in the same prompt payload.
 
 Prelabel runtime now executes through CodexFarm pipeline `prelabel.freeform.v1` with prompt wrapper `prompts/prelabel.freeform.v1.prompt.md`.

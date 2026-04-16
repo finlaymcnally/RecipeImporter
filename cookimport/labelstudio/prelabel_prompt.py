@@ -39,7 +39,6 @@ _ENV_ASSIGNMENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=.*$")
 _PRELABEL_CODEX_FARM_PIPELINE_ID = "prelabel.freeform.v1"
 _PRELABEL_CODEX_FARM_DEFAULT_CMD = "codex-farm"
 _PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "prompts"
-_FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
 _SPAN_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-span.prompt.md"
 _PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
 PRELABEL_GRANULARITY_SPAN = "span"
@@ -89,7 +88,7 @@ RULES
 
 Segment id: {{SEGMENT_ID}}
 Rows (one row per line as "<row_index><TAB><row_text>"):
-{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}"""
+{{ROWS_WITH_FOCUS_MARKERS_COMPACT_LINES}}"""
 _PRELABEL_SELECTION_LABEL_ALIASES = {
     "YIELD": "YIELD_LINE",
     "TIME": "TIME_LINE",
@@ -227,13 +226,13 @@ def _build_prompt(
     source_map = data.get("source_map")
     if not isinstance(source_map, dict):
         raise ValueError("task missing source_map")
-    blocks = source_map.get("rows")
-    if not isinstance(blocks, list):
+    rows = source_map.get("rows")
+    if not isinstance(rows, list):
         raise ValueError("task source_map.rows missing")
 
     focus_valid_rows = _extract_valid_rows_from_segment_text(
         segment_text=segment_text,
-        blocks=blocks,
+        blocks=rows,
     )
     context_before_rows = _extract_prompt_context_rows(
         source_map.get("context_before_rows")
@@ -278,9 +277,9 @@ def _build_prompt(
         label for label in FREEFORM_LABELS if label in set(allowed_labels)
     ]
     allowed_labels_text = ", ".join(ordered_allowed_labels)
-    blocks_json_lines = "\n".join(lines)
-    focus_blocks_json_lines = "\n".join(focus_lines)
-    blocks_with_focus_markers_compact_lines = "\n".join(
+    rows_json_lines = "\n".join(lines)
+    focus_rows_json_lines = "\n".join(focus_lines)
+    rows_with_focus_markers_compact_lines = "\n".join(
         _build_focus_marked_row_lines(
             valid_rows=valid_rows,
             focus_row_indices=focus_row_index_set,
@@ -291,21 +290,21 @@ def _build_prompt(
     if focus_row_indices:
         first_focus_row = focus_row_indices[0]
         last_focus_row = focus_row_indices[-1]
-        context_before_block_indices_text = (
+        context_before_row_indices_text = (
             _collapse_row_index_ranges(
                 [row_index for row_index in all_row_indices if row_index < first_focus_row]
             )
             or "none"
         )
-        context_after_block_indices_text = (
+        context_after_row_indices_text = (
             _collapse_row_index_ranges(
                 [row_index for row_index in all_row_indices if row_index > last_focus_row]
             )
             or "none"
         )
     else:
-        context_before_block_indices_text = "none"
-        context_after_block_indices_text = "none"
+        context_before_row_indices_text = "none"
+        context_after_row_indices_text = "none"
     if len(focus_lines) == len(lines):
         focus_constraints = (
             "- Focus equals context for this task: label all listed rows.\n"
@@ -315,8 +314,8 @@ def _build_prompt(
     else:
         focus_constraints = (
             f"- Label only focus rows for this task: {focus_row_indices_text}.\n"
-            f"- Context-only rows BEFORE focus: {context_before_block_indices_text}.\n"
-            f"- Context-only rows AFTER focus: {context_after_block_indices_text}."
+            f"- Context-only rows BEFORE focus: {context_before_row_indices_text}.\n"
+            f"- Context-only rows AFTER focus: {context_after_row_indices_text}."
         )
         focus_marker_rules = (
             "- <<<CONTEXT_BEFORE_LABELING_ONLY>>> marks read-only context before focus.\n"
@@ -332,12 +331,12 @@ def _build_prompt(
         replacements={
             "{{ALLOWED_LABELS}}": allowed_labels_text,
             "{{FOCUS_CONSTRAINTS}}": focus_constraints,
-            "{{FOCUS_BLOCK_JSON_LINES}}": focus_blocks_json_lines,
-            "{{FOCUS_BLOCK_INDICES}}": focus_row_indices_text,
+            "{{FOCUS_ROW_JSON_LINES}}": focus_rows_json_lines,
+            "{{FOCUS_ROW_INDICES}}": focus_row_indices_text,
             "{{FOCUS_MARKER_RULES}}": focus_marker_rules,
             "{{SEGMENT_ID}}": segment_id,
-            "{{BLOCKS_JSON_LINES}}": blocks_json_lines,
-            "{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}": blocks_with_focus_markers_compact_lines,
+            "{{ROWS_JSON_LINES}}": rows_json_lines,
+            "{{ROWS_WITH_FOCUS_MARKERS_COMPACT_LINES}}": rows_with_focus_markers_compact_lines,
         },
     )
 def _build_prompt_log_entry(

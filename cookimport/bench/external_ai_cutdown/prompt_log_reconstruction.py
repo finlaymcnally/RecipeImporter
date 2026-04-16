@@ -81,7 +81,7 @@ def _collect_context_blocks(parsed_input: Any) -> list[dict[str, Any]]:
     if not isinstance(parsed_input, dict):
         return []
     rows: list[dict[str, Any]] = []
-    for key in ("blocks_before", "blocks_candidate", "blocks_after", "blocks"):
+    for key in ("rows_before", "rows_candidate", "rows_after", "rows"):
         blocks = parsed_input.get(key)
         if not isinstance(blocks, list):
             continue

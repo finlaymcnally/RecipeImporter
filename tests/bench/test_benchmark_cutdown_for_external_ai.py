@@ -99,7 +99,7 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
                 "end_row_index": 2,
                 "title": "Dish Title",
             },
-            "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
+            "request_input_payload": {"rows_candidate": [{"text": "Dish Title"}]},
         },
         {
             "stage_key": "recipe_build_final",
@@ -109,7 +109,7 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
                 "warnings": ["No explicit cooking instructions were provided."],
                 "ingredient_step_mapping": "{}",
             },
-            "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+            "request_input_payload": {"rows_candidate": [{"text": "Mix gently"}]},
         },
     ]
 
@@ -176,7 +176,7 @@ def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
                 "end_row_index": 12,
                 "title": "Dish Title",
             },
-            "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
+            "request_input_payload": {"rows_candidate": [{"text": "Dish Title"}]},
         },
         {
             "stage_key": "recipe_refine",
@@ -208,7 +208,7 @@ def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
                 "warnings": ["No extracted instructions were provided."],
                 "ingredient_step_mapping": "{}",
             },
-            "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+            "request_input_payload": {"rows_candidate": [{"text": "Mix gently"}]},
         },
     ]
 
@@ -424,17 +424,17 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
                 "start_row_index": 10,
                 "end_row_index": 12,
                 "title": "Dish Title",
-                "excluded_block_ids": [],
+                "excluded_row_ids": [],
             },
             "request_input_payload": {
-                "blocks_candidate": [
+                "rows_candidate": [
                     {"index": 10, "block_id": "b10", "text": "Dish Title"},
                     {"index": 11, "block_id": "b11", "text": "1 cup flour"},
                     {"index": 12, "block_id": "b12", "text": "Mix gently"},
                     {"index": 13, "block_id": "b13", "text": "Chef note"},
                 ],
-                "blocks_after": [],
-                "blocks_before": [],
+                "rows_after": [],
+                "rows_before": [],
             },
         },
         {
@@ -869,7 +869,7 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
                     "start_row_index": 0,
                     "end_row_index": 2,
                 },
-                "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
+                "request_input_payload": {"rows_candidate": [{"text": "Dish Title"}]},
             },
             {
                 "stage_key": "recipe_build_final",

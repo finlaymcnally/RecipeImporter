@@ -868,7 +868,7 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
         processed_run_root / "recipe_boundary" / workbook_slug / "recipe_spans.json"
     )
     recipe_spans = [
-        RecipeSpan.model_validate(_normalize_recipe_span_row(row))
+        RecipeSpan.model_validate(row)
         for row in recipe_spans_payload.get("recipe_spans") or []
         if isinstance(row, Mapping)
     ]
@@ -879,7 +879,7 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
         _read_json(span_decisions_path) if span_decisions_path.exists() else {}
     )
     span_decisions = [
-        RecipeSpanDecision.model_validate(_normalize_recipe_span_decision_row(row))
+        RecipeSpanDecision.model_validate(row)
         for row in span_decisions_payload.get("span_decisions") or []
         if isinstance(row, Mapping)
     ]
@@ -945,29 +945,6 @@ def load_recipe_boundary_result_from_deterministic_prep_bundle(
         ),
         outside_recipe_blocks=outside_recipe_blocks,
     )
-
-
-def _normalize_recipe_span_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    payload = dict(row)
-    if "start_row_index" not in payload and "start_block_index" in payload:
-        payload["start_row_index"] = payload.get("start_block_index")
-    if "end_row_index" not in payload and "end_block_index" in payload:
-        payload["end_row_index"] = payload.get("end_block_index")
-    if "row_indices" not in payload and "block_indices" in payload:
-        payload["row_indices"] = payload.get("block_indices")
-    if "title_row_index" not in payload and "title_block_index" in payload:
-        payload["title_row_index"] = payload.get("title_block_index")
-    payload.pop("start_block_index", None)
-    payload.pop("end_block_index", None)
-    payload.pop("block_indices", None)
-    payload.pop("title_block_index", None)
-    return payload
-
-
-def _normalize_recipe_span_decision_row(row: Mapping[str, Any]) -> dict[str, Any]:
-    return _normalize_recipe_span_row(row)
-
-
 def _copy_cache_payload_path(source_path: Path, target_path: Path) -> None:
     if not source_path.exists():
         return

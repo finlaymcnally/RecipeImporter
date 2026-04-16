@@ -145,4 +145,4 @@ FINAL CHECK BEFORE YOU ANSWER
 
 Segment id: {{SEGMENT_ID}}
 Rows (single pass with explicit context-before / focus / context-after markers):
-{{BLOCKS_WITH_FOCUS_MARKERS_COMPACT_LINES}}
+{{ROWS_WITH_FOCUS_MARKERS_COMPACT_LINES}}

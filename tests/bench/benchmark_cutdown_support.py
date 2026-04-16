@@ -611,7 +611,7 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
                 "start_row_index": 0,
                 "end_row_index": 3,
             },
-            "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
+            "request_input_payload": {"rows_candidate": [{"text": "Dish Title"}]},
         },
         {
             "stage_key": "recipe_build_final",
@@ -621,7 +621,7 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
                 "warnings": ["Serving information is split across two lines."],
                 "ingredient_step_mapping": "{}",
             },
-            "request_input_payload": {"blocks_candidate": [{"text": "Mix gently"}]},
+            "request_input_payload": {"rows_candidate": [{"text": "Mix gently"}]},
         },
     ]
 
@@ -640,17 +640,17 @@ def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
                 "start_row_index": 0,
                 "end_row_index": 2,
                 "title": "Dish Title",
-                "excluded_block_ids": [],
+                "excluded_row_ids": [],
             },
             "request_input_payload": {
-                "blocks_candidate": [
+                "rows_candidate": [
                     {"index": 0, "block_id": "b0", "text": "Dish Title"},
                     {"index": 1, "block_id": "b1", "text": "1 cup flour"},
                     {"index": 2, "block_id": "b2", "text": "Mix gently"},
                     {"index": 3, "block_id": "b3", "text": "Chef note"},
                 ],
-                "blocks_after": [],
-                "blocks_before": [],
+                "rows_after": [],
+                "rows_before": [],
             },
         },
         {

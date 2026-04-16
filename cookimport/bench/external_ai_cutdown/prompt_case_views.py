@@ -90,7 +90,7 @@ def _build_intermediate_selected_rows(
     request_payload = request_payload if isinstance(request_payload, dict) else {}
     parsed_response = parse_json_like(row.get("parsed_response"))
     parsed_response = parsed_response if isinstance(parsed_response, dict) else {}
-    candidate_rows = _rows_from_request_payload(request_payload, "blocks_candidate")
+    candidate_rows = _rows_from_request_payload(request_payload, "rows_candidate")
     if not candidate_rows:
         return [], None, None
 
@@ -98,7 +98,7 @@ def _build_intermediate_selected_rows(
     end = coerce_int(parsed_response.get("end_row_index"))
     excluded_ids = {
         str(value).strip()
-        for value in coerce_str_list(parsed_response.get("excluded_block_ids"))
+        for value in coerce_str_list(parsed_response.get("excluded_row_ids"))
         if str(value).strip()
     }
 
@@ -128,7 +128,7 @@ def _correction_input_blocks(
 ) -> list[dict[str, Any]]:
     request_payload = parse_json_like(row.get("request_input_payload"))
     request_payload = request_payload if isinstance(request_payload, dict) else {}
-    return _rows_from_request_payload(request_payload, "blocks")
+    return _rows_from_request_payload(request_payload, "rows")
 
 
 def _final_recipe_step_count(

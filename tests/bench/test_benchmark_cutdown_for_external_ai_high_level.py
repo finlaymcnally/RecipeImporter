@@ -156,7 +156,7 @@ def test_build_upload_bundle_high_level_only_enforces_final_bundle_size(
                     "ingredient_step_mapping": "{}",
                 },
                 "request_input_payload": {
-                    "blocks_candidate": [
+                    "rows_candidate": [
                         {
                             "text": f"{run_label} " + ("x" * 1800),
                         }

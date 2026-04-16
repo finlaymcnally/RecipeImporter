@@ -55,7 +55,7 @@ def _collect_inserted_context_blocks(parsed_input: Any) -> list[dict[str, Any]]:
         return []
     rows: list[dict[str, Any]] = []
     seen: set[tuple[str, int | None]] = set()
-    for key in ('blocks_before', 'blocks_candidate', 'blocks_after', 'blocks'):
+    for key in ('rows_before', 'rows_candidate', 'rows_after', 'rows'):
         blocks = parsed_input.get(key)
         if not isinstance(blocks, list):
             continue

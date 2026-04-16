@@ -15,7 +15,7 @@ def _first_prompt_block_excerpt(
     request_input_payload = parse_json_like(row.get("request_input_payload"))
     if not isinstance(request_input_payload, dict):
         return ""
-    for key in ("blocks_candidate", "blocks_before", "blocks_after", "blocks"):
+    for key in ("rows_candidate", "rows_before", "rows_after", "rows"):
         blocks = request_input_payload.get(key)
         if not isinstance(blocks, list):
             continue

@@ -566,18 +566,12 @@ def test_prelabel_span_mode_drops_absolute_spans_outside_focus() -> None:
 
 def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> None:
     assert str(prelabel_module._PROMPT_TEMPLATE_DIR).endswith("llm_pipelines/prompts")
-    full_path = tmp_path / "freeform-prelabel-full.prompt.md"
     span_path = tmp_path / "freeform-prelabel-span.prompt.md"
-    full_path.write_text(
-        "FULL {{SEGMENT_ID}} | {{ALLOWED_LABELS}} | {{UNCERTAINTY_HINT}}\n{{BLOCKS_JSON_LINES}}",
-        encoding="utf-8",
-    )
     span_path.write_text(
-        "SPAN {{SEGMENT_ID}} | {{ALLOWED_LABELS}}\n{{BLOCKS_JSON_LINES}}",
+        "SPAN {{SEGMENT_ID}} | {{ALLOWED_LABELS}}\n{{ROWS_JSON_LINES}}",
         encoding="utf-8",
     )
     prelabel_module._PROMPT_TEMPLATE_CACHE.clear()
-    monkeypatch.setattr(prelabel_module, "_FULL_PROMPT_TEMPLATE_PATH", full_path)
     monkeypatch.setattr(prelabel_module, "_SPAN_PROMPT_TEMPLATE_PATH", span_path)
 
     task = _freeform_task()
