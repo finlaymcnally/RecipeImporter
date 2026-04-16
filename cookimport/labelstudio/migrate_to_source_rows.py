@@ -131,7 +131,7 @@ def build_row_labelstudio_seed_package(
 ) -> RowProjectSeed:
     source_rows = load_source_rows(source_rows_jsonl_path)
     tasks = build_freeform_span_tasks(
-        archive=[row.model_dump(mode="json") for row in source_rows],
+        archive=[_build_task_row_payload(row) for row in source_rows],
         source_hash=source_rows[0].source_hash if source_rows else "unknown",
         source_file=Path(source_rows_jsonl_path).name,
         book_id=Path(source_rows_jsonl_path).stem,
@@ -197,6 +197,19 @@ def build_row_labelstudio_seed_package(
         seeded_annotation_count=seeded_annotation_count,
         task_count=len(tasks),
     )
+
+
+def _build_task_row_payload(row: SourceRow) -> dict[str, Any]:
+    return {
+        "row_id": str(row.row_id),
+        "row_index": int(row.row_index),
+        "source_block_index": int(row.block_index),
+        "source_block_id": str(row.block_id),
+        "text": str(row.text),
+        "row_ordinal": int(row.row_ordinal),
+        "start_char_in_block": int(row.start_char_in_block),
+        "end_char_in_block": int(row.end_char_in_block),
+    }
 
 
 def write_migration_result(

@@ -167,6 +167,46 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     )
 
 
+def test_build_freeform_tasks_accept_row_native_input_without_block_index() -> None:
+    archive = [
+        {
+            "row_id": "row-a",
+            "row_index": 10,
+            "source_block_index": 42,
+            "source_block_id": "block-42",
+            "text": "Alpha",
+            "row_ordinal": 0,
+            "start_char_in_block": 0,
+            "end_char_in_block": 5,
+        },
+        {
+            "row_id": "row-b",
+            "row_index": 11,
+            "source_block_index": 43,
+            "source_block_id": "block-43",
+            "text": "Beta",
+            "row_ordinal": 0,
+            "start_char_in_block": 0,
+            "end_char_in_block": 4,
+        },
+    ]
+    tasks = build_freeform_span_tasks(
+        archive=archive,
+        source_hash="hash123",
+        source_file="book.epub",
+        book_id="book",
+        segment_blocks=2,
+        segment_overlap=0,
+    )
+
+    source_rows = tasks[0]["data"]["source_map"]["rows"]
+    assert [row["row_index"] for row in source_rows] == [10, 11]
+    assert [row["source_block_index"] for row in source_rows] == [42, 43]
+    assert [row["source_block_id"] for row in source_rows] == ["block-42", "block-43"]
+    assert "block_index" not in source_rows[0]
+    assert "block_index" not in source_rows[1]
+
+
 def test_freeform_label_config_uses_expected_label_order_and_names() -> None:
     assert FREEFORM_LABELS == (
         "RECIPE_TITLE",

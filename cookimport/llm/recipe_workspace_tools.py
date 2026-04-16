@@ -182,7 +182,7 @@ def _build_recipe_worker_scaffold_row(
         "cr": None,
         "m": [],
         "mr": "not_applicable_fragmentary",
-        "db": [],
+            "db": [],
         "g": [],
         "w": [],
     }

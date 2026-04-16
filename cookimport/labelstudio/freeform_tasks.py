@@ -81,10 +81,8 @@ def _coerce_source_rows(
             location = item.get("location")
             if not isinstance(location, dict):
                 location = {}
-            row_index = int(item.get("row_index", item.get("block_index", len(task_rows))))
-            source_block_index = int(
-                item.get("source_block_index", item.get("block_index", row_index))
-            )
+            row_index = int(item.get("row_index", len(task_rows)))
+            source_block_index = int(item.get("source_block_index", row_index))
             source_block_id = str(
                 item.get("source_block_id")
                 or item.get("block_id")

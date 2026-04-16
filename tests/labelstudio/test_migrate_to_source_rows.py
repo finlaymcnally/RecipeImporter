@@ -64,6 +64,10 @@ def test_row_seed_package_uses_non_overlapping_focus_rows(tmp_path) -> None:
         assert isinstance(source_map, dict)
         rows_payload = source_map.get("rows")
         assert isinstance(rows_payload, list)
+        for row in rows_payload:
+            assert isinstance(row, dict)
+            assert "block_index" not in row
+            assert "source_block_index" in row
         focus_row_groups.append([str(row.get("row_id")) for row in rows_payload if isinstance(row, dict)])
 
     assert focus_row_groups[0] == [f"row-{index}" for index in range(120)]
