@@ -307,12 +307,8 @@ def recipe_ownership_from_payload(
             RecipeOwnershipEntry(
                 recipe_id=str(row.get("recipe_id") or "").strip(),
                 recipe_span_id=str(row.get("recipe_span_id") or "").strip(),
-                owned_row_indices=_normalize_index_list(
-                    row.get("owned_row_indices") or row.get("owned_block_indices") or []
-                ),
-                divested_row_indices=_normalize_index_list(
-                    row.get("divested_row_indices") or row.get("divested_block_indices") or []
-                ),
+                owned_row_indices=_normalize_index_list(row.get("owned_row_indices") or []),
+                divested_row_indices=_normalize_index_list(row.get("divested_row_indices") or []),
             )
         )
     return _finalize_recipe_ownership(
@@ -388,7 +384,7 @@ def _normalize_index_list(raw_indices: Sequence[Any]) -> list[int]:
             value = int(raw_value)
         except (TypeError, ValueError) as exc:
             raise RecipeOwnershipInvariantError(
-                f"Recipe ownership block indices must be integers; got {raw_value!r}."
+                f"Recipe ownership row indices must be integers; got {raw_value!r}."
             ) from exc
         if value not in seen:
             seen.add(value)

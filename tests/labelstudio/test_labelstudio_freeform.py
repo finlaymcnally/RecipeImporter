@@ -281,7 +281,7 @@ def test_eval_freeform_maps_howto_section_to_neighboring_structural_label(tmp_pa
     assert "HOWTO_SECTION" not in report["per_label"]
 
 
-def test_eval_freeform_accepts_row_native_and_legacy_range_keys(tmp_path) -> None:
+def test_eval_freeform_accepts_row_native_range_keys(tmp_path) -> None:
     gold_path = tmp_path / "gold.jsonl"
     gold_rows = [
         {
@@ -289,7 +289,7 @@ def test_eval_freeform_accepts_row_native_and_legacy_range_keys(tmp_path) -> Non
             "source_hash": "h1",
             "source_file": "book.epub",
             "label": "INGREDIENT_LINE",
-            "touched_block_indices": [4],
+            "touched_row_indices": [4],
         },
         {
             "span_id": "g2",

@@ -1803,20 +1803,14 @@ def _normalize_authoritative_block_label(row: Mapping[str, Any]) -> Authoritativ
 
 def _normalize_recipe_span(row: Mapping[str, Any]) -> RecipeSpan:
     start_row_index = _coerce_int(row.get("start_row_index"))
-    if start_row_index is None:
-        start_row_index = _coerce_int(row.get("start_block_index"))
     end_row_index = _coerce_int(row.get("end_row_index"))
-    if end_row_index is None:
-        end_row_index = _coerce_int(row.get("end_block_index"))
     title_row_index = _coerce_int(row.get("title_row_index"))
-    if title_row_index is None:
-        title_row_index = _coerce_int(row.get("title_block_index"))
     return RecipeSpan.model_validate(
         {
             "span_id": row.get("span_id"),
             "start_row_index": start_row_index,
             "end_row_index": end_row_index,
-            "row_indices": row.get("row_indices") or row.get("block_indices") or [],
+            "row_indices": row.get("row_indices") or [],
             "source_block_ids": row.get("source_block_ids") or [],
             "start_atomic_index": row.get("start_atomic_index"),
             "end_atomic_index": row.get("end_atomic_index"),

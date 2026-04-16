@@ -110,8 +110,6 @@ def _resolve_focus_row_indices(
 ) -> list[int]:
     raw_focus_indices = source_map.get("focus_row_indices")
     if not isinstance(raw_focus_indices, list):
-        raw_focus_indices = source_map.get("focus_block_indices")
-    if not isinstance(raw_focus_indices, list):
         return list(available_row_indices)
     available = set(available_row_indices)
     focus_indices: list[int] = []
@@ -402,14 +400,14 @@ def _build_results_for_span_mode(
                 continue
             if start < 0 or end <= start or end > len(segment_text):
                 continue
-            touched_block_indices = _touched_row_indices_for_span(
+            touched_row_indices = _touched_row_indices_for_span(
                 source_blocks=source_blocks,
                 start=start,
                 end=end,
             )
             if (
-                not touched_block_indices
-                or not touched_block_indices.issubset(focus_row_indices)
+                not touched_row_indices
+                or not touched_row_indices.issubset(focus_row_indices)
             ):
                 continue
         elif kind == "quote":

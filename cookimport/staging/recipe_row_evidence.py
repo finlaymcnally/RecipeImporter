@@ -484,25 +484,15 @@ def _coerce_recipe_authority_decision(
         ownership_action=str(decision.get("ownership_action") or "").strip(),
         owned_row_indices=[
             int(value)
-            for value in (
-                decision.get("owned_row_indices") or decision.get("owned_block_indices") or []
-            )
+            for value in (decision.get("owned_row_indices") or [])
         ],
         divested_row_indices=[
             int(value)
-            for value in (
-                decision.get("divested_row_indices")
-                or decision.get("divested_block_indices")
-                or []
-            )
+            for value in (decision.get("divested_row_indices") or [])
         ],
         retained_row_indices=[
             int(value)
-            for value in (
-                decision.get("retained_row_indices")
-                or decision.get("retained_block_indices")
-                or []
-            )
+            for value in (decision.get("retained_row_indices") or [])
         ],
         worker_repair_status=str(decision.get("worker_repair_status") or "").strip() or None,
         status_reason=str(decision.get("status_reason") or "").strip() or None,
