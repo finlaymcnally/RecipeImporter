@@ -34,7 +34,7 @@ def _shard(*, shard_id: str, block_index: int, text: str) -> ShardManifestEntryV
                 "n": [{"i": block_index + 1, "t": "Next local context."}],
             },
         },
-        metadata={"owned_block_indices": [block_index], "owned_block_count": 1},
+        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
     )
 
 
@@ -117,7 +117,7 @@ def test_classification_validator_rejects_extra_answer_keys_and_invalid_categori
         "invalid_category",
     )
     assert metadata["failed_unit_ids"] == ["knowledge::31"]
-    assert metadata["unresolved_block_indices"] == [31]
+    assert metadata["unresolved_row_indices"] == [31]
 
 
 def test_classification_repair_scope_stays_filtered_to_failed_units() -> None:

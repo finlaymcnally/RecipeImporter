@@ -649,30 +649,30 @@ def _write_knowledge_runtime_summary_artifacts(
             return len(set(missing_packet_ids))
         return max(0, owned_packet_count - int(promotion_info.get("promoted_packet_count") or 0))
 
-    def _unreviewed_block_count_for_proposal(
+    def _unreviewed_row_count_for_proposal(
         proposal: ShardProposalV1,
         promotion_info: Mapping[str, Any] | None,
     ) -> int:
         metadata = _coerce_dict(proposal.metadata)
-        owned_block_count = int(metadata.get("owned_block_count") or 0)
+        owned_row_count = int(metadata.get("owned_row_count") or 0)
         if proposal.status == "validated":
             return 0
         if proposal.status == "no_final_output":
-            return owned_block_count
+            return owned_row_count
         if not promotion_info or not bool(promotion_info.get("partial")):
-            return owned_block_count
-        missing_block_indices = [
+            return owned_row_count
+        missing_row_indices = [
             int(value)
             for value in (
-                promotion_info.get("missing_owned_block_indices")
-                or metadata.get("missing_owned_block_indices")
+                promotion_info.get("missing_owned_row_indices")
+                or metadata.get("missing_owned_row_indices")
                 or []
             )
             if value is not None
         ]
-        if missing_block_indices:
-            return len(set(missing_block_indices))
-        return owned_block_count
+        if missing_row_indices:
+            return len(set(missing_row_indices))
+        return owned_row_count
 
     proposal_promotion_rows: list[dict[str, Any]] = []
     for proposal in all_proposals:
@@ -746,7 +746,7 @@ def _write_knowledge_runtime_summary_artifacts(
             for row in proposal_promotion_rows
         ),
         "unreviewed_block_count": sum(
-            _unreviewed_block_count_for_proposal(row["proposal"], row["promotion_info"])
+            _unreviewed_row_count_for_proposal(row["proposal"], row["promotion_info"])
             for row in proposal_promotion_rows
         ),
     }

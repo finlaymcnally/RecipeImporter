@@ -113,29 +113,29 @@ def _knowledge_answers_from_task_file(
     return answers_by_unit_id
 
 
-_KNOWLEDGE_FINAL_VALIDATION_BLOCK_METADATA_KEYS: tuple[tuple[str, str], ...] = (
+_KNOWLEDGE_FINAL_VALIDATION_ROW_METADATA_KEYS: tuple[tuple[str, str], ...] = (
     (
-        "knowledge_blocks_missing_group",
+        "knowledge_rows_missing_group",
         "this kept row is still missing a valid final group after shard merge.",
     ),
     (
-        "knowledge_group_grounding_mismatch_blocks",
+        "knowledge_group_grounding_mismatch_rows",
         "this row's final group grounding does not match the row grounding after shard merge.",
     ),
     (
-        "knowledge_blocks_with_group_conflicts",
+        "knowledge_rows_with_group_conflicts",
         "this row ended up assigned to conflicting groups after shard merge.",
     ),
     (
-        "group_blocks_out_of_surface",
+        "group_rows_out_of_surface",
         "this final group references a row that does not belong in a knowledge group.",
     ),
     (
-        "knowledge_grounding_existing_tag_required_blocks",
+        "knowledge_grounding_existing_tag_required_rows",
         "this row must use an existing tag because the proposed tag conflicts with the catalog.",
     ),
     (
-        "missing_owned_block_indices",
+        "missing_owned_row_indices",
         "this row is missing from the final merged shard output.",
     ),
 )
@@ -193,7 +193,7 @@ def _build_knowledge_whole_shard_grouping_validation_feedback(
             }
         )
 
-    for metadata_key, message in _KNOWLEDGE_FINAL_VALIDATION_BLOCK_METADATA_KEYS:
+    for metadata_key, message in _KNOWLEDGE_FINAL_VALIDATION_ROW_METADATA_KEYS:
         for block_index in validation_metadata.get(metadata_key) or []:
             unit_id = unit_id_by_block_index.get(int(block_index))
             if unit_id is None:
@@ -367,10 +367,10 @@ def _merge_knowledge_response_contract_diagnostics(
         merged_metadata["parse_error"] = parse_metadata.get("parse_error")
     for key in (
         "failed_unit_ids",
-        "unresolved_block_indices",
-        "missing_block_indices",
-        "unexpected_block_indices",
-        "duplicate_block_indices",
+        "unresolved_row_indices",
+        "missing_row_indices",
+        "unexpected_row_indices",
+        "duplicate_row_indices",
         "missing_row_ids",
         "unknown_row_ids",
         "duplicate_row_ids",

@@ -90,7 +90,7 @@ def build_knowledge_jobs(
     full_blocks_by_index = _prepare_full_blocks_by_index(full_blocks)
     if not full_blocks_by_index:
         raise ValueError("Cannot build knowledge jobs: empty full_blocks.")
-    owned_block_indices = set(recipe_ownership_result.owned_row_indices)
+    owned_recipe_row_indices = set(recipe_ownership_result.owned_row_indices)
     planning_warnings: list[str] = []
     ordered_review_rows: list[dict[str, Any]] = []
     source_span_ids_by_index: dict[int, list[str]] = {}
@@ -182,7 +182,7 @@ def build_knowledge_jobs(
                 estimated_pass1_input_chars=_estimate_pass1_input_chars(
                     absolute_indices=absolute_indices,
                     full_blocks_by_index=full_blocks_by_index,
-                    owned_block_indices=owned_block_indices,
+                    owned_recipe_row_indices=owned_recipe_row_indices,
                     context_blocks=context_blocks,
                 ),
                 estimated_pass1_output_chars=_estimate_pass1_output_chars(
@@ -205,7 +205,7 @@ def build_knowledge_jobs(
         bundle_payload = _build_packet_job_payload(
             packet=packet,
             full_blocks_by_index=full_blocks_by_index,
-            owned_block_indices=owned_block_indices,
+            owned_recipe_row_indices=owned_recipe_row_indices,
             context_blocks=context_blocks,
         )
         bundle_payload_json = bundle_payload.model_dump(
@@ -230,8 +230,8 @@ def build_knowledge_jobs(
                     "packet_count": 1,
                     "owned_packet_ids": [packet.packet_id],
                     "owned_packet_count": 1,
-                    "owned_block_indices": list(packet.absolute_indices),
-                    "owned_block_count": len(packet.absolute_indices),
+                    "owned_row_indices": list(packet.absolute_indices),
+                    "owned_row_count": len(packet.absolute_indices),
                     "source_span_ids": list(packet.source_span_ids),
                     "char_count": packet.char_count,
                     "estimated_pass1_input_chars": packet.estimated_pass1_input_chars,
@@ -403,7 +403,7 @@ def _estimate_pass1_input_chars(
     *,
     absolute_indices: Sequence[int],
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    owned_block_indices: set[int],
+    owned_recipe_row_indices: set[int],
     context_blocks: int,
 ) -> int:
     if not absolute_indices:
@@ -419,7 +419,7 @@ def _estimate_pass1_input_chars(
         and not _row_or_source_block_is_recipe_owned(
             idx,
             full_blocks_by_index=full_blocks_by_index,
-            owned_block_indices=owned_block_indices,
+            owned_recipe_row_indices=owned_recipe_row_indices,
         )
     ]
     owned_chars = sum(
@@ -489,7 +489,7 @@ def _build_packet_job_payload(
     *,
     packet: _PreparedKnowledgePacket,
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    owned_block_indices: set[int],
+    owned_recipe_row_indices: set[int],
     context_blocks: int,
 ) -> KnowledgePacketJobInputV1:
     packet_start_index = min(packet.absolute_indices)
@@ -502,7 +502,7 @@ def _build_packet_job_payload(
         if _row_or_source_block_is_recipe_owned(
             idx,
             full_blocks_by_index=full_blocks_by_index,
-            owned_block_indices=owned_block_indices,
+            owned_recipe_row_indices=owned_recipe_row_indices,
         )
     )
     blocks_before = [
@@ -515,7 +515,7 @@ def _build_packet_job_payload(
         and not _row_or_source_block_is_recipe_owned(
             idx,
             full_blocks_by_index=full_blocks_by_index,
-            owned_block_indices=owned_block_indices,
+            owned_recipe_row_indices=owned_recipe_row_indices,
         )
     ]
     blocks_after = [
@@ -528,7 +528,7 @@ def _build_packet_job_payload(
         and not _row_or_source_block_is_recipe_owned(
             idx,
             full_blocks_by_index=full_blocks_by_index,
-            owned_block_indices=owned_block_indices,
+            owned_recipe_row_indices=owned_recipe_row_indices,
         )
     ]
     context_payload = KnowledgePacketContextPayloadV1(
@@ -596,16 +596,16 @@ def _row_or_source_block_is_recipe_owned(
     index: int,
     *,
     full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    owned_block_indices: set[int],
+    owned_recipe_row_indices: set[int],
 ) -> bool:
-    if int(index) in owned_block_indices:
+    if int(index) in owned_recipe_row_indices:
         return True
     payload = full_blocks_by_index.get(int(index), {})
     try:
         source_block_index = int(payload.get("source_block_index"))
     except (TypeError, ValueError):
         return False
-    return source_block_index in owned_block_indices
+    return source_block_index in owned_recipe_row_indices
 
 
 def _resolve_heading_level(block: Mapping[str, Any]) -> int | None:

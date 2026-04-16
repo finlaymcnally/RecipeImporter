@@ -168,8 +168,8 @@ def test_build_knowledge_jobs_metadata_is_shard_owned(
     metadata = report.shard_entries[0].metadata
     assert metadata["packet_id"] == "book.ks0000.nr"
     assert metadata["packet_count"] == 1
-    assert metadata["owned_block_indices"] == [7, 8]
-    assert metadata["owned_block_count"] == 2
+    assert metadata["owned_row_indices"] == [7, 8]
+    assert metadata["owned_row_count"] == 2
     assert metadata["source_span_ids"] == ["nr.7.9"]
     assert (
         metadata["input_char_budget"],

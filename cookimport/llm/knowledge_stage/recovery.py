@@ -1332,15 +1332,15 @@ def _classify_knowledge_watchdog_retry_size(
 ) -> dict[str, Any]:
     metadata = dict(shard.metadata or {})
     payload = _coerce_dict(shard.input_payload)
-    packet_block_count = max(
+    packet_row_count = max(
         0,
-        int(metadata.get("owned_block_count") or metadata.get("packet_block_count") or len(payload.get("b") or [])),
+        int(metadata.get("owned_row_count") or metadata.get("packet_block_count") or len(payload.get("b") or [])),
     )
     char_count = max(0, int(metadata.get("char_count") or 0))
     oversized = (
-        packet_block_count > 1
+        packet_row_count > 1
         and (
-            packet_block_count > _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD
+            packet_row_count > _KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD
             or char_count > _KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD
         )
     )
@@ -1349,7 +1349,7 @@ def _classify_knowledge_watchdog_retry_size(
             "oversized": False,
             "reason_code": None,
             "reason_detail": None,
-            "packet_block_count": packet_block_count,
+            "packet_row_count": packet_row_count,
             "char_count": char_count,
         }
     return {
@@ -1357,12 +1357,12 @@ def _classify_knowledge_watchdog_retry_size(
         "reason_code": "watchdog_retry_oversized_skipped",
         "reason_detail": (
             "skipped monolithic strict JSON watchdog retry because the shard owns "
-            "multiple packet blocks and exceeds the retry-safe size policy "
-            f"(packet_block_count={packet_block_count}, char_count={char_count}, "
+            "multiple packet rows and exceeds the retry-safe size policy "
+            f"(packet_row_count={packet_row_count}, char_count={char_count}, "
             f"limits={_KNOWLEDGE_RETRY_MAX_CHUNKS_PER_SHARD} blocks / "
             f"{_KNOWLEDGE_RETRY_MAX_CHARS_PER_SHARD} chars)"
         ),
-        "packet_block_count": packet_block_count,
+        "packet_row_count": packet_row_count,
         "char_count": char_count,
     }
 
@@ -1544,7 +1544,7 @@ def _build_knowledge_watchdog_example(
 def _is_pathological_knowledge_response_text(
     response_text: str,
     *,
-    owned_block_count: int,
+    owned_row_count: int,
     returned_decision_count: int,
 ) -> bool:
     cleaned = str(response_text or "")
@@ -1555,7 +1555,7 @@ def _is_pathological_knowledge_response_text(
     effective_rows = max(1, int(returned_decision_count or 0))
     chars_per_row = len(cleaned) / effective_rows
     if (
-        int(owned_block_count or 0) > effective_rows
+        int(owned_row_count or 0) > effective_rows
         and chars_per_row >= _KNOWLEDGE_PATHOLOGICAL_CHARS_PER_RETURNED_ROW
     ):
         return True
@@ -1572,8 +1572,8 @@ def _should_retry_knowledge_shard_split(
 ) -> bool:
     if proposal_status != "invalid":
         return False
-    owned_block_count = int(validation_metadata.get("owned_block_count") or 0)
-    if owned_block_count <= 1:
+    owned_row_count = int(validation_metadata.get("owned_row_count") or 0)
+    if owned_row_count <= 1:
         return False
     errors = {str(error) for error in validation_errors}
     if not errors.intersection(
@@ -1585,12 +1585,12 @@ def _should_retry_knowledge_shard_split(
         }
     ):
         return False
-    returned_decision_count = int(validation_metadata.get("result_block_decision_count") or 0)
-    if "missing_owned_block_decisions" in errors and returned_decision_count < owned_block_count:
+    returned_decision_count = int(validation_metadata.get("result_row_decision_count") or 0)
+    if "missing_owned_block_decisions" in errors and returned_decision_count < owned_row_count:
         return True
     return _is_pathological_knowledge_response_text(
         str(response_text or ""),
-        owned_block_count=max(1, owned_block_count),
+        owned_row_count=max(1, owned_row_count),
         returned_decision_count=max(1, returned_decision_count),
     )
 
@@ -1626,7 +1626,7 @@ def _split_failed_knowledge_shard_for_retry(
         if "g" in payload:
             retry_payload["g"] = payload["g"]
         owned_ids = (retry_shard_id,)
-        owned_block_indices = sorted(
+        owned_row_indices = sorted(
             int(block.get("i"))
             for block in group
             if isinstance(block, Mapping) and block.get("i") is not None
@@ -1640,12 +1640,13 @@ def _split_failed_knowledge_shard_for_retry(
             ShardManifestEntryV1(
                 shard_id=retry_shard_id,
                 owned_ids=owned_ids,
-                evidence_refs=tuple(f"block:{index}" for index in owned_block_indices),
+                evidence_refs=tuple(f"block:{index}" for index in owned_row_indices),
                 input_payload=retry_payload,
                 metadata={
                     **dict(shard.metadata or {}),
                     "ordered_packet_ids": list(owned_ids),
-                    "owned_block_indices": list(owned_block_indices),
+                    "owned_row_indices": list(owned_row_indices),
+                    "owned_row_count": len(owned_row_indices),
                     "packet_count": len(owned_ids),
                     "char_count": char_count,
                     "retry_parent_shard_id": shard.shard_id,
@@ -1943,7 +1944,7 @@ def _build_knowledge_repair_prompt(
     owned_ids = ", ".join(str(packet_id) for packet_id in shard.owned_ids)
     missing_indices = ", ".join(
         str(block_index)
-        for block_index in (validation_metadata.get("missing_owned_block_indices") or [])
+        for block_index in (validation_metadata.get("missing_owned_row_indices") or [])
     )
     authoritative_input = json.dumps(
         _coerce_dict(shard.input_payload),

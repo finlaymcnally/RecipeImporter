@@ -78,16 +78,16 @@ def write_knowledge_artifacts(
                 raise ValueError(
                     f"Knowledge idea group {knowledge_group_id} had no block indices."
                 )
-            missing_block_indices = [
+            missing_row_indices = [
                 int(block_index)
                 for block_index in record["block_indices"]
                 if int(block_index) not in full_blocks_by_index
             ]
-            if missing_block_indices:
+            if missing_row_indices:
                 raise ValueError(
                     "Knowledge idea group "
                     f"{knowledge_group_id} referenced missing block index "
-                    f"{missing_block_indices[0]}."
+                    f"{missing_row_indices[0]}."
                 )
             for block_index in record["block_indices"]:
                 decision = decisions_by_block_index.get(int(block_index))

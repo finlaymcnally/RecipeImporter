@@ -38,24 +38,24 @@ def render_validation_reason_detail(
         str(error).strip() for error in validation_errors if str(error).strip()
     ]
     parse_error = str(validation_metadata.get("parse_error") or "").strip()
-    unresolved_block_indices = [
+    unresolved_row_indices = [
         int(value)
-        for value in (validation_metadata.get("unresolved_block_indices") or [])
+        for value in (validation_metadata.get("unresolved_row_indices") or [])
         if value is not None
     ]
-    missing_block_indices = [
+    missing_row_indices = [
         int(value)
-        for value in (validation_metadata.get("missing_block_indices") or [])
+        for value in (validation_metadata.get("missing_row_indices") or [])
         if value is not None
     ]
-    unexpected_block_indices = [
+    unexpected_row_indices = [
         int(value)
-        for value in (validation_metadata.get("unexpected_block_indices") or [])
+        for value in (validation_metadata.get("unexpected_row_indices") or [])
         if value is not None
     ]
-    duplicate_block_indices = [
+    duplicate_row_indices = [
         int(value)
-        for value in (validation_metadata.get("duplicate_block_indices") or [])
+        for value in (validation_metadata.get("duplicate_row_indices") or [])
         if value is not None
     ]
     missing_row_ids = [
@@ -76,25 +76,25 @@ def render_validation_reason_detail(
     detail_parts = [str(prefix).strip() or "validation blocked promotion"]
     if cleaned_errors:
         detail_parts.append("errors=" + ",".join(cleaned_errors))
-    if unresolved_block_indices:
+    if unresolved_row_indices:
         detail_parts.append(
-            "unresolved_block_indices="
-            + ",".join(str(value) for value in unresolved_block_indices)
+            "unresolved_row_indices="
+            + ",".join(str(value) for value in unresolved_row_indices)
         )
-    if missing_block_indices:
+    if missing_row_indices:
         detail_parts.append(
-            "missing_block_indices="
-            + ",".join(str(value) for value in missing_block_indices)
+            "missing_row_indices="
+            + ",".join(str(value) for value in missing_row_indices)
         )
-    if unexpected_block_indices:
+    if unexpected_row_indices:
         detail_parts.append(
-            "unexpected_block_indices="
-            + ",".join(str(value) for value in unexpected_block_indices)
+            "unexpected_row_indices="
+            + ",".join(str(value) for value in unexpected_row_indices)
         )
-    if duplicate_block_indices:
+    if duplicate_row_indices:
         detail_parts.append(
-            "duplicate_block_indices="
-            + ",".join(str(value) for value in duplicate_block_indices)
+            "duplicate_row_indices="
+            + ",".join(str(value) for value in duplicate_row_indices)
         )
     if missing_row_ids:
         detail_parts.append("missing_row_ids=" + ",".join(missing_row_ids))
@@ -318,13 +318,13 @@ def _compact_repair_validation_summary(
     for key in (
         "expected_label_count",
         "returned_label_count",
-        "unresolved_block_indices",
-        "missing_block_indices",
+        "unresolved_row_indices",
+        "missing_row_indices",
         "missing_row_ids",
         "unknown_row_ids",
         "duplicate_row_ids",
-        "knowledge_blocks_missing_group",
-        "knowledge_group_grounding_mismatch_blocks",
+        "knowledge_rows_missing_group",
+        "knowledge_group_grounding_mismatch_rows",
     ):
         value = validation_metadata.get(key)
         if value in (None, "", [], {}):
@@ -758,7 +758,7 @@ def _response_contract_metadata(
         for unit_id in sorted(missing_unit_id_set)
         if unit_id in row_id_by_unit_id
     ]
-    missing_block_indices = [
+    missing_row_indices = [
         int(block_index_by_unit_id[unit_id])
         for unit_id in sorted(missing_unit_id_set)
         if unit_id in block_index_by_unit_id
@@ -773,7 +773,7 @@ def _response_contract_metadata(
             if str(unit_id_by_row_id.get(row_id) or "").strip()
         }
     )
-    duplicate_block_indices = [
+    duplicate_row_indices = [
         int(block_index_by_unit_id[unit_id])
         for unit_id in duplicate_unit_ids
         if unit_id in block_index_by_unit_id
@@ -833,10 +833,10 @@ def _response_contract_metadata(
         tuple(response_contract_errors),
         {
             "failed_unit_ids": failed_unit_ids,
-            "unresolved_block_indices": sorted(
-                set(missing_block_indices) | set(duplicate_block_indices)
+            "unresolved_row_indices": sorted(
+                set(missing_row_indices) | set(duplicate_row_indices)
             ),
-            "missing_block_indices": missing_block_indices,
+            "missing_row_indices": missing_row_indices,
             "missing_row_ids": missing_row_ids,
             "unknown_row_ids": unknown_row_id_list,
             "duplicate_row_ids": duplicate_row_id_list,

@@ -97,7 +97,7 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
                     "bid": "book.ks0000.nr",
                     "b": [{"i": 4, "t": "Whisk constantly."}],
                 },
-                metadata={"owned_block_indices": [4]},
+                metadata={"owned_row_indices": [4]},
             )
         ],
         runner=runner,
@@ -147,7 +147,7 @@ def test_knowledge_phase_workers_accept_valid_shard_outputs(tmp_path: Path) -> N
                     "bid": "book.ks0000.nr",
                     "b": [{"i": 4, "t": "Whisk constantly."}],
                 },
-                metadata={"owned_block_indices": [4]},
+                metadata={"owned_row_indices": [4]},
             )
         ],
         runner=runner,

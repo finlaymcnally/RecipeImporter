@@ -49,7 +49,7 @@ def _shard(
                 }
             ],
         },
-        metadata={"owned_block_indices": [block_index], "owned_block_count": 1},
+        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
     )
 
 
@@ -221,7 +221,7 @@ def test_same_session_grouping_task_shows_short_other_rows_in_ordered_context(
                         },
                     ],
                 },
-                metadata={"owned_block_indices": [7, 8, 9], "owned_block_count": 3},
+                metadata={"owned_row_indices": [7, 8, 9], "owned_row_count": 3},
             )
         ],
     )
@@ -372,8 +372,8 @@ def test_same_session_handoff_advances_across_multiple_grouping_batches(
                     ],
                 },
                 metadata={
-                    "owned_block_indices": list(range(block_count)),
-                    "owned_block_count": block_count,
+                    "owned_row_indices": list(range(block_count)),
+                    "owned_row_count": block_count,
                 },
             )
         ],

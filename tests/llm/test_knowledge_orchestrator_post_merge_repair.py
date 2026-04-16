@@ -95,7 +95,7 @@ def test_knowledge_orchestrator_runs_whole_shard_grouping_repair_after_merge_val
                 False,
                 ("knowledge_group_grounding_mismatch",),
                 {
-                    "knowledge_group_grounding_mismatch_blocks": [0, 1],
+                    "knowledge_group_grounding_mismatch_rows": [0, 1],
                 },
             )
         return real_validate(shard, payload)

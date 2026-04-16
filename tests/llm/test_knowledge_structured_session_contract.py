@@ -35,7 +35,7 @@ def _shard(*, shard_id: str, block_index: int, text: str) -> ShardManifestEntryV
             "bid": shard_id,
             "b": [{"i": block_index, "id": f"{shard_id}:{block_index}", "t": text}],
         },
-        metadata={"owned_block_indices": [block_index], "owned_block_count": 1},
+        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
     )
 
 
@@ -157,7 +157,7 @@ def test_grouping_structured_prompt_is_group_first_and_parser_maps_group_groundi
                         },
                     ],
                 },
-                metadata={"owned_block_indices": [30, 31, 32], "owned_block_count": 3},
+                metadata={"owned_row_indices": [30, 31, 32], "owned_row_count": 3},
             ),
         ],
     )
@@ -282,7 +282,7 @@ def test_grouping_structured_response_rejects_context_only_row_ids() -> None:
                         },
                     ],
                 },
-                metadata={"owned_block_indices": [30, 31], "owned_block_count": 2},
+                metadata={"owned_row_indices": [30, 31], "owned_row_count": 2},
             ),
         ],
     )

@@ -37,7 +37,7 @@ def _shard(*, rows: list[dict[str, object]] | None = None) -> ShardManifestEntry
                 }
             ],
         },
-        metadata={"owned_block_indices": [10], "owned_block_count": 1},
+        metadata={"owned_row_indices": [10], "owned_row_count": 1},
     )
 
 
@@ -174,7 +174,7 @@ def test_structured_packet_uses_compact_row_strings_without_ontology() -> None:
                         "n": [{"i": 12, "t": "Next row."}],
                     },
                 },
-                metadata={"owned_block_indices": [10, 11], "owned_block_count": 2},
+                metadata={"owned_row_indices": [10, 11], "owned_row_count": 2},
             )
         ],
     )

@@ -35,7 +35,7 @@ def _shard(*, block_index: int, text: str) -> ShardManifestEntryV1:
             "bid": "book.ks0000.nr",
             "b": [{"i": block_index, "id": f"book.ks0000.nr:{block_index}", "t": text}],
         },
-        metadata={"owned_block_indices": [block_index], "owned_block_count": 1},
+        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
     )
 
 
@@ -434,7 +434,7 @@ def test_grouping_validator_rejects_noncontiguous_group_runs() -> None:
         "knowledge::31",
         "knowledge::33",
     ]
-    assert metadata["knowledge_group_noncontiguous_blocks"] == [31, 33]
+    assert metadata["knowledge_group_noncontiguous_rows"] == [31, 33]
 
 
 def test_grouping_batches_stay_partitioned_for_large_kept_sets() -> None:

@@ -107,7 +107,7 @@ def test_build_knowledge_jobs_treats_prompt_target_as_cap_without_fragmenting_bu
     assert [entry.shard_id for entry in report.shard_entries] == [
         "fixturebook.ks0000.nr",
     ]
-    assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
+    assert [entry.metadata["owned_row_indices"] for entry in report.shard_entries] == [
         [0, 1, 2, 3, 4],
     ]
 
@@ -143,7 +143,7 @@ def test_build_knowledge_jobs_splits_by_explicit_char_budgets_when_no_target_cou
     assert report.requested_shard_count == 4
     assert report.packet_input_char_budget == 320
     assert report.packet_output_char_budget == 220
-    assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
+    assert [entry.metadata["owned_row_indices"] for entry in report.shard_entries] == [
         [0],
         [1],
         [2],
@@ -196,7 +196,7 @@ def test_build_knowledge_jobs_treats_prompt_target_count_as_hard_cap(
     assert report.shards_written == 1
     assert report.packets_written == 1
     assert report.packet_ids == ["fixturebook.ks0000.nr"]
-    assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
+    assert [entry.metadata["owned_row_indices"] for entry in report.shard_entries] == [
         [0, 1, 2, 3]
     ]
     assert report.planning_warnings == [

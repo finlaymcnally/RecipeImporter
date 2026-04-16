@@ -69,7 +69,7 @@ def _shard() -> ShardManifestEntryV1:
                 {"i": 5, "t": "Marketing copy."},
             ],
         },
-        metadata={"owned_block_indices": [4, 5]},
+        metadata={"owned_row_indices": [4, 5]},
     )
 
 
@@ -147,7 +147,7 @@ def test_validate_knowledge_shard_output_rejects_group_that_contains_other_block
 
     assert valid is False
     assert errors == ("group_contains_other_block",)
-    assert metadata["group_blocks_out_of_surface"] == [5]
+    assert metadata["group_rows_out_of_surface"] == [5]
 
 
 def test_sanitize_knowledge_worker_payload_preserves_group_grounding() -> None:

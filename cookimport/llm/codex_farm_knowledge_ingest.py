@@ -227,13 +227,13 @@ def validate_knowledge_shard_output(
     metadata: dict[str, Any] = {
         "owned_packet_count": len(packet_surfaces),
         "owned_packet_ids": [surface["packet_id"] for surface in packet_surfaces],
-        "owned_block_indices": [
-            block_index
+        "owned_row_indices": [
+            row_index
             for surface in packet_surfaces
-            for block_index in surface["owned_block_indices"]
+            for row_index in surface["owned_row_indices"]
         ],
-        "owned_block_count": sum(
-            len(surface["owned_block_indices"]) for surface in packet_surfaces
+        "owned_row_count": sum(
+            len(surface["owned_row_indices"]) for surface in packet_surfaces
         ),
         **dict(sanitize_metadata or {}),
     }
@@ -260,10 +260,10 @@ def validate_knowledge_shard_output(
     unexpected_packet_ids: list[str] = []
     duplicate_packet_ids: list[str] = []
     invalid_packet_ids: list[str] = []
-    missing_owned_block_indices: list[int] = []
+    missing_owned_row_indices: list[int] = []
     child_validation_errors_by_packet_id: dict[str, list[str]] = {}
     validated_packet_count = 0
-    result_block_decision_count = 0
+    result_row_decision_count = 0
     idea_group_count = 0
     knowledge_decision_count = 0
     reviewed_all_other = True
@@ -297,9 +297,9 @@ def validate_knowledge_shard_output(
         else:
             invalid_packet_ids.append(packet_id)
             child_validation_errors_by_packet_id[packet_id] = list(packet_errors)
-            missing_owned_block_indices.extend(packet_surface["owned_block_indices"])
-        result_block_decision_count += int(
-            packet_metadata.get("result_block_decision_count") or 0
+            missing_owned_row_indices.extend(packet_surface["owned_row_indices"])
+        result_row_decision_count += int(
+            packet_metadata.get("result_row_decision_count") or 0
         )
         idea_group_count += int(packet_metadata.get("idea_group_count") or 0)
         knowledge_decision_count += int(
@@ -322,10 +322,10 @@ def validate_knowledge_shard_output(
     if missing_packet_ids:
         errors.append("missing_owned_packet_results")
         metadata["missing_packet_ids"] = missing_packet_ids
-        missing_owned_block_indices.extend(
-            block_index
+        missing_owned_row_indices.extend(
+            row_index
             for packet_id in missing_packet_ids
-            for block_index in packet_surface_by_id[packet_id]["owned_block_indices"]
+            for row_index in packet_surface_by_id[packet_id]["owned_row_indices"]
         )
     if invalid_packet_ids:
         errors.append("packet_result_validation_failed")
@@ -333,10 +333,10 @@ def validate_knowledge_shard_output(
         metadata["packet_validation_errors_by_packet_id"] = dict(
             sorted(child_validation_errors_by_packet_id.items())
         )
-    if missing_owned_block_indices:
-        metadata["missing_owned_block_indices"] = sorted(set(missing_owned_block_indices))
+    if missing_owned_row_indices:
+        metadata["missing_owned_row_indices"] = sorted(set(missing_owned_row_indices))
     metadata["validated_packet_count"] = validated_packet_count
-    metadata["result_block_decision_count"] = result_block_decision_count
+    metadata["result_row_decision_count"] = result_row_decision_count
     metadata["idea_group_count"] = idea_group_count
     metadata["knowledge_decision_count"] = knowledge_decision_count
     metadata["reviewed_all_other"] = (
@@ -453,8 +453,8 @@ def extract_promotable_knowledge_bundles(
             "promoted_packet_ids": promoted_packet_ids,
             "promoted_packet_count": len(promoted_packet_ids),
             "missing_packet_ids": missing_packet_ids,
-            "missing_owned_block_indices": list(
-                metadata.get("missing_owned_block_indices") or []
+            "missing_owned_row_indices": list(
+                metadata.get("missing_owned_row_indices") or []
             ),
         }
     if normalized_errors:
@@ -550,7 +550,7 @@ def _packet_surfaces_for_shard(shard: ShardManifestEntryV1) -> list[dict[str, An
         packet_id = str(packet.get("bid") or packet.get("packet_id") or "").strip()
         if not packet_id:
             continue
-        owned_block_indices = [
+        owned_row_indices = [
             int(
                 block.get("i")
                 if block.get("i") is not None
@@ -563,20 +563,20 @@ def _packet_surfaces_for_shard(shard: ShardManifestEntryV1) -> list[dict[str, An
         packet_surfaces.append(
             {
                 "packet_id": packet_id,
-                "owned_block_indices": owned_block_indices,
+                "owned_row_indices": owned_row_indices,
             }
         )
     if packet_surfaces:
         return packet_surfaces
-    owned_block_indices = [
+    owned_row_indices = [
         int(value)
-        for value in (dict(shard.metadata or {}).get("owned_block_indices") or [])
+        for value in (dict(shard.metadata or {}).get("owned_row_indices") or [])
         if value is not None
     ]
     return [
         {
             "packet_id": str(shard.shard_id).strip(),
-            "owned_block_indices": owned_block_indices,
+            "owned_row_indices": owned_row_indices,
         }
     ]
 
@@ -589,8 +589,8 @@ def _validate_single_packet_payload(
     packet_id = str(packet_surface.get("packet_id") or "").strip()
     metadata: dict[str, Any] = {
         "bundle_id": packet_id,
-        "owned_block_indices": list(packet_surface.get("owned_block_indices") or []),
-        "owned_block_count": len(packet_surface.get("owned_block_indices") or []),
+        "owned_row_indices": list(packet_surface.get("owned_row_indices") or []),
+        "owned_row_count": len(packet_surface.get("owned_row_indices") or []),
     }
     try:
         normalized_payload, normalization_metadata = normalize_knowledge_worker_payload(dict(payload))
@@ -607,9 +607,9 @@ def _validate_single_packet_payload(
             "returned_packet_id": parsed.bundle_id,
         }
 
-    expected_block_indices = [int(value) for value in packet_surface.get("owned_block_indices") or []]
-    actual_block_indices = [int(row.block_index) for row in parsed.block_decisions]
-    metadata["result_block_decision_count"] = len(actual_block_indices)
+    expected_row_indices = [int(value) for value in packet_surface.get("owned_row_indices") or []]
+    actual_row_indices = [int(row.block_index) for row in parsed.block_decisions]
+    metadata["result_row_decision_count"] = len(actual_row_indices)
     metadata["idea_group_count"] = len(parsed.idea_groups)
     metadata["knowledge_decision_count"] = sum(
         1
@@ -617,7 +617,7 @@ def _validate_single_packet_payload(
         if str(row.category) == "knowledge"
     )
     metadata["reviewed_all_other"] = (
-        actual_block_indices == expected_block_indices
+        actual_row_indices == expected_row_indices
         and metadata["knowledge_decision_count"] == 0
         and not parsed.idea_groups
     )
@@ -631,7 +631,7 @@ def _validate_single_packet_payload(
     invalid_proposed_tag_display_names: set[str] = set()
     proposed_tag_key_conflicts_existing: set[str] = set()
     proposed_tag_display_name_conflicts_existing: set[str] = set()
-    knowledge_grounding_existing_tag_required_blocks: set[int] = set()
+    knowledge_grounding_existing_tag_required_rows: set[int] = set()
     for row in parsed.block_decisions:
         row_has_existing_tag_conflict = False
         for tag_key in row.grounding.tag_keys:
@@ -660,7 +660,7 @@ def _validate_single_packet_payload(
                 proposed_tag_display_name_conflicts_existing.add(normalized_display_name)
                 row_has_existing_tag_conflict = True
         if row_has_existing_tag_conflict and not row.grounding.tag_keys:
-            knowledge_grounding_existing_tag_required_blocks.add(int(row.block_index))
+            knowledge_grounding_existing_tag_required_rows.add(int(row.block_index))
     if unknown_grounding_tag_keys:
         errors.append("unknown_grounding_tag_key")
         metadata["unknown_grounding_tag_keys"] = sorted(unknown_grounding_tag_keys)
@@ -685,20 +685,20 @@ def _validate_single_packet_payload(
         metadata["proposed_tag_display_name_conflicts_existing"] = sorted(
             proposed_tag_display_name_conflicts_existing
         )
-    if knowledge_grounding_existing_tag_required_blocks:
+    if knowledge_grounding_existing_tag_required_rows:
         errors.append("knowledge_grounding_existing_tag_required")
-        metadata["knowledge_grounding_existing_tag_required_blocks"] = sorted(
-            knowledge_grounding_existing_tag_required_blocks
+        metadata["knowledge_grounding_existing_tag_required_rows"] = sorted(
+            knowledge_grounding_existing_tag_required_rows
         )
-    if actual_block_indices != expected_block_indices:
-        missing = [idx for idx in expected_block_indices if idx not in actual_block_indices]
-        unexpected = [idx for idx in actual_block_indices if idx not in expected_block_indices]
+    if actual_row_indices != expected_row_indices:
+        missing = [idx for idx in expected_row_indices if idx not in actual_row_indices]
+        unexpected = [idx for idx in actual_row_indices if idx not in expected_row_indices]
         if missing:
             errors.append("missing_owned_block_decisions")
-            metadata["missing_owned_block_indices"] = missing
+            metadata["missing_owned_row_indices"] = missing
         if unexpected:
             errors.append("unexpected_block_decisions")
-            metadata["unexpected_block_indices"] = unexpected
+            metadata["unexpected_row_indices"] = unexpected
         if not missing and not unexpected:
             errors.append("block_decision_order_mismatch")
 
@@ -711,7 +711,7 @@ def _validate_single_packet_payload(
     group_grounding_by_id: dict[str, dict[str, Any]] = {}
     conflicting_blocks: set[int] = set()
     groups_on_other_blocks: set[int] = set()
-    group_grounding_mismatch_blocks: set[int] = set()
+    group_grounding_mismatch_rows: set[int] = set()
     for group in parsed.idea_groups:
         normalized_group_id = str(group.group_id).strip()
         normalized_topic_label = str(group.topic_label).strip()
@@ -743,30 +743,30 @@ def _validate_single_packet_payload(
                 if decision is not None and _serialize_grounding_for_payload(
                     decision.grounding
                 ) != group_grounding_by_id.get(normalized_group_id):
-                    group_grounding_mismatch_blocks.add(normalized_block_index)
+                    group_grounding_mismatch_rows.add(normalized_block_index)
                 continue
             if previous_group_id != normalized_group_id:
                 conflicting_blocks.add(normalized_block_index)
-    knowledge_blocks = [
-        block_index
-        for block_index in expected_block_indices
-        if category_by_block.get(block_index) == "knowledge"
+    knowledge_rows = [
+        row_index
+        for row_index in expected_row_indices
+        if category_by_block.get(row_index) == "knowledge"
     ]
-    missing_group_blocks = [
-        block_index for block_index in knowledge_blocks if block_index not in grouped_blocks
+    missing_group_rows = [
+        row_index for row_index in knowledge_rows if row_index not in grouped_blocks
     ]
-    if missing_group_blocks:
+    if missing_group_rows:
         errors.append("knowledge_block_missing_group")
-        metadata["knowledge_blocks_missing_group"] = missing_group_blocks
+        metadata["knowledge_rows_missing_group"] = missing_group_rows
     if conflicting_blocks:
         errors.append("knowledge_block_group_conflict")
-        metadata["knowledge_blocks_with_group_conflicts"] = sorted(conflicting_blocks)
+        metadata["knowledge_rows_with_group_conflicts"] = sorted(conflicting_blocks)
     if groups_on_other_blocks:
         errors.append("group_contains_other_block")
-        metadata["group_blocks_out_of_surface"] = sorted(groups_on_other_blocks)
-    if group_grounding_mismatch_blocks:
+        metadata["group_rows_out_of_surface"] = sorted(groups_on_other_blocks)
+    if group_grounding_mismatch_rows:
         errors.append("knowledge_group_grounding_mismatch")
-        metadata["knowledge_group_grounding_mismatch_blocks"] = sorted(
-            group_grounding_mismatch_blocks
+        metadata["knowledge_group_grounding_mismatch_rows"] = sorted(
+            group_grounding_mismatch_rows
         )
     return not errors, tuple(dict.fromkeys(errors)), metadata

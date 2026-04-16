@@ -60,7 +60,7 @@ def _shard(*, packet_id: str, block_indices: list[int]) -> ShardManifestEntryV1:
             "bid": packet_id,
             "b": [{"i": index, "t": f"Block {index} text."} for index in block_indices],
         },
-        metadata={"owned_block_indices": list(block_indices)},
+        metadata={"owned_row_indices": list(block_indices)},
     )
 
 
@@ -128,4 +128,4 @@ def test_validate_knowledge_shard_output_rejects_group_grounding_mismatch() -> N
 
     assert valid is False
     assert "knowledge_group_grounding_mismatch" in errors
-    assert metadata["knowledge_group_grounding_mismatch_blocks"] == [20, 21]
+    assert metadata["knowledge_group_grounding_mismatch_rows"] == [20, 21]

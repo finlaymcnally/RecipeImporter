@@ -58,8 +58,8 @@ def _shard(*, shard_id: str, blocks: list[tuple[int, str]]) -> ShardManifestEntr
             },
         },
         metadata={
-            "owned_block_indices": [block_index for block_index, _text in blocks],
-            "owned_block_count": len(blocks),
+            "owned_row_indices": [block_index for block_index, _text in blocks],
+            "owned_row_count": len(blocks),
         },
     )
 

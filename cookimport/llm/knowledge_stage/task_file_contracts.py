@@ -1315,8 +1315,8 @@ def validate_knowledge_classification_task_file(
     next_errors = list(errors)
     error_details = list(metadata.get("error_details") or [])
     failed_unit_ids: list[str] = []
-    unresolved_block_indices: list[int] = []
-    missing_block_indices: list[int] = []
+    unresolved_row_indices: list[int] = []
+    missing_row_indices: list[int] = []
     validated_answers: dict[str, dict[str, Any]] = {}
     units_by_id = {
         str(unit.get("unit_id") or "").strip(): dict(unit)
@@ -1342,12 +1342,12 @@ def validate_knowledge_classification_task_file(
             unit_failed = True
         if not category:
             next_errors.append("knowledge_block_missing_decision")
-            missing_block_indices.append(block_index)
+            missing_row_indices.append(block_index)
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/category",
                     "code": "knowledge_block_missing_decision",
-                    "message": "response did not return a classification decision for this block",
+                    "message": "response did not return a classification decision for this row",
                 }
             )
             unit_failed = True
@@ -1363,15 +1363,15 @@ def validate_knowledge_classification_task_file(
             unit_failed = True
         if unit_failed:
             failed_unit_ids.append(unit_id)
-            unresolved_block_indices.append(block_index)
+            unresolved_row_indices.append(block_index)
             continue
         validated_answers[unit_id] = {"category": category}
     next_metadata = {
         **dict(metadata),
         "error_details": error_details,
         "failed_unit_ids": failed_unit_ids,
-        "unresolved_block_indices": sorted(set(unresolved_block_indices)),
-        "missing_block_indices": sorted(set(missing_block_indices)),
+        "unresolved_row_indices": sorted(set(unresolved_row_indices)),
+        "missing_row_indices": sorted(set(missing_row_indices)),
         "validated_answers_by_unit_id": validated_answers,
     }
     if next_errors:
@@ -1691,7 +1691,7 @@ def _validate_knowledge_same_session_grouping_task_file(
         if row_id_to_source_unit_id.get(row_id)
         and row_id_to_source_unit_id[row_id] not in validated_answers
     ]
-    unresolved_block_indices = sorted(
+    unresolved_row_indices = sorted(
         {
             row_id_to_block_index[row_id]
             for row_id in set(missing_row_ids) | duplicate_row_ids | unknown_row_ids
@@ -1712,15 +1712,15 @@ def _validate_knowledge_same_session_grouping_task_file(
         **dict(metadata),
         "error_details": error_details,
         "failed_unit_ids": [batch_unit_id] if next_errors or error_details else [],
-        "unresolved_block_indices": unresolved_block_indices,
+        "unresolved_row_indices": unresolved_row_indices,
         "validated_answers_by_unit_id": {} if next_errors else validated_answers,
         "same_session_group_missing_row_ids": missing_row_ids,
         "same_session_group_unknown_row_ids": sorted(unknown_row_ids),
         "same_session_group_duplicate_row_ids": sorted(duplicate_row_ids),
     }
     if next_errors:
-        if unresolved_block_indices:
-            next_metadata["knowledge_blocks_missing_group"] = unresolved_block_indices
+        if unresolved_row_indices:
+            next_metadata["knowledge_rows_missing_group"] = unresolved_row_indices
         return None, tuple(dict.fromkeys(next_errors)), next_metadata
     return validated_answers, (), next_metadata
 
@@ -1746,7 +1746,7 @@ def validate_knowledge_grouping_task_file(
     next_errors = list(errors)
     error_details = list(metadata.get("error_details") or [])
     failed_unit_ids: list[str] = []
-    unresolved_block_indices: list[int] = []
+    unresolved_row_indices: list[int] = []
     validated_answers: dict[str, dict[str, Any]] = {}
     canonical_story_by_group_id: dict[str, str] = {}
     unit_ids_by_group_id: dict[str, list[str]] = {}
@@ -1849,7 +1849,7 @@ def validate_knowledge_grouping_task_file(
                 unit_failed = True
         if unit_failed:
             failed_unit_ids.append(unit_id)
-            unresolved_block_indices.append(block_index)
+            unresolved_row_indices.append(block_index)
             continue
         canonical_story = json.dumps(
             {
@@ -1878,8 +1878,8 @@ def validate_knowledge_grouping_task_file(
                     ).get("block_index")
                     or 0
                 )
-                unresolved_block_indices.append(conflicted_block_index)
-            unresolved_block_indices.append(block_index)
+                unresolved_row_indices.append(conflicted_block_index)
+            unresolved_row_indices.append(block_index)
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/group_id",
@@ -1895,7 +1895,7 @@ def validate_knowledge_grouping_task_file(
             "why_no_existing_tag": why_no_existing_tag,
             "retrieval_query": retrieval_query,
         }
-    noncontiguous_blocks: list[int] = []
+    noncontiguous_rows: list[int] = []
     if not next_errors:
         for group_id, grouped_unit_ids in unit_ids_by_group_id.items():
             ordered_positions = sorted(
@@ -1920,8 +1920,8 @@ def validate_knowledge_grouping_task_file(
                     ).get("block_index")
                     or 0
                 )
-                unresolved_block_indices.append(conflicted_block_index)
-                noncontiguous_blocks.append(conflicted_block_index)
+                unresolved_row_indices.append(conflicted_block_index)
+                noncontiguous_rows.append(conflicted_block_index)
             error_details.append(
                 {
                     "path": f"/groups/{group_id}",
@@ -1933,14 +1933,14 @@ def validate_knowledge_grouping_task_file(
         **dict(metadata),
         "error_details": error_details,
         "failed_unit_ids": failed_unit_ids,
-        "unresolved_block_indices": sorted(set(unresolved_block_indices)),
+        "unresolved_row_indices": sorted(set(unresolved_row_indices)),
         "validated_answers_by_unit_id": validated_answers,
     }
     if next_errors:
-        next_metadata["knowledge_blocks_missing_group"] = sorted(set(unresolved_block_indices))
-        if noncontiguous_blocks:
-            next_metadata["knowledge_group_noncontiguous_blocks"] = sorted(
-                set(noncontiguous_blocks)
+        next_metadata["knowledge_rows_missing_group"] = sorted(set(unresolved_row_indices))
+        if noncontiguous_rows:
+            next_metadata["knowledge_group_noncontiguous_rows"] = sorted(
+                set(noncontiguous_rows)
             )
         return None, tuple(dict.fromkeys(next_errors)), next_metadata
     return validated_answers, (), next_metadata
