@@ -56,11 +56,13 @@ def test_build_freeform_tasks_offsets_are_deterministic() -> None:
     source_rows = first["source_map"]["rows"]
     assert source_rows[0]["segment_start"] == 0
     assert source_rows[0]["segment_end"] == 5
+    assert "block_index" not in source_rows[0]
     assert source_rows[1]["segment_start"] == 7
     assert source_rows[1]["segment_end"] == 11
+    assert "block_index" not in source_rows[1]
 
     touched = map_span_offsets_to_rows(first["source_map"], 0, 4)
-    assert [item["block_index"] for item in touched] == [0]
+    assert [item["row_index"] for item in touched] == [0]
 
 
 def test_resolve_segment_overlap_for_target_prefers_closest_task_count() -> None:
@@ -138,9 +140,11 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     assert len(first_source_map["context_before_rows"]) == 1
     assert first_source_map["context_before_rows"][0]["row_index"] == 0
     assert first_source_map["context_before_rows"][0]["text"] == "A"
+    assert "block_index" not in first_source_map["context_before_rows"][0]
     assert len(first_source_map["context_after_rows"]) == 1
     assert first_source_map["context_after_rows"][0]["row_index"] == 3
     assert first_source_map["context_after_rows"][0]["text"] == "D"
+    assert "block_index" not in first_source_map["context_after_rows"][0]
     assert tasks[0]["data"]["focus_scope_hint"] == (
         "Label only rows 1-2. Context only: before 0; after 3."
     )
@@ -156,6 +160,7 @@ def test_build_freeform_tasks_include_focus_metadata() -> None:
     assert len(second_source_map["context_before_rows"]) == 1
     assert second_source_map["context_before_rows"][0]["row_index"] == 3
     assert second_source_map["context_before_rows"][0]["text"] == "D"
+    assert "block_index" not in second_source_map["context_before_rows"][0]
     assert second_source_map["context_after_rows"] == []
     assert tasks[1]["data"]["focus_scope_hint"] == (
         "Label only rows 4-5. Context only: before 3; after none."

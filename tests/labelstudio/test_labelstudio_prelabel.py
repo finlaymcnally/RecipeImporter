@@ -58,7 +58,6 @@ def _freeform_task() -> dict[str, object]:
                     {
                         "row_id": "row-0",
                         "row_index": 0,
-                        "block_index": 0,
                         "text": "Serves 4",
                         "segment_start": 0,
                         "segment_end": 8,
@@ -66,7 +65,6 @@ def _freeform_task() -> dict[str, object]:
                     {
                         "row_id": "row-1",
                         "row_index": 1,
-                        "block_index": 1,
                         "text": "1 cup flour",
                         "segment_start": 10,
                         "segment_end": 21,
@@ -92,7 +90,6 @@ def _single_block_task(text: str) -> dict[str, object]:
                     {
                         "row_id": "row-5",
                         "row_index": 5,
-                        "block_index": 5,
                         "text": text,
                         "segment_start": 0,
                         "segment_end": len(text),
@@ -227,7 +224,7 @@ def test_codex_farm_provider_respects_xdg_cache_home(
     assert provider.cache_dir.is_dir()
 
 
-def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
+def test_prelabel_span_mode_repairs_quote_row_index_mismatch() -> None:
     task = {
         "id": 400,
         "data": {
@@ -242,7 +239,6 @@ def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
                     {
                         "row_id": "row-0",
                         "row_index": 0,
-                        "block_index": 0,
                         "text": "A",
                         "segment_start": 0,
                         "segment_end": 1,
@@ -250,7 +246,6 @@ def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
                     {
                         "row_id": "row-1",
                         "row_index": 1,
-                        "block_index": 1,
                         "text": "B",
                         "segment_start": 3,
                         "segment_end": 4,
@@ -258,7 +253,6 @@ def test_prelabel_span_mode_repairs_quote_block_index_mismatch() -> None:
                     {
                         "row_id": "row-2",
                         "row_index": 2,
-                        "block_index": 2,
                         "text": "C",
                         "segment_start": 6,
                         "segment_end": 7,
@@ -395,7 +389,6 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
                     {
                         "row_id": "row-0",
                         "row_index": 0,
-                        "block_index": 0,
                         "text": "A",
                         "segment_start": 0,
                         "segment_end": 1,
@@ -403,7 +396,6 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
                     {
                         "row_id": "row-1",
                         "row_index": 1,
-                        "block_index": 1,
                         "text": "B",
                         "segment_start": 3,
                         "segment_end": 4,
@@ -411,7 +403,6 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
                     {
                         "row_id": "row-2",
                         "row_index": 2,
-                        "block_index": 2,
                         "text": "C",
                         "segment_start": 6,
                         "segment_end": 7,
@@ -437,7 +428,7 @@ def test_prelabel_span_prompt_marks_context_before_and_after() -> None:
     assert "<<<CONTEXT_AFTER_LABELING_ONLY>>>" in prompt
 
 
-def test_prelabel_span_prompt_reads_context_blocks_for_focus_only_segment() -> None:
+def test_prelabel_span_prompt_reads_context_rows_for_focus_only_segment() -> None:
     task = {
         "id": 301,
         "data": {
@@ -448,13 +439,12 @@ def test_prelabel_span_prompt_reads_context_blocks_for_focus_only_segment() -> N
                 "focus_start_row_index": 1,
                 "focus_end_row_index": 1,
                 "focus_row_indices": [1],
-                "context_before_rows": [{"row_index": 0, "block_index": 0, "text": "A"}],
-                "context_after_rows": [{"row_index": 2, "block_index": 2, "text": "C"}],
+                "context_before_rows": [{"row_index": 0, "text": "A"}],
+                "context_after_rows": [{"row_index": 2, "text": "C"}],
                 "rows": [
                     {
                         "row_id": "row-1",
                         "row_index": 1,
-                        "block_index": 1,
                         "text": "B",
                         "segment_start": 0,
                         "segment_end": 1,
@@ -586,3 +576,10 @@ def test_prelabel_prompt_uses_file_templates(monkeypatch, tmp_path: Path) -> Non
     assert span_annotation is not None
     assert "SPAN urn:cookimport:segment:testhash:0:1" in span_provider.prompts[0]
     assert '{"row_index": 0, "text": "Serves 4"}' in span_provider.prompts[0]
+
+
+def test_parse_span_label_output_ignores_block_index_only_quote_items() -> None:
+    parsed = parse_span_label_output(
+        '[{"block_index": 5, "label": "TIME_LINE", "quote": "Prep 10 min"}]'
+    )
+    assert parsed == []

@@ -154,7 +154,7 @@ def prelabel_freeform_task(
         raise ValueError("allowed_labels cannot be empty")
     normalized_granularity = normalize_prelabel_granularity(prelabel_granularity)
 
-    segment_id, segment_text, source_blocks = _extract_task_data(task)
+    segment_id, segment_text, source_rows = _extract_task_data(task)
     data = task.get("data")
     if not isinstance(data, dict):
         raise ValueError("task missing data object")
@@ -163,7 +163,7 @@ def prelabel_freeform_task(
         raise ValueError("task missing data.source_map")
     focus_row_indices = _resolve_focus_row_index_set(
         source_map=source_map,
-        source_blocks=source_blocks,
+        source_blocks=source_rows,
     )
     if not focus_row_indices:
         raise ValueError("task source_map has no valid focus row indices")
@@ -203,7 +203,7 @@ def prelabel_freeform_task(
         segment_id=segment_id,
         segment_text=segment_text,
         row_map=row_map,
-        source_blocks=source_blocks,
+        source_rows=source_rows,
         focus_row_indices=focus_row_indices,
         allowed_labels=normalized_allowed,
     )

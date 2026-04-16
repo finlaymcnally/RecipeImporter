@@ -15,6 +15,7 @@ Durable contracts for Label Studio import/export/eval/prelabel flows in `cookimp
 - Freeform prelabeling is span-only and must derive final offsets from task-local `segment_text` + `data.source_map.rows[*].segment_start/end`.
 - Freeform prelabel flows must preserve `data.segment_text` exactly (no whitespace normalization) so exported offsets remain stable.
 - Freeform Label Studio payload contract for new tasks is `data.segment_text` + `data.source_map.rows` plus `data.source_map.context_before_rows` / `data.source_map.context_after_rows`.
+- Those row/task payloads should identify rows with `row_index` only; do not add a `block_index` alias back onto the active prelabel contract.
 - Legacy pulled exports may still carry `blocks` / `context_*_blocks`; prompt/parsing fallbacks may read them for compatibility, but new task generation must not write them.
 - Freeform prelabel granularity contract: `span` mode writes quote-anchored spans (`row_index` + `quote` + optional `occurrence`) with optional validated absolute fallback (`start`/`end`).
 - Freeform context-vs-focus contract: `segment_blocks` controls context visibility, `segment_focus_blocks` controls which blocks may receive labels, focus windows should be centered inside each segment when possible (so context appears before and after), and prelabel runtime must enforce focus filtering parser-side (including absolute spans that cross non-focus blocks).

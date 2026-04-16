@@ -164,7 +164,7 @@ def parse_span_label_output(raw: str) -> list[dict[str, Any]]:
             )
             continue
 
-        row_index_raw = item.get("row_index", item.get("block_index"))
+        row_index_raw = item.get("row_index")
         quote_raw = item.get("quote")
         if quote_raw is None:
             quote_raw = item.get("text") or item.get("span")

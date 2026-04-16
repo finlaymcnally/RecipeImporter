@@ -75,7 +75,7 @@ def _build_row_map(task: dict[str, Any]) -> dict[int, tuple[int, int]]:
     _segment_id, segment_text, source_blocks = _extract_task_data(task)
     row_map: dict[int, tuple[int, int]] = {}
     for item in source_blocks:
-        row_index_raw = item.get("row_index", item.get("block_index"))
+        row_index_raw = item.get("row_index")
         start_raw = item.get("segment_start")
         end_raw = item.get("segment_end")
         try:
@@ -92,7 +92,7 @@ def _available_row_indices(source_blocks: list[dict[str, Any]]) -> list[int]:
     available: list[int] = []
     seen: set[int] = set()
     for item in source_blocks:
-        row_index_raw = item.get("row_index", item.get("block_index"))
+        row_index_raw = item.get("row_index")
         try:
             row_index = int(row_index_raw)
         except (TypeError, ValueError):
@@ -204,7 +204,7 @@ def _find_substring_matches(text: str, needle: str) -> list[tuple[int, int]]:
     return matches
 def _resolve_quote_offsets(
     *,
-    block_text: str,
+    row_text: str,
     quote: str,
     occurrence: int | None,
 ) -> tuple[int, int] | None:
@@ -214,7 +214,7 @@ def _resolve_quote_offsets(
         candidates.append(stripped)
 
     for needle in candidates:
-        matches = _find_substring_matches(block_text, needle)
+        matches = _find_substring_matches(row_text, needle)
         if not matches:
             continue
         if len(matches) == 1:
@@ -234,7 +234,7 @@ def _contiguous_row_index_span(indices: set[int]) -> tuple[int, int] | None:
     if end - start + 1 != len(ordered):
         return None
     return start, end
-def _quote_match_count(block_text: str, quote: str) -> int:
+def _quote_match_count(row_text: str, quote: str) -> int:
     if not quote:
         return 0
     candidates = [quote]
@@ -242,7 +242,7 @@ def _quote_match_count(block_text: str, quote: str) -> int:
     if stripped and stripped != quote:
         candidates.append(stripped)
     for needle in candidates:
-        matches = _find_substring_matches(block_text, needle)
+        matches = _find_substring_matches(row_text, needle)
         if matches:
             return len(matches)
     return 0
@@ -295,9 +295,9 @@ def _resolve_quote_span_in_row(
     if row_offsets is None:
         return None
     row_start, row_end = row_offsets
-    block_text = segment_text[row_start:row_end]
+    row_text = segment_text[row_start:row_end]
     resolved = _resolve_quote_offsets(
-        block_text=block_text,
+        row_text=row_text,
         quote=quote,
         occurrence=occurrence,
     )
@@ -352,24 +352,24 @@ def _repair_quote_selection(
     return None
 def _touched_row_indices_for_span(
     *,
-    source_blocks: list[dict[str, Any]],
+    source_rows: list[dict[str, Any]],
     start: int,
     end: int,
 ) -> set[int]:
     touched: set[int] = set()
-    for item in source_blocks:
-        block_index_raw = item.get("row_index", item.get("block_index"))
-        block_start_raw = item.get("segment_start")
-        block_end_raw = item.get("segment_end")
+    for item in source_rows:
+        row_index_raw = item.get("row_index")
+        row_start_raw = item.get("segment_start")
+        row_end_raw = item.get("segment_end")
         try:
-            block_index = int(block_index_raw)
-            block_start = int(block_start_raw)
-            block_end = int(block_end_raw)
+            row_index = int(row_index_raw)
+            row_start = int(row_start_raw)
+            row_end = int(row_end_raw)
         except (TypeError, ValueError):
             continue
-        if end <= block_start or start >= block_end:
+        if end <= row_start or start >= row_end:
             continue
-        touched.add(block_index)
+        touched.add(row_index)
     return touched
 def _build_results_for_span_mode(
     *,
@@ -377,7 +377,7 @@ def _build_results_for_span_mode(
     segment_id: str,
     segment_text: str,
     row_map: dict[int, tuple[int, int]],
-    source_blocks: list[dict[str, Any]],
+    source_rows: list[dict[str, Any]],
     focus_row_indices: set[int],
     allowed_labels: set[str],
 ) -> list[dict[str, Any]]:
@@ -400,7 +400,7 @@ def _build_results_for_span_mode(
             if start < 0 or end <= start or end > len(segment_text):
                 continue
             touched_row_indices = _touched_row_indices_for_span(
-                source_blocks=source_blocks,
+                source_rows=source_rows,
                 start=start,
                 end=end,
             )
@@ -411,45 +411,45 @@ def _build_results_for_span_mode(
                 continue
         elif kind == "quote":
             try:
-                row_index = int(selection.get("row_index", selection.get("block_index")))
+                row_index = int(selection.get("row_index"))
             except (TypeError, ValueError):
                 continue
             quote = str(selection.get("quote") or "")
             if not quote:
                 continue
             occurrence = _parse_optional_occurrence(selection.get("occurrence"))
-            resolved_block_index: int | None = None
+            resolved_row_index: int | None = None
             if row_index in focus_row_indices:
-                block_offsets = row_map.get(row_index)
-                if block_offsets is not None:
-                    block_start, block_end = block_offsets
-                    block_text = segment_text[block_start:block_end]
-                    match_count = _quote_match_count(block_text, quote)
+                row_offsets = row_map.get(row_index)
+                if row_offsets is not None:
+                    row_start, row_end = row_offsets
+                    row_text = segment_text[row_start:row_end]
+                    match_count = _quote_match_count(row_text, quote)
                     if match_count > 1 and occurrence is None:
                         continue
                     if match_count > 0 and occurrence is not None:
                         resolved = _resolve_quote_offsets(
-                            block_text=block_text,
+                            row_text=row_text,
                             quote=quote,
                             occurrence=occurrence,
                         )
                         if resolved is None:
                             continue
-                        start = block_start + resolved[0]
-                        end = block_start + resolved[1]
-                        resolved_block_index = row_index
+                        start = row_start + resolved[0]
+                        end = row_start + resolved[1]
+                        resolved_row_index = row_index
                     elif match_count == 1:
                         resolved = _resolve_quote_offsets(
-                            block_text=block_text,
+                            row_text=row_text,
                             quote=quote,
                             occurrence=occurrence,
                         )
                         if resolved is not None:
-                            start = block_start + resolved[0]
-                            end = block_start + resolved[1]
-                            resolved_block_index = row_index
+                            start = row_start + resolved[0]
+                            end = row_start + resolved[1]
+                            resolved_row_index = row_index
 
-            if resolved_block_index is None:
+            if resolved_row_index is None:
                 repaired = _repair_quote_selection(
                     row_index=row_index,
                     quote=quote,
@@ -460,8 +460,8 @@ def _build_results_for_span_mode(
                 )
                 if repaired is None:
                     continue
-                resolved_block_index, start, end = repaired
-                row_index = resolved_block_index
+                resolved_row_index, start, end = repaired
+                row_index = resolved_row_index
         else:
             continue
         if start < 0 or end <= start or end > len(segment_text):

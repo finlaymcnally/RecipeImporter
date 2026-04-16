@@ -137,6 +137,7 @@ Resume/idempotence is based on these IDs, not Label Studio internal task IDs.
 - `segment_text` contains the labelable focus window for one task.
 - `source_map.rows[*]` carries the authoritative row-native mapping for that focus text, including stable `row_id`, row ordinals, and offsets.
 - New task generation writes only `source_map.rows[*]` plus `context_before_rows` / `context_after_rows`.
+- Those row payloads should use `row_index` for row identity; do not reintroduce a `block_index` alias on the active prelabel task contract.
 - Export/import/eval readers now expect `source_map.rows[*]`; block-wide task payload compatibility is intentionally removed from the active contract.
 - Import writes `coverage.json` from focus + context block coverage and fails when extracted text is empty.
 

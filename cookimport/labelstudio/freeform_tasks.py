@@ -325,7 +325,6 @@ def _build_segment_text(
             {
                 "row_id": row.row_id,
                 "row_index": row.row_index,
-                "block_index": row.row_index,
                 "text": text,
                 "source_block_index": row.source_block_index,
                 "block_id": row.row_id,
@@ -354,7 +353,6 @@ def _build_context_prompt_rows(rows: Sequence[_TaskRow]) -> list[dict[str, Any]]
             {
                 "row_id": row.row_id,
                 "row_index": row.row_index,
-                "block_index": row.row_index,
                 "source_block_index": row.source_block_index,
                 "block_id": row.row_id,
                 "source_block_id": row.source_block_id,
@@ -524,7 +522,7 @@ def compute_freeform_task_coverage(
             for item in source_rows:
                 if not isinstance(item, dict):
                     continue
-                row_index = item.get("row_index", item.get("block_index"))
+                row_index = item.get("row_index")
                 try:
                     covered_row_indices.add(int(row_index))
                 except (TypeError, ValueError):

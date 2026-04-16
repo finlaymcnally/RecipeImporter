@@ -178,15 +178,15 @@ def _build_focus_marked_row_lines(
 def _extract_valid_rows_from_segment_text(
     *,
     segment_text: str,
-    blocks: list[Any],
+    rows: list[Any],
 ) -> list[tuple[int, str]]:
     valid_rows: list[tuple[int, str]] = []
-    for block in blocks:
-        if not isinstance(block, dict):
+    for row in rows:
+        if not isinstance(row, dict):
             continue
-        row_index_raw = block.get("row_index", block.get("block_index"))
-        start_raw = block.get("segment_start")
-        end_raw = block.get("segment_end")
+        row_index_raw = row.get("row_index")
+        start_raw = row.get("segment_start")
+        end_raw = row.get("segment_end")
         try:
             row_index = int(row_index_raw)
             start = int(start_raw)
@@ -198,14 +198,14 @@ def _extract_valid_rows_from_segment_text(
         row_text = segment_text[start:end]
         valid_rows.append((row_index, row_text))
     return valid_rows
-def _extract_prompt_context_rows(raw_blocks: Any) -> list[tuple[int, str]]:
-    if not isinstance(raw_blocks, list):
+def _extract_prompt_context_rows(raw_rows: Any) -> list[tuple[int, str]]:
+    if not isinstance(raw_rows, list):
         return []
     parsed: list[tuple[int, str]] = []
-    for item in raw_blocks:
+    for item in raw_rows:
         if not isinstance(item, dict):
             continue
-        row_index_raw = item.get("row_index", item.get("block_index"))
+        row_index_raw = item.get("row_index")
         try:
             row_index = int(row_index_raw)
         except (TypeError, ValueError):
@@ -232,7 +232,7 @@ def _build_prompt(
 
     focus_valid_rows = _extract_valid_rows_from_segment_text(
         segment_text=segment_text,
-        blocks=rows,
+        rows=rows,
     )
     context_before_rows = _extract_prompt_context_rows(
         source_map.get("context_before_rows")
@@ -355,37 +355,37 @@ def _build_prompt_log_entry(
     source_map = data.get("source_map")
     if not isinstance(source_map, dict):
         source_map = {}
-    source_blocks = source_map.get("rows")
-    if not isinstance(source_blocks, list):
-        source_blocks = []
-    context_before_blocks = source_map.get("context_before_rows")
-    if not isinstance(context_before_blocks, list):
-        context_before_blocks = []
-    context_after_blocks = source_map.get("context_after_rows")
-    if not isinstance(context_after_blocks, list):
-        context_after_blocks = []
+    source_rows = source_map.get("rows")
+    if not isinstance(source_rows, list):
+        source_rows = []
+    context_before_rows = source_map.get("context_before_rows")
+    if not isinstance(context_before_rows, list):
+        context_before_rows = []
+    context_after_rows = source_map.get("context_after_rows")
+    if not isinstance(context_after_rows, list):
+        context_after_rows = []
     row_indices: list[int] = []
-    for block in source_blocks:
-        if not isinstance(block, dict):
+    for row in source_rows:
+        if not isinstance(row, dict):
             continue
         try:
-            row_indices.append(int(block.get("row_index", block.get("block_index"))))
+            row_indices.append(int(row.get("row_index")))
         except (TypeError, ValueError):
             continue
     context_before_indices: list[int] = []
-    for block in context_before_blocks:
-        if not isinstance(block, dict):
+    for row in context_before_rows:
+        if not isinstance(row, dict):
             continue
         try:
-            context_before_indices.append(int(block.get("row_index", block.get("block_index"))))
+            context_before_indices.append(int(row.get("row_index")))
         except (TypeError, ValueError):
             continue
     context_after_indices: list[int] = []
-    for block in context_after_blocks:
-        if not isinstance(block, dict):
+    for row in context_after_rows:
+        if not isinstance(row, dict):
             continue
         try:
-            context_after_indices.append(int(block.get("row_index", block.get("block_index"))))
+            context_after_indices.append(int(row.get("row_index")))
         except (TypeError, ValueError):
             continue
     ordered_allowed_labels = [
