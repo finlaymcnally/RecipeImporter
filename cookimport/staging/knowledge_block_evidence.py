@@ -47,11 +47,11 @@ def build_knowledge_block_evidence(
         notes.append("KNOWLEDGE labels were derived from final non-recipe authority.")
     if nonrecipe_stage_result.candidate_status.unresolved_candidate_block_indices:
         notes.append(
-            "Candidate non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
+            "Candidate non-recipe rows without final authority were marked unresolved and excluded from semantic scoring."
         )
     elif nonrecipe_stage_result.routing.candidate_block_indices:
         notes.append(
-            "All candidate non-recipe blocks had final authority before scoring."
+            "All candidate non-recipe rows had final authority before scoring."
         )
     return KnowledgeBlockEvidence(
         knowledge_indices=knowledge_indices,

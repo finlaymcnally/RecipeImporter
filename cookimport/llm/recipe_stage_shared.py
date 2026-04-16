@@ -729,7 +729,7 @@ def _validate_recipe_output_divestments(*, prepared: _PreparedRecipeInput, corre
         raise ValueError("recipe outputs with status 'repaired' cannot divest every owned block")
     if not requested_divestments:
         return []
-    return [RecipeDivestment(recipe_id=prepared.state.recipe_id, block_indices=requested_divestments, reason=str(correction_output.status_reason or correction_output.repair_status).strip() or 'explicit_recipe_divestment')]
+    return [RecipeDivestment(recipe_id=prepared.state.recipe_id, row_indices=requested_divestments, reason=str(correction_output.status_reason or correction_output.repair_status).strip() or 'explicit_recipe_divestment')]
 
 def _evaluate_recipe_task_file_answers(*, original_task_file: Mapping[str, Any], edited_task_file_path: Path, runnable_tasks: Sequence[_RecipeTaskPlan]) -> tuple[dict[str, dict[str, Any]], dict[str, tuple[str, ...]], dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
     task_by_unit_id = {f'recipe::{str((_coerce_dict((_coerce_dict(task_plan.manifest_entry.input_payload).get('r') or [{}])[0]).get('rid') or '').strip() or task_plan.task_id)}': task_plan for task_plan in runnable_tasks}

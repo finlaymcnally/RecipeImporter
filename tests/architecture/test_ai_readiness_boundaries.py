@@ -140,7 +140,7 @@ def test_second_wave_owner_roots_stay_small_and_explicit() -> None:
     knowledge_text = _read("cookimport/llm/knowledge_stage/__init__.py")
     recipe_stage_text = _read("cookimport/llm/recipe_stage/__init__.py")
     nonrecipe_text = _read("cookimport/staging/nonrecipe_stage.py")
-    stage_predictions_text = _read("cookimport/staging/stage_block_predictions.py")
+    stage_predictions_text = _read("cookimport/staging/semantic_row_predictions.py")
     dashboard_render_text = _read("cookimport/analytics/dashboard_render.py")
     run_settings_text = _read("cookimport/config/run_settings.py")
 

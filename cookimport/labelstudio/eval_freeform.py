@@ -117,19 +117,30 @@ def load_gold_freeform_ranges(path: Path) -> list[LabeledRange]:
 
 
 def _extract_block_indices(payload: dict[str, Any]) -> list[int]:
-    values = payload.get("touched_block_indices")
+    values = payload.get("touched_row_indices")
+    if not isinstance(values, list):
+        values = payload.get("touched_block_indices")
     items: list[Any]
     if isinstance(values, list):
         items = values
     else:
-        touched_blocks = payload.get("touched_blocks")
-        if not isinstance(touched_blocks, list):
-            return []
-        items = [
-            item.get("block_index")
-            for item in touched_blocks
-            if isinstance(item, dict) and item.get("block_index") is not None
-        ]
+        touched_rows = payload.get("touched_rows")
+        if isinstance(touched_rows, list):
+            items = [
+                item.get("row_index", item.get("block_index"))
+                for item in touched_rows
+                if isinstance(item, dict)
+                and item.get("row_index", item.get("block_index")) is not None
+            ]
+        else:
+            touched_blocks = payload.get("touched_blocks")
+            if not isinstance(touched_blocks, list):
+                return []
+            items = [
+                item.get("block_index")
+                for item in touched_blocks
+                if isinstance(item, dict) and item.get("block_index") is not None
+            ]
 
     indices: list[int] = []
     for value in items:

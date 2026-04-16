@@ -225,7 +225,7 @@ Benchmark transport note:
 Primary scored prediction artifact:
 
 - `semantic_row_predictions.json` (`schema_version=semantic_row_predictions.v1`)
-  - the current staging owner map for that artifact is: `recipe_block_evidence.py` for recipe-local evidence, `knowledge_block_evidence.py` for final non-recipe evidence, `block_label_resolution.py` for priority rules, and `stage_block_predictions.py` as the assembly root
+  - the current staging owner map for that artifact is: `recipe_block_evidence.py` for recipe-local evidence, `knowledge_block_evidence.py` for final non-recipe evidence, `block_label_resolution.py` for priority rules, and `semantic_row_predictions.py` as the assembly root for `semantic_row_predictions.json`
 
 Required supporting artifact:
 

@@ -9,4 +9,4 @@ Durable import/export/prelabel rules live in `cookimport/labelstudio/CONVENTIONS
 - `export.py` exports freeform annotations only (`freeform_span_labels.jsonl`, `freeform_segment_manifest.jsonl`, `summary.json`); default export roots are source-aware so repeated pulls overwrite one folder.
 - `eval_freeform.py` evaluates predicted freeform labels against exported freeform gold.
 - `labelstudio-benchmark` now treats the prediction-run manifest's canonical scorer pointer pair as the authoritative benchmark source. `prediction-run/` remains the home for tasks/manifests/diagnostics, and those scorer pointers may target canonical line-role projection artifacts when that run enables them.
-- Canonical line-role projection artifacts use canonical `line_index` coordinates for both `block_labels` and unresolved-candidate metadata so semantic scoring exclusions stay aligned.
+- Canonical line-role projection artifacts use canonical `line_index` coordinates for `row_labels` and unresolved-candidate row metadata so semantic scoring exclusions stay aligned.

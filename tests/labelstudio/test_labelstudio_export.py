@@ -415,12 +415,14 @@ def test_labelstudio_export_uses_source_slug_for_default_run_root(
                         "book_id": "book",
                         "segment_text": "Hello",
                         "source_map": {
-                            "blocks": [
+                            "rows": [
                                 {
-                                    "block_id": "b-0",
-                                    "block_index": 0,
+                                    "row_id": "row-0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
                                     "segment_start": 0,
                                     "segment_end": 5,
+                                    "text": "Hello",
                                 }
                             ]
                         },
@@ -520,12 +522,14 @@ def test_labelstudio_export_reuses_existing_run_root_for_same_source(
                         "book_id": "book",
                         "segment_text": "Hello",
                         "source_map": {
-                            "blocks": [
+                            "rows": [
                                 {
-                                    "block_id": "b-0",
-                                    "block_index": 0,
+                                    "row_id": "row-0",
+                                    "row_index": 0,
+                                    "source_block_index": 0,
                                     "segment_start": 0,
                                     "segment_end": 5,
+                                    "text": "Hello",
                                 }
                             ]
                         },

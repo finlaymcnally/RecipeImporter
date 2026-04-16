@@ -7,14 +7,14 @@ from typing import Any, Sequence
 from pydantic import BaseModel, ConfigDict
 
 from cookimport.core.models import ConversionResult
+from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 from cookimport.parsing.canonical_line_roles import CanonicalLineRolePrediction
 from cookimport.staging.draft_v1 import (
     apply_line_role_spans_to_recipes as apply_line_role_spans_to_staging_recipes,
 )
-from cookimport.staging.stage_block_predictions import (
-    FREEFORM_LABELS,
-    UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY,
-    UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY,
+from cookimport.staging.semantic_row_predictions import (
+    UNRESOLVED_CANDIDATE_ROW_CATEGORY_KEY,
+    UNRESOLVED_CANDIDATE_ROW_INDICES_KEY,
 )
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
@@ -69,8 +69,8 @@ def build_line_role_stage_prediction_payload(
     source_file: str,
     source_hash: str,
     workbook_slug: str,
-    unresolved_block_indices: Sequence[int] | None = None,
-    unresolved_block_category_by_index: dict[int, str] | None = None,
+    unresolved_row_indices: Sequence[int] | None = None,
+    unresolved_row_category_by_index: dict[int, str] | None = None,
     notes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     resolved_labels: dict[int, str] = {}
@@ -102,40 +102,28 @@ def build_line_role_stage_prediction_payload(
         "source_hash": str(source_hash or "unknown"),
         "workbook_slug": str(workbook_slug),
         "row_count": row_count,
-        "block_count": row_count,
         "counts": {
             "rows": row_count,
-            "blocks": row_count,
             "unresolved_candidate_rows": len(
                 {
                     int(index)
-                    for index in (unresolved_block_indices or [])
-                }
-            ),
-            "unresolved_candidate_blocks": len(
-                {
-                    int(index)
-                    for index in (unresolved_block_indices or [])
+                    for index in (unresolved_row_indices or [])
                 }
             ),
         },
         "row_labels": {
             str(index): label for index, label in sorted(resolved_labels.items())
         },
-        "block_labels": {
-            str(index): label for index, label in sorted(resolved_labels.items())
-        },
         "label_rows": label_rows,
-        "label_blocks": label_rows,
-        UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY: sorted(
+        UNRESOLVED_CANDIDATE_ROW_INDICES_KEY: sorted(
             {
                 int(index)
-                for index in (unresolved_block_indices or [])
+                for index in (unresolved_row_indices or [])
             }
         ),
-        UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY: {
+        UNRESOLVED_CANDIDATE_ROW_CATEGORY_KEY: {
             str(int(index)): str(category)
-            for index, category in sorted((unresolved_block_category_by_index or {}).items())
+            for index, category in sorted((unresolved_row_category_by_index or {}).items())
         },
         "conflicts": conflicts,
         "notes": [

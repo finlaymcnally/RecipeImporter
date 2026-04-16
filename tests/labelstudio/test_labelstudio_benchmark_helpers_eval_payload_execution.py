@@ -22,7 +22,7 @@ def test_labelstudio_benchmark_passes_processed_output_root(
         source_file=source_file,
         include_label_studio_tasks=True,
         extracted_rows=[],
-        block_labels={},
+        row_labels={},
     )
 
     _patch_cli_attr(monkeypatch, "_resolve_labelstudio_settings", lambda *_: ("http://example", "api-key")
@@ -269,7 +269,7 @@ def test_labelstudio_benchmark_predictions_out_writes_prediction_record(
                 "location": {"features": {"extraction_backend": "unstructured"}},
             }
         ],
-        block_labels={"0": "RECIPE_TITLE"},
+        row_labels={"0": "RECIPE_TITLE"},
         manifest_payload={
             "run_config": {"workers": 1},
             "run_config_hash": "cfg-hash",
@@ -443,7 +443,7 @@ def test_labelstudio_benchmark_predictions_in_replays_stage_inputs(
     assert captured_eval["extracted_blocks_json"] == (
         replay_dir / "extracted_archive.from_records.json"
     )
-    assert replay_stage_payload["block_labels"] == {"0": "RECIPE_TITLE"}
+    assert replay_stage_payload["row_labels"] == {"0": "RECIPE_TITLE"}
 
 
 def test_labelstudio_benchmark_predictions_in_manifest_disables_upload(
@@ -470,8 +470,8 @@ def test_labelstudio_benchmark_predictions_in_rejects_legacy_run_pointer_record(
         json.dumps(
             {
                 "schema_version": "semantic_row_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "OTHER"},
+                "row_count": 1,
+                "row_labels": {"0": "OTHER"},
             },
             sort_keys=True,
         ),
@@ -563,8 +563,8 @@ def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
         json.dumps(
             {
                 "schema_version": "semantic_row_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "OTHER"},
+                "row_count": 1,
+                "row_labels": {"0": "OTHER"},
             },
             sort_keys=True,
         ),
@@ -583,8 +583,8 @@ def test_build_prediction_bundle_uses_manifest_canonical_scoring_pointers(
         json.dumps(
             {
                 "schema_version": "semantic_row_predictions.v1",
-                "block_count": 1,
-                "block_labels": {"0": "RECIPE_TITLE"},
+                "row_count": 1,
+                "row_labels": {"0": "RECIPE_TITLE"},
             },
             sort_keys=True,
         ),
@@ -634,7 +634,7 @@ def test_labelstudio_benchmark_manifest_omits_removed_mode_fields(
         prediction_run=prediction_run,
         source_file=source_file,
         extracted_rows=[{"index": 0, "text": "Sample title"}],
-        block_labels={"0": "RECIPE_TITLE"},
+        row_labels={"0": "RECIPE_TITLE"},
     )
     _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
@@ -707,7 +707,7 @@ def test_labelstudio_benchmark_prints_predicted_recipe_count_without_name_error(
         prediction_run=prediction_run,
         source_file=source_file,
         extracted_rows=[{"index": 0, "text": "Sample title"}],
-        block_labels={"0": "RECIPE_TITLE"},
+        row_labels={"0": "RECIPE_TITLE"},
     )
     _patch_cli_attr(
         monkeypatch,
@@ -765,7 +765,7 @@ def _run_offline_prediction_stage_fixture(
         prediction_run=prediction_run,
         source_file=source_file,
         extracted_rows=[{"index": 0, "text": "Sample title"}],
-        block_labels={"0": "RECIPE_TITLE"},
+        row_labels={"0": "RECIPE_TITLE"},
     )
     _patch_cli_attr(monkeypatch, "generate_pred_run_artifacts",
         lambda **_kwargs: {
@@ -973,8 +973,8 @@ def _run_interrupt_partial_artifacts_fixture(
             json.dumps(
                 {
                     "schema_version": "semantic_row_predictions.v1",
-                    "block_count": 1,
-                    "block_labels": {"0": "RECIPE_TITLE"},
+                    "row_count": 1,
+                    "row_labels": {"0": "RECIPE_TITLE"},
                 },
                 sort_keys=True,
             ),

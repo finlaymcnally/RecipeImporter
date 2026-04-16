@@ -18,25 +18,32 @@ _FINAL_OTHER_LABELS = {
 }
 
 
+def prepare_nonrecipe_full_rows_by_index(
+    rows: Sequence[Mapping[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    prepared: dict[int, dict[str, Any]] = {}
+    for raw_row in rows:
+        if not isinstance(raw_row, Mapping):
+            continue
+        try:
+            row_index = int(raw_row.get("index"))
+        except (TypeError, ValueError):
+            continue
+        payload = dict(raw_row)
+        payload["index"] = row_index
+        row_id = payload.get("row_id") or payload.get("block_id") or payload.get("id")
+        if not isinstance(row_id, str) or not row_id.strip():
+            row_id = f"row:{row_index}"
+        payload["row_id"] = row_id.strip()
+        payload.setdefault("block_id", payload["row_id"])
+        prepared[row_index] = payload
+    return prepared
+
+
 def prepare_nonrecipe_full_blocks_by_index(
     blocks: Sequence[Mapping[str, Any]],
 ) -> dict[int, dict[str, Any]]:
-    prepared: dict[int, dict[str, Any]] = {}
-    for raw_block in blocks:
-        if not isinstance(raw_block, Mapping):
-            continue
-        try:
-            block_index = int(raw_block.get("index"))
-        except (TypeError, ValueError):
-            continue
-        payload = dict(raw_block)
-        payload["index"] = block_index
-        block_id = payload.get("block_id") or payload.get("id")
-        if not isinstance(block_id, str) or not block_id.strip():
-            block_id = f"b{block_index}"
-        payload["block_id"] = block_id.strip()
-        prepared[block_index] = payload
-    return prepared
+    return prepare_nonrecipe_full_rows_by_index(blocks)
 
 
 def normalize_nonrecipe_route_label(raw_label: str | None) -> tuple[str, str | None]:
@@ -84,66 +91,66 @@ def require_nonrecipe_final_category(raw_label: str | None, *, block_index: int)
 def build_nonrecipe_span(
     *,
     category: str,
-    block_indices: list[int],
-    block_ids: list[str],
+    row_indices: list[int],
+    row_ids: list[str],
 ) -> NonRecipeSpan:
-    start = int(block_indices[0])
-    end = int(block_indices[-1]) + 1
+    start = int(row_indices[0])
+    end = int(row_indices[-1]) + 1
     return NonRecipeSpan(
         span_id=f"nr.{category}.{start}.{end}",
         category=category,
-        block_start_index=start,
-        block_end_index=end,
-        block_indices=list(block_indices),
-        block_ids=list(block_ids),
+        row_start_index=start,
+        row_end_index=end,
+        row_indices=list(row_indices),
+        row_ids=list(row_ids),
     )
 
 
 def build_nonrecipe_spans_from_categories(
     *,
-    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    block_category_by_index: Mapping[int, str],
+    full_rows_by_index: Mapping[int, Mapping[str, Any]],
+    row_category_by_index: Mapping[int, str],
 ) -> list[NonRecipeSpan]:
     spans: list[NonRecipeSpan] = []
     current_indices: list[int] = []
-    current_block_ids: list[str] = []
+    current_row_ids: list[str] = []
     current_category: str | None = None
     previous_index: int | None = None
 
-    for block_index in sorted(block_category_by_index):
-        category = str(block_category_by_index[block_index] or "other")
-        block_payload = full_blocks_by_index.get(int(block_index), {})
-        block_id = str(block_payload.get("block_id") or f"b{block_index}")
+    for row_index in sorted(row_category_by_index):
+        category = str(row_category_by_index[row_index] or "other")
+        row_payload = full_rows_by_index.get(int(row_index), {})
+        row_id = str(row_payload.get("row_id") or row_payload.get("block_id") or f"row:{row_index}")
         if (
             current_category is None
             or previous_index is None
-            or block_index != previous_index + 1
+            or row_index != previous_index + 1
             or category != current_category
         ):
             if current_category is not None and current_indices:
                 spans.append(
                     build_nonrecipe_span(
                         category=current_category,
-                        block_indices=current_indices,
-                        block_ids=current_block_ids,
+                        row_indices=current_indices,
+                        row_ids=current_row_ids,
                     )
                 )
-            current_indices = [int(block_index)]
-            current_block_ids = [block_id]
+            current_indices = [int(row_index)]
+            current_row_ids = [row_id]
             current_category = category
-            previous_index = int(block_index)
+            previous_index = int(row_index)
             continue
 
-        current_indices.append(int(block_index))
-        current_block_ids.append(block_id)
-        previous_index = int(block_index)
+        current_indices.append(int(row_index))
+        current_row_ids.append(row_id)
+        previous_index = int(row_index)
 
     if current_category is not None and current_indices:
         spans.append(
             build_nonrecipe_span(
                 category=current_category,
-                block_indices=current_indices,
-                block_ids=current_block_ids,
+                row_indices=current_indices,
+                row_ids=current_row_ids,
             )
         )
     return spans
@@ -151,12 +158,12 @@ def build_nonrecipe_spans_from_categories(
 
 def build_nonrecipe_seed_result(
     *,
-    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
+    full_rows_by_index: Mapping[int, Mapping[str, Any]],
     route_by_index: Mapping[int, str],
 ) -> NonRecipeSeedResult:
     seed_nonrecipe_spans = build_nonrecipe_spans_from_categories(
-        full_blocks_by_index=full_blocks_by_index,
-        block_category_by_index=route_by_index,
+        full_rows_by_index=full_rows_by_index,
+        row_category_by_index=route_by_index,
     )
     return NonRecipeSeedResult(
         seed_nonrecipe_spans=seed_nonrecipe_spans,

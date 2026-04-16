@@ -224,7 +224,7 @@ _FILE_MARKERS: dict[str, tuple[str, ...]] = {
     "test_stats_dashboard_csv.py": ("analytics",),
     "test_stats_dashboard_schema.py": ("analytics",),
     "test_stats_dashboard_slow.py": ("analytics",),
-    "test_stage_block_predictions.py": ("staging", "bench"),
+    "test_semantic_row_predictions.py": ("staging", "bench"),
     "test_stage_progress_dashboard.py": ("cli", "staging"),
     "test_step_ingredient_linking.py": ("parsing",),
     "test_step_ingredient_linking_semantic.py": ("parsing",),

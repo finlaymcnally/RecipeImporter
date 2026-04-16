@@ -698,8 +698,6 @@ def predict_stage(
     stage_payload = _load_stage_block_prediction_payload(bundle.stage_predictions_path)
     raw_row_labels = stage_payload.get("row_labels")
     if not isinstance(raw_row_labels, dict):
-        raw_row_labels = stage_payload.get("block_labels")
-    if not isinstance(raw_row_labels, dict):
         raise ValueError(
             "Semantic row predictions payload is missing row_labels map."
         )
@@ -861,17 +859,12 @@ def _build_prediction_bundle_from_stage_records(
         "source_file": source_file,
         "source_hash": source_hash,
         "workbook_slug": workbook_slug,
+        "row_count": len(expected_indices),
         "row_labels": stage_labels,
-        "block_labels": stage_labels,
         "label_rows": label_rows,
-        "label_blocks": label_rows,
         "conflicts": [],
         "notes": ["Reconstructed from per-example prediction records."],
     }
-    contiguous_indices = expected_indices == list(range(len(expected_indices)))
-    if contiguous_indices:
-        stage_payload["row_count"] = len(expected_indices)
-        stage_payload["block_count"] = len(expected_indices)
     stage_predictions_path.write_text(
         json.dumps(stage_payload, indent=2, sort_keys=True),
         encoding="utf-8",

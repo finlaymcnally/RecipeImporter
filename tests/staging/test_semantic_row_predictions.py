@@ -16,13 +16,13 @@ from cookimport.parsing.label_source_of_truth import (
     AuthoritativeBlockLabel,
     LabelFirstStageResult,
 )
-from cookimport.staging.stage_block_predictions import (
-    UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY,
-    UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY,
-    UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY,
-    UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY,
+from cookimport.staging.semantic_row_predictions import (
+    UNRESOLVED_CANDIDATE_ROW_CATEGORY_KEY,
+    UNRESOLVED_CANDIDATE_ROW_INDICES_KEY,
+    UNRESOLVED_RECIPE_OWNED_RECIPE_ID_BY_ROW_INDEX_KEY,
+    UNRESOLVED_RECIPE_OWNED_ROW_INDICES_KEY,
     _is_howto_section_text,
-    build_stage_block_predictions,
+    build_semantic_row_predictions,
 )
 from cookimport.staging.writer import write_semantic_row_predictions
 from tests.nonrecipe_stage_helpers import (
@@ -110,10 +110,10 @@ def _single_recipe_ownership(
     )
 
 
-def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Path) -> None:
+def test_build_semantic_row_predictions_assigns_one_label_per_row(tmp_path: Path) -> None:
     result = _build_result()
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
@@ -128,34 +128,34 @@ def test_build_stage_block_predictions_assigns_one_label_per_block(tmp_path: Pat
         ),
     )
 
-    assert payload["schema_version"] == "stage_block_predictions.v1"
-    assert payload["block_count"] == 9
+    assert payload["schema_version"] == "semantic_row_predictions.v1"
+    assert payload["row_count"] == 9
 
-    block_labels = payload["block_labels"]
-    assert set(block_labels.keys()) == {str(index) for index in range(9)}
+    row_labels = payload["row_labels"]
+    assert set(row_labels.keys()) == {str(index) for index in range(9)}
 
-    assert block_labels["0"] == "RECIPE_TITLE"
-    assert block_labels["1"] == "YIELD_LINE"
-    assert block_labels["2"] == "TIME_LINE"
-    assert block_labels["3"] == "INGREDIENT_LINE"
-    assert block_labels["4"] == "INGREDIENT_LINE"
-    assert block_labels["5"] == "INSTRUCTION_LINE"
-    assert block_labels["6"] == "INSTRUCTION_LINE"
-    assert block_labels["7"] == "RECIPE_NOTES"
-    assert block_labels["8"] == "KNOWLEDGE"
+    assert row_labels["0"] == "RECIPE_TITLE"
+    assert row_labels["1"] == "YIELD_LINE"
+    assert row_labels["2"] == "TIME_LINE"
+    assert row_labels["3"] == "INGREDIENT_LINE"
+    assert row_labels["4"] == "INGREDIENT_LINE"
+    assert row_labels["5"] == "INSTRUCTION_LINE"
+    assert row_labels["6"] == "INSTRUCTION_LINE"
+    assert row_labels["7"] == "RECIPE_NOTES"
+    assert row_labels["8"] == "KNOWLEDGE"
 
-    label_blocks = payload["label_blocks"]
+    label_rows = payload["label_rows"]
     for index in range(9):
-        label = block_labels[str(index)]
-        assert index in label_blocks[label]
+        label = row_labels[str(index)]
+        assert index in label_rows[label]
 
     conflicts = payload["conflicts"]
     assert conflicts == []
     assert "KNOWLEDGE labels were derived from final non-recipe authority." in payload["notes"]
-    assert "All candidate non-recipe blocks had final authority before scoring." in payload["notes"]
+    assert "All candidate non-recipe rows had final authority before scoring." in payload["notes"]
 
 
-def test_build_stage_block_predictions_without_nonrecipe_authority_do_not_project_chunk_lanes() -> None:
+def test_build_semantic_row_predictions_without_nonrecipe_authority_do_not_project_chunk_lanes() -> None:
     result = _build_result()
     result.chunks = [
         KnowledgeChunk(
@@ -166,24 +166,24 @@ def test_build_stage_block_predictions_without_nonrecipe_authority_do_not_projec
         )
     ]
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
     )
 
-    assert payload["block_labels"]["8"] == "OTHER"
-    assert 8 not in payload["label_blocks"]["KNOWLEDGE"]
+    assert payload["row_labels"]["8"] == "OTHER"
+    assert 8 not in payload["label_rows"]["KNOWLEDGE"]
     assert (
         "KNOWLEDGE labels require final non-recipe authority; no fallback chunk-lane projection ran."
         in payload["notes"]
     )
 
 
-def test_build_stage_block_predictions_ignores_nonrecipe_finalize_other_blocks() -> None:
+def test_build_semantic_row_predictions_ignores_nonrecipe_finalize_other_rows() -> None:
     result = _build_result()
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
@@ -198,14 +198,14 @@ def test_build_stage_block_predictions_ignores_nonrecipe_finalize_other_blocks()
         ),
     )
 
-    assert payload["block_labels"]["8"] == "OTHER"
+    assert payload["row_labels"]["8"] == "OTHER"
 
 
-def test_build_stage_block_predictions_ignores_divested_non_promoted_recipe_entries() -> None:
+def test_build_semantic_row_predictions_ignores_divested_non_promoted_recipe_entries() -> None:
     result = _build_result()
     recipe_id = str(result.recipes[0].identifier)
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=make_recipe_ownership_result(
@@ -227,13 +227,13 @@ def test_build_stage_block_predictions_ignores_divested_non_promoted_recipe_entr
         ),
     )
 
-    assert payload["block_labels"]["8"] == "KNOWLEDGE"
+    assert payload["row_labels"]["8"] == "KNOWLEDGE"
 
 
-def test_build_stage_block_predictions_ignores_unresolved_candidate_knowledge() -> None:
+def test_build_semantic_row_predictions_ignores_unresolved_candidate_knowledge() -> None:
     result = _build_result()
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
@@ -248,22 +248,22 @@ def test_build_stage_block_predictions_ignores_unresolved_candidate_knowledge() 
         ),
     )
 
-    assert payload["block_labels"]["8"] == "OTHER"
-    assert payload[UNRESOLVED_CANDIDATE_BLOCK_INDICES_KEY] == [8]
-    assert payload[UNRESOLVED_CANDIDATE_BLOCK_CATEGORY_KEY] == {"8": "candidate"}
-    assert payload["counts"]["unresolved_candidate_blocks"] == 1
+    assert payload["row_labels"]["8"] == "OTHER"
+    assert payload[UNRESOLVED_CANDIDATE_ROW_INDICES_KEY] == [8]
+    assert payload[UNRESOLVED_CANDIDATE_ROW_CATEGORY_KEY] == {"8": "candidate"}
+    assert payload["counts"]["unresolved_candidate_rows"] == 1
     assert (
-        "Candidate non-recipe blocks without final authority were marked unresolved and excluded from semantic scoring."
+        "Candidate non-recipe rows without final authority were marked unresolved and excluded from semantic scoring."
         in payload["notes"]
     )
 
 
-def test_build_stage_block_predictions_uses_boundary_labels_for_withheld_fragmentary_recipe() -> None:
+def test_build_semantic_row_predictions_uses_boundary_labels_for_withheld_fragmentary_recipe() -> None:
     result = _build_result()
     recipe_id = str(result.recipes[0].identifier)
     result.recipes = []
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=make_recipe_ownership_result(
@@ -282,7 +282,7 @@ def test_build_stage_block_predictions_uses_boundary_labels_for_withheld_fragmen
                 "worker_repair_status": "fragmentary",
             }
         },
-        boundary_block_labels=[
+        boundary_labels=[
             AuthoritativeBlockLabel(
                 source_block_id=f"b{index}",
                 source_block_index=index,
@@ -307,19 +307,19 @@ def test_build_stage_block_predictions_uses_boundary_labels_for_withheld_fragmen
         ],
     )
 
-    assert payload["block_labels"]["0"] == "RECIPE_TITLE"
-    assert payload["block_labels"]["7"] == "RECIPE_NOTES"
-    assert payload[UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY] == []
-    assert payload[UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY] == {}
+    assert payload["row_labels"]["0"] == "RECIPE_TITLE"
+    assert payload["row_labels"]["7"] == "RECIPE_NOTES"
+    assert payload[UNRESOLVED_RECIPE_OWNED_ROW_INDICES_KEY] == []
+    assert payload[UNRESOLVED_RECIPE_OWNED_RECIPE_ID_BY_ROW_INDEX_KEY] == {}
     assert payload["unresolved_recipe_exact_evidence"] == []
 
 
-def test_build_stage_block_predictions_marks_recipe_owned_blocks_unresolved_when_withheld_recipe_has_no_evidence() -> None:
+def test_build_semantic_row_predictions_marks_recipe_owned_rows_unresolved_when_withheld_recipe_has_no_evidence() -> None:
     result = _build_result()
     recipe_id = str(result.recipes[0].identifier)
     result.recipes = []
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=make_recipe_ownership_result(
@@ -338,7 +338,7 @@ def test_build_stage_block_predictions_marks_recipe_owned_blocks_unresolved_when
                 "worker_repair_status": "fragmentary",
             }
         },
-        boundary_block_labels=[
+        boundary_labels=[
             AuthoritativeBlockLabel(
                 source_block_id=f"b{index}",
                 source_block_index=index,
@@ -353,16 +353,16 @@ def test_build_stage_block_predictions_marks_recipe_owned_blocks_unresolved_when
         ],
     )
 
-    assert payload[UNRESOLVED_RECIPE_OWNED_BLOCK_INDICES_KEY] == [0, 1, 2]
-    assert payload[UNRESOLVED_RECIPE_OWNED_BY_INDEX_KEY] == {
+    assert payload[UNRESOLVED_RECIPE_OWNED_ROW_INDICES_KEY] == [0, 1, 2]
+    assert payload[UNRESOLVED_RECIPE_OWNED_RECIPE_ID_BY_ROW_INDEX_KEY] == {
         "0": recipe_id,
         "1": recipe_id,
         "2": recipe_id,
     }
-    assert payload["counts"]["unresolved_recipe_owned_blocks"] == 3
+    assert payload["counts"]["unresolved_recipe_owned_rows"] == 3
 
 
-def test_build_stage_block_predictions_records_unresolved_exact_title_evidence_instead_of_guessing() -> None:
+def test_build_semantic_row_predictions_records_unresolved_exact_title_evidence_instead_of_guessing() -> None:
     recipe = RecipeCandidate(
         identifier="urn:recipe:test:narrative-title",
         name="PAN-SEARED SALMON",
@@ -409,13 +409,13 @@ def test_build_stage_block_predictions_records_unresolved_exact_title_evidence_i
         workbookPath="/tmp/narrative-title.txt",
     )
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "narrative-title",
         recipe_ownership_result=_single_recipe_ownership(result, range(2)),
     )
 
-    assert payload["block_labels"]["0"] == "OTHER"
+    assert payload["row_labels"]["0"] == "OTHER"
     assert payload["unresolved_recipe_exact_evidence"] == [
         {
             "recipe_id": "urn:recipe:test:narrative-title",
@@ -425,21 +425,21 @@ def test_build_stage_block_predictions_records_unresolved_exact_title_evidence_i
     ]
 
 
-def test_build_stage_block_predictions_marks_notes_from_description_only() -> None:
+def test_build_semantic_row_predictions_marks_notes_from_description_only() -> None:
     result = _build_result(
         comment_text=None,
         description="Why this recipe works\nKeep the heat low to avoid curdling.",
         note_block_text="Keep the heat low to avoid curdling.",
     )
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "simple",
         recipe_ownership_result=_single_recipe_ownership(result, range(8)),
     )
 
-    assert payload["block_labels"]["7"] == "RECIPE_NOTES"
-    assert 7 in payload["label_blocks"]["RECIPE_NOTES"]
+    assert payload["row_labels"]["7"] == "RECIPE_NOTES"
+    assert 7 in payload["label_rows"]["RECIPE_NOTES"]
 
 
 def test_write_semantic_row_predictions_prefers_final_nonrecipe_authority(
@@ -485,7 +485,7 @@ def test_write_semantic_row_predictions_prefers_final_nonrecipe_authority(
     )
 
     payload = json.loads(output_path.read_text(encoding="utf-8"))
-    assert payload["block_labels"]["8"] == "KNOWLEDGE"
+    assert payload["row_labels"]["8"] == "KNOWLEDGE"
 
 
 def _build_sectioned_result() -> ConversionResult:
@@ -553,32 +553,32 @@ def _build_sectioned_result() -> ConversionResult:
     )
 
 
-def test_build_stage_block_predictions_emits_howto_sections_from_headers() -> None:
+def test_build_semantic_row_predictions_emits_howto_sections_from_headers() -> None:
     result = _build_sectioned_result()
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "sectioned",
         recipe_ownership_result=_single_recipe_ownership(result, range(9)),
     )
 
-    block_labels = payload["block_labels"]
-    assert block_labels["0"] == "OTHER"
-    assert block_labels["1"] == "OTHER"
-    assert block_labels["3"] == "HOWTO_SECTION"
-    assert block_labels["5"] == "HOWTO_SECTION"
-    assert block_labels["7"] == "HOWTO_SECTION"
-    assert block_labels["2"] == "INGREDIENT_LINE"
-    assert block_labels["6"] == "INSTRUCTION_LINE"
+    row_labels = payload["row_labels"]
+    assert row_labels["0"] == "OTHER"
+    assert row_labels["1"] == "OTHER"
+    assert row_labels["3"] == "HOWTO_SECTION"
+    assert row_labels["5"] == "HOWTO_SECTION"
+    assert row_labels["7"] == "HOWTO_SECTION"
+    assert row_labels["2"] == "INGREDIENT_LINE"
+    assert row_labels["6"] == "INSTRUCTION_LINE"
 
     conflicts = payload["conflicts"]
     assert any(
-        row.get("block_index") == 3
+        row.get("row_index") == 3
         and set(row.get("labels", []))
         == {"HOWTO_SECTION", "INGREDIENT_LINE", "INSTRUCTION_LINE"}
         for row in conflicts
     )
     assert any(
-        row.get("block_index") == 5
+        row.get("row_index") == 5
         and set(row.get("labels", []))
         == {"HOWTO_SECTION", "INGREDIENT_LINE", "INSTRUCTION_LINE"}
         for row in conflicts
@@ -591,7 +591,7 @@ def test_is_howto_section_text_rejects_generic_all_caps_single_word_headers() ->
     assert not _is_howto_section_text("CHAPTER")
 
 
-def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
+def test_build_semantic_row_predictions_supports_line_range_provenance() -> None:
     recipe = RecipeCandidate(
         identifier="urn:recipe:test:line-range",
         name="Meat and Gravy",
@@ -635,21 +635,21 @@ def test_build_stage_block_predictions_supports_line_range_provenance() -> None:
         workbookPath="/tmp/line-range.txt",
     )
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "line-range",
         recipe_ownership_result=_single_recipe_ownership(result, range(7)),
     )
 
-    assert payload["block_labels"]["2"] == "HOWTO_SECTION"
-    assert payload["block_labels"]["5"] == "HOWTO_SECTION"
+    assert payload["row_labels"]["2"] == "HOWTO_SECTION"
+    assert payload["row_labels"]["5"] == "HOWTO_SECTION"
     assert all(
         "lacked block-range provenance" not in note
         for note in payload["notes"]
     )
 
 
-def test_build_stage_block_predictions_rejects_title_without_boundary_evidence() -> None:
+def test_build_semantic_row_predictions_rejects_title_without_boundary_evidence() -> None:
     recipe = RecipeCandidate(
         identifier="urn:recipe:test:narrative-title",
         name="PAN-SEARED SALMON",
@@ -696,11 +696,11 @@ def test_build_stage_block_predictions_rejects_title_without_boundary_evidence()
         workbookPath="/tmp/narrative-title.txt",
     )
 
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         result,
         "narrative-title",
         recipe_ownership_result=_single_recipe_ownership(result, range(2)),
     )
 
-    assert payload["block_labels"]["0"] == "OTHER"
-    assert not payload["label_blocks"]["RECIPE_TITLE"]
+    assert payload["row_labels"]["0"] == "OTHER"
+    assert not payload["label_rows"]["RECIPE_TITLE"]

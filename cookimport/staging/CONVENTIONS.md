@@ -9,7 +9,7 @@ Output-path and artifact contracts for staging writers and merge flows.
 - When updating docs about report locations, verify `stage()` and split-merge paths in `cookimport/cli.py` before documenting.
 - Report metadata fields that must stay consistent across stage runs (for example `importerName`, `runConfig`, `runConfigHash`, `runConfigSummary`) are attached to worker payloads in `cookimport/cli_worker.py:execute_source_job(...)` and finalized when `cookimport/cli.py:_merge_source_jobs(...)` writes the run report.
 
-## Stage Block Prediction Convention
+## Semantic Row Prediction Convention
 
 - Stage-producing flows must write `.bench/<workbook_slug>/semantic_row_predictions.json` using `cookimport/staging/writer.py:write_semantic_row_predictions`.
 - Benchmark/eval code depends on this artifact being present for single-file stage runs, split-merge stage runs, and processed-output writes from `cookimport/labelstudio/ingest_flows/prediction_run.py`.

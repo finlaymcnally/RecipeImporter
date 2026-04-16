@@ -779,6 +779,7 @@ def register(app: typer.Typer) -> dict[str, object]:
             csv_path=csv_history_path,
             output_root=csv_history_root,
             golden_root=DEFAULT_GOLDEN,
+            dashboard_out_dir=REPO_ROOT / ".history" / "dashboard",
             reason="labelstudio-eval history append",
         )
 

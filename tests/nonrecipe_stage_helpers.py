@@ -70,6 +70,8 @@ def make_seed_result(
 
 def make_routing_result(
     *,
+    candidate_row_indices: Sequence[int] | None = None,
+    excluded_row_indices: Sequence[int] | None = None,
     candidate_block_indices: Sequence[int] | None = None,
     excluded_block_indices: Sequence[int] = (),
     candidate_nonrecipe_spans: Sequence[NonRecipeSpan] | None = None,
@@ -78,10 +80,24 @@ def make_routing_result(
     block_preview_by_index: Mapping[int, str] | None = None,
     warnings: Sequence[str] | None = None,
 ) -> NonRecipeRoutingResult:
-    candidate_indices = [int(index) for index in (candidate_block_indices or ())]
-    excluded_indices = [int(index) for index in excluded_block_indices]
+    candidate_indices = [
+        int(index)
+        for index in (
+            candidate_row_indices
+            if candidate_row_indices is not None
+            else (candidate_block_indices or ())
+        )
+    ]
+    excluded_indices = [
+        int(index)
+        for index in (
+            excluded_row_indices
+            if excluded_row_indices is not None
+            else excluded_block_indices
+        )
+    ]
     return NonRecipeRoutingResult(
-        route_by_block=(
+        route_by_row=(
             {
                 **{int(index): "candidate" for index in candidate_indices},
                 **{int(index): "exclude" for index in excluded_indices},
@@ -99,9 +115,9 @@ def make_routing_result(
             if excluded_nonrecipe_spans is not None
             else spans_for_indices(excluded_indices, category="exclude")
         ),
-        candidate_block_indices=candidate_indices,
-        excluded_block_indices=excluded_indices,
-        block_preview_by_index={
+        candidate_row_indices=candidate_indices,
+        excluded_row_indices=excluded_indices,
+        row_preview_by_index={
             int(index): str(preview)
             for index, preview in (block_preview_by_index or {}).items()
         },
@@ -129,8 +145,6 @@ def make_authority_result(
     )
     authoritative_spans = spans_from_category_map(authoritative_row_map)
     return NonRecipeAuthorityResult(
-        authoritative_block_indices=sorted(authoritative_map),
-        authoritative_block_category_by_index=authoritative_map,
         authoritative_row_indices=sorted(authoritative_row_map),
         authoritative_row_category_by_index=authoritative_row_map,
         authoritative_row_source_block_index_by_index={
@@ -151,7 +165,8 @@ def make_authority_result(
 
 def make_candidate_status_result(
     *,
-    finalized_candidate_block_indices: Sequence[int],
+    finalized_candidate_row_indices: Sequence[int] | None = None,
+    finalized_candidate_block_indices: Sequence[int] = (),
     unresolved_candidate_route_by_index: Mapping[int, str],
 ) -> NonRecipeCandidateStatusResult:
     unresolved_map = {
@@ -159,10 +174,15 @@ def make_candidate_status_result(
         for index, route in unresolved_candidate_route_by_index.items()
     }
     return NonRecipeCandidateStatusResult(
-        finalized_candidate_block_indices=[
-            int(index) for index in finalized_candidate_block_indices
+        finalized_candidate_row_indices=[
+            int(index)
+            for index in (
+                finalized_candidate_row_indices
+                if finalized_candidate_row_indices is not None
+                else finalized_candidate_block_indices
+            )
         ],
-        unresolved_candidate_block_indices=sorted(unresolved_map),
+        unresolved_candidate_row_indices=sorted(unresolved_map),
         unresolved_candidate_route_by_index=unresolved_map,
         unresolved_candidate_spans=spans_from_category_map(unresolved_map),
     )
@@ -170,10 +190,12 @@ def make_candidate_status_result(
 
 def make_finalize_status_result(
     *,
-    reviewed_block_indices: Sequence[int],
+    reviewed_row_indices: Sequence[int] | None = None,
+    reviewed_block_indices: Sequence[int] = (),
     unreviewed_block_category_by_index: Mapping[int, str],
 ) -> NonRecipeCandidateStatusResult:
     return make_candidate_status_result(
+        finalized_candidate_row_indices=reviewed_row_indices,
         finalized_candidate_block_indices=reviewed_block_indices,
         unresolved_candidate_route_by_index=unreviewed_block_category_by_index,
     )
@@ -194,8 +216,8 @@ def make_recipe_ownership_result(
         RecipeOwnershipEntry(
             recipe_id=str(recipe_id),
             recipe_span_id=f"span:{recipe_id}",
-            owned_block_indices=[int(index) for index in indices],
-            divested_block_indices=list(resolved_divested.get(str(recipe_id), [])),
+            owned_row_indices=[int(index) for index in indices],
+            divested_row_indices=list(resolved_divested.get(str(recipe_id), [])),
         )
         for recipe_id, indices in owned_by_recipe_id.items()
     ]
@@ -216,13 +238,13 @@ def make_recipe_ownership_result(
     return RecipeOwnershipResult(
         ownership_mode=ownership_mode,
         recipe_entries=entries,
-        block_owner_by_index=block_owner_by_index,
-        owned_block_indices=owned_block_indices,
-        divested_block_indices=divested_block_indices,
-        available_to_nonrecipe_block_indices=[
+        row_owner_by_index=block_owner_by_index,
+        owned_row_indices=owned_block_indices,
+        divested_row_indices=divested_block_indices,
+        available_to_nonrecipe_row_indices=[
             index for index in all_indices if index not in block_owner_by_index
         ],
-        all_block_indices=all_indices,
+        all_row_indices=all_indices,
     )
 
 
@@ -267,8 +289,8 @@ def _build_span(block_indices: Sequence[int], category: str) -> NonRecipeSpan:
     return NonRecipeSpan(
         span_id=f"nr.{category}.{start}.{end}",
         category=category,
-        block_start_index=start,
-        block_end_index=end,
-        block_indices=ordered_indices,
-        block_ids=[f"b{index}" for index in ordered_indices],
+        row_start_index=start,
+        row_end_index=end,
+        row_indices=ordered_indices,
+        row_ids=[f"b{index}" for index in ordered_indices],
     )

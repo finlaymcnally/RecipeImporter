@@ -224,7 +224,7 @@ Row-authoritative benchmark note:
 - `run_manifest.json`
 
 `--force-source-match` bypasses strict source identity checks when intentionally comparing renamed/cutdown variants.
-`labelstudio-eval` also appends benchmark-style history CSV rows and refreshes dashboard artifacts.
+`labelstudio-eval` also appends benchmark-style history CSV rows. When the eval infers an external processed-output root from the prediction-run manifest, it still refreshes the shared repo dashboard under `.history/dashboard` so benchmark history stays in one place.
 For metadata parity with benchmark/prediction manifests, `labelstudio-eval` now accepts optional
 `--llm-recipe-pipeline`, `--atomic-block-splitter`, and `--line-role-pipeline` overrides; when omitted,
 values are inferred from prediction-run metadata. Prediction-run line-role diagnostics now distinguish
@@ -362,7 +362,7 @@ When source-row benchmark eval runs with `line_role_pipeline != off`, eval roots
 
 - `labelstudio-export` writes only explicit spans; unlabeled text is implicit and benchmarks treat missing gold coverage as `OTHER`.
 - Overlapping exported spans are preserved. Stage-block and source-row scoring treat touched blocks/lines as multi-label gold, so macro/per-label metrics can lag overall accuracy.
-- Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, the row-prediction builder in `cookimport/staging/stage_block_predictions.py`, and `cookimport/bench/eval_source_rows.py`.
+- Adding a freeform label is a multi-surface change: update `cookimport/labelstudio/label_config_freeform.py`, `cookimport/labelstudio/eval_freeform.py`, the row-prediction builder in `cookimport/staging/semantic_row_predictions.py`, and `cookimport/bench/eval_source_rows.py`.
 - Reusing an older Label Studio project can leave stale `label_config`; if code labels and UI labels disagree, recreate or patch the project before changing scorers.
 - `labelstudio-benchmark compare` accepts either all-method benchmark report roots/files or single `eval_report.json` inputs.
 - If recipe-tail storage/use notes are scoring as `OTHER`, check both seams:

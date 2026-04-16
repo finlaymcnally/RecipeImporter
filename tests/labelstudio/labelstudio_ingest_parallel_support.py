@@ -409,9 +409,9 @@ def _install_split_import_mocks(
         stage_predictions_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "stage_block_predictions.v1",
-                    "block_labels": {},
-                    "label_blocks": {},
+                    "schema_version": "semantic_row_predictions.v1",
+                    "row_labels": {},
+                    "label_rows": {},
                     "workbook_slug": "book",
                 },
                 indent=2,
@@ -839,9 +839,10 @@ def _build_final_nonrecipe_authority_fixture(
 
     final_nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({2: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[2]),
+        routing=make_routing_result(candidate_row_indices=[2]),
         authority=make_authority_result({2: "knowledge"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[2],
             reviewed_block_indices=[2],
             unreviewed_block_category_by_index={},
         ),
@@ -851,17 +852,17 @@ def _build_final_nonrecipe_authority_fixture(
             "input_mode": "nonrecipe_candidate_spans",
             "seed_nonrecipe_span_count": 1,
             "final_nonrecipe_span_count": 1,
-            "changed_block_count": 1,
-            "changed_blocks": [
+            "changed_row_count": 1,
+            "changed_rows": [
                 {
-                    "block_index": 2,
+                    "row_index": 2,
                     "previous_final_category": None,
                     "final_category": "knowledge",
                     "applied_packet_ids": [],
                 }
             ],
             "conflicts": [],
-            "ignored_block_indices": [],
+            "ignored_row_indices": [],
             "scored_effect": "final_authority",
         },
     )
@@ -874,9 +875,9 @@ def _build_final_nonrecipe_authority_fixture(
         stage_predictions_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "stage_block_predictions.v1",
-                    "block_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE", "2": "KNOWLEDGE"},
-                    "label_blocks": {
+                    "schema_version": "semantic_row_predictions.v1",
+                    "row_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE", "2": "KNOWLEDGE"},
+                    "label_rows": {
                         "RECIPE_TITLE": [0],
                         "INGREDIENT_LINE": [1],
                         "KNOWLEDGE": [2],

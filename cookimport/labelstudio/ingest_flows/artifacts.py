@@ -164,22 +164,22 @@ def _write_authoritative_line_role_artifacts(
         source_file=source_file,
         source_hash=source_hash,
         workbook_slug=workbook_slug,
-        unresolved_block_indices=scoring_projection_summary["unresolved_candidate_block_indices"],
-        unresolved_block_category_by_index=scoring_projection_summary[
+        unresolved_row_indices=scoring_projection_summary["unresolved_candidate_row_indices"],
+        unresolved_row_category_by_index=scoring_projection_summary[
             "unresolved_candidate_route_by_index"
         ],
         notes=[
             "Prediction-run projection reused authoritative Stage 2 labels for recipe-local lines.",
             "Outside-recipe route labels were projected into final KNOWLEDGE/OTHER only when final authority existed.",
             *([
-                f"Nonrecipe authority finalized {nonrecipe_projection_summary['reviewed_candidate_block_count']} outside-recipe candidate blocks before scoring."
-            ] if nonrecipe_projection_summary["reviewed_candidate_block_count"] else []),
+                f"Nonrecipe authority finalized {nonrecipe_projection_summary['reviewed_candidate_row_count']} outside-recipe candidate rows before scoring."
+            ] if nonrecipe_projection_summary["reviewed_candidate_row_count"] else []),
             *([
                 "Unresolved candidate outside-recipe rows were marked unresolved and excluded from semantic scoring."
             ] if scoring_projection_summary["unresolved_candidate_line_count"] else []),
             *([
-                f"Knowledge refinement changed {nonrecipe_projection_summary['changed_block_count']} outside-recipe blocks before scoring."
-            ] if nonrecipe_projection_summary["changed_block_count"] else []),
+                f"Knowledge refinement changed {nonrecipe_projection_summary['changed_row_count']} outside-recipe rows before scoring."
+            ] if nonrecipe_projection_summary["changed_row_count"] else []),
         ],
     )
     archive_payload = build_line_role_extracted_archive_payload(projected_spans)
@@ -259,7 +259,7 @@ def _write_authoritative_line_role_artifacts(
             "recipes_applied": len(label_first_result.recipe_spans),
             "span_count": len(projected_spans),
             "authoritative_stage_outputs_mutated": bool(
-                nonrecipe_projection_summary["reviewed_candidate_block_count"]
+                nonrecipe_projection_summary["reviewed_candidate_row_count"]
             ),
             "mode": "final_authority_projection",
             **nonrecipe_projection_summary,
@@ -276,7 +276,7 @@ def _build_scored_line_role_projection_spans(
     if nonrecipe_stage_result is None:
         return spans, {
             "unresolved_candidate_line_count": 0,
-            "unresolved_candidate_block_indices": [],
+            "unresolved_candidate_row_indices": [],
             "unresolved_candidate_route_by_index": {},
         }
 
@@ -286,13 +286,13 @@ def _build_scored_line_role_projection_spans(
     authoritative_row_categories = dict(
         nonrecipe_stage_result.authority.authoritative_row_category_by_index
     )
-    unresolved_candidate_block_index_set = {
+    unresolved_candidate_row_index_set = {
         int(index)
-        for index in nonrecipe_stage_result.candidate_status.unresolved_candidate_block_indices
+        for index in nonrecipe_stage_result.candidate_status.unresolved_candidate_row_indices
     }
     unresolved_line_indices: set[int] = set()
-    unresolved_stage_block_indices: set[int] = set()
-    unresolved_route_by_stage_block_index: dict[int, str] = {}
+    unresolved_row_indices: set[int] = set()
+    unresolved_route_by_row_index: dict[int, str] = {}
     scored_spans: list[FreeformSpanPrediction] = []
     for span in spans:
         if span.within_recipe_span:
@@ -312,21 +312,21 @@ def _build_scored_line_role_projection_spans(
                 span = span.model_copy(update={"label": target_label})
             scored_spans.append(span)
             continue
-        if atomic_index in unresolved_candidate_block_index_set:
+        if atomic_index in unresolved_candidate_row_index_set:
             unresolved_line_indices.add(line_index)
-            unresolved_stage_block_indices.add(atomic_index)
+            unresolved_row_indices.add(atomic_index)
             raw_route = nonrecipe_stage_result.candidate_status.unresolved_candidate_route_by_index.get(
                 atomic_index
             )
             if raw_route is not None:
-                unresolved_route_by_stage_block_index[atomic_index] = str(raw_route)
+                unresolved_route_by_row_index[atomic_index] = str(raw_route)
         scored_spans.append(span)
     return scored_spans, {
         "unresolved_candidate_line_count": len(unresolved_line_indices),
-        "unresolved_candidate_block_indices": sorted(unresolved_stage_block_indices),
+        "unresolved_candidate_row_indices": sorted(unresolved_row_indices),
         "unresolved_candidate_route_by_index": {
-            int(block_index): route
-            for block_index, route in sorted(unresolved_route_by_stage_block_index.items())
+            int(row_index): route
+            for row_index, route in sorted(unresolved_route_by_row_index.items())
         },
     }
 
@@ -339,10 +339,10 @@ def _apply_nonrecipe_authority_to_predictions(
         return predictions, {
             "authority_mode": "missing_nonrecipe_stage_result",
             "scored_effect": "route_only",
-            "reviewed_candidate_block_count": 0,
-            "reviewed_candidate_block_indices": [],
-            "changed_block_count": 0,
-            "changed_block_indices": [],
+            "reviewed_candidate_row_count": 0,
+            "reviewed_candidate_row_indices": [],
+            "changed_row_count": 0,
+            "changed_row_indices": [],
         }
 
     final_categories = dict(
@@ -351,15 +351,15 @@ def _apply_nonrecipe_authority_to_predictions(
     final_row_categories = dict(
         nonrecipe_stage_result.authority.authoritative_row_category_by_index
     )
-    reviewed_candidate_block_indices = sorted(
+    reviewed_candidate_row_indices = sorted(
         int(index)
-        for index in nonrecipe_stage_result.candidate_status.finalized_candidate_block_indices
+        for index in nonrecipe_stage_result.candidate_status.finalized_candidate_row_indices
     )
-    reviewed_candidate_index_set = set(reviewed_candidate_block_indices)
-    changed_block_indices = sorted(
-        int(row.get("block_index"))
-        for row in (nonrecipe_stage_result.refinement_report.get("changed_blocks") or [])
-        if isinstance(row, dict) and row.get("block_index") is not None
+    reviewed_candidate_index_set = set(reviewed_candidate_row_indices)
+    changed_row_indices = sorted(
+        int(row.get("row_index"))
+        for row in (nonrecipe_stage_result.refinement_report.get("changed_rows") or [])
+        if isinstance(row, dict) and row.get("row_index") is not None
     )
     adjusted_predictions: list[Any] = []
     for prediction in predictions:
@@ -427,10 +427,10 @@ def _apply_nonrecipe_authority_to_predictions(
             nonrecipe_stage_result.refinement_report.get("scored_effect")
             or "route_only"
         ),
-        "reviewed_candidate_block_count": len(reviewed_candidate_block_indices),
-        "reviewed_candidate_block_indices": reviewed_candidate_block_indices,
-        "changed_block_count": len(changed_block_indices),
-        "changed_block_indices": changed_block_indices,
+        "reviewed_candidate_row_count": len(reviewed_candidate_row_indices),
+        "reviewed_candidate_row_indices": reviewed_candidate_row_indices,
+        "changed_row_count": len(changed_row_indices),
+        "changed_row_indices": changed_row_indices,
     }
 
 def _llm_selective_retry_run_config_summary(

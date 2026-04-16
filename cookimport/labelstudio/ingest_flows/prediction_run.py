@@ -1179,7 +1179,7 @@ def generate_pred_run_artifacts(
     )
     processed_run_root: Path | None = None
     processed_report_path: Path | None = None
-    stage_block_predictions_source_path: Path | None = None
+    semantic_row_predictions_source_path: Path | None = None
 
     if processed_output_root is None and run_settings.llm_recipe_pipeline.value != "off":
         _notify("Running codex-farm recipe pipeline...")
@@ -1338,7 +1338,7 @@ def generate_pred_run_artifacts(
         llm_report = dict(stage_session.llm_report)
         result.report.llm_codex_farm = llm_report
         processed_report_path = stage_session.report_path
-        stage_block_predictions_source_path = (
+        semantic_row_predictions_source_path = (
             stage_session.semantic_row_predictions_path
             if stage_session.semantic_row_predictions_path.exists()
             else None
@@ -1915,17 +1915,17 @@ def generate_pred_run_artifacts(
     )
     local_semantic_row_predictions_path: Path | None = None
     if (
-        stage_block_predictions_source_path is not None
-        and stage_block_predictions_source_path.exists()
+        semantic_row_predictions_source_path is not None
+        and semantic_row_predictions_source_path.exists()
     ):
         if mirror_stage_artifacts_into_run_root:
             local_semantic_row_predictions_path = run_root / "semantic_row_predictions.json"
             shutil.copy2(
-                stage_block_predictions_source_path,
+                semantic_row_predictions_source_path,
                 local_semantic_row_predictions_path,
             )
         else:
-            local_semantic_row_predictions_path = stage_block_predictions_source_path
+            local_semantic_row_predictions_path = semantic_row_predictions_source_path
     scored_semantic_row_predictions_path = local_semantic_row_predictions_path
     scored_extracted_archive_path = archive_path
     if isinstance(line_role_artifacts, dict):

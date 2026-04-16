@@ -154,13 +154,13 @@ def test_stage_projection_payload_uses_dense_canonical_line_indices() -> None:
         workbook_slug="book",
     )
 
-    assert stage_payload["block_count"] == 2
-    assert stage_payload["block_labels"] == {
+    assert stage_payload["row_count"] == 2
+    assert stage_payload["row_labels"] == {
         "0": "RECIPE_TITLE",
         "1": "YIELD_LINE",
     }
-    assert stage_payload["label_blocks"]["RECIPE_TITLE"] == [0]
-    assert stage_payload["label_blocks"]["YIELD_LINE"] == [1]
+    assert stage_payload["label_rows"]["RECIPE_TITLE"] == [0]
+    assert stage_payload["label_rows"]["YIELD_LINE"] == [1]
     assert stage_payload["conflicts"] == []
 
 
@@ -198,9 +198,9 @@ def test_stage_projection_payload_does_not_expand_sparse_source_block_indices() 
         workbook_slug="book",
     )
 
-    assert stage_payload["block_count"] == 2
-    assert stage_payload["block_labels"] == {
+    assert stage_payload["row_count"] == 2
+    assert stage_payload["row_labels"] == {
         "0": "RECIPE_TITLE",
         "1": "OTHER",
     }
-    assert "200" not in stage_payload["block_labels"]
+    assert "200" not in stage_payload["row_labels"]

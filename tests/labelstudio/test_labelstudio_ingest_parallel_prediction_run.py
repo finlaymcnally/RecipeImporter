@@ -463,11 +463,11 @@ def test_generate_pred_run_artifacts_line_role_projection_prefers_projection_for
     assert processed_stage_path != projected_stage_path
 
     stage_payload = json.loads(mirrored_stage_path.read_text(encoding="utf-8"))
-    assert stage_payload["block_labels"]["0"] == "RECIPE_TITLE"
-    assert stage_payload["block_labels"]["1"] == "YIELD_LINE"
-    assert stage_payload["block_labels"]["2"] == "INGREDIENT_LINE"
-    assert stage_payload["block_labels"]["3"] == "INSTRUCTION_LINE"
-    assert stage_payload["block_labels"]["4"] == "RECIPE_NOTES"
+    assert stage_payload["row_labels"]["0"] == "RECIPE_TITLE"
+    assert stage_payload["row_labels"]["1"] == "YIELD_LINE"
+    assert stage_payload["row_labels"]["2"] == "INGREDIENT_LINE"
+    assert stage_payload["row_labels"]["3"] == "INSTRUCTION_LINE"
+    assert stage_payload["row_labels"]["4"] == "RECIPE_NOTES"
 
     projected_rows = [
         json.loads(line)
@@ -619,8 +619,8 @@ def test_authoritative_line_role_artifacts_aggregate_stage_payload_by_source_blo
     assert isinstance(stage_payload, dict)
     assert isinstance(summary, dict)
 
-    assert stage_payload["block_count"] == 3
-    assert stage_payload["block_labels"] == {
+    assert stage_payload["row_count"] == 3
+    assert stage_payload["row_labels"] == {
         "0": "RECIPE_TITLE",
         "1": "YIELD_LINE",
         "2": "INGREDIENT_LINE",
@@ -755,9 +755,10 @@ def _build_final_nonrecipe_authority_fixture(
 
     final_nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({2: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[2]),
+        routing=make_routing_result(candidate_row_indices=[2]),
         authority=make_authority_result({2: "knowledge"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[2],
             reviewed_block_indices=[2],
             unreviewed_block_category_by_index={},
         ),
@@ -767,17 +768,17 @@ def _build_final_nonrecipe_authority_fixture(
             "input_mode": "nonrecipe_candidate_spans",
             "seed_nonrecipe_span_count": 1,
             "final_nonrecipe_span_count": 1,
-            "changed_block_count": 1,
-            "changed_blocks": [
+            "changed_row_count": 1,
+            "changed_rows": [
                 {
-                    "block_index": 2,
+                    "row_index": 2,
                     "previous_final_category": None,
                     "final_category": "knowledge",
                     "applied_packet_ids": [],
                 }
             ],
             "conflicts": [],
-            "ignored_block_indices": [],
+            "ignored_row_indices": [],
             "scored_effect": "final_authority",
         },
     )
@@ -790,9 +791,9 @@ def _build_final_nonrecipe_authority_fixture(
         stage_predictions_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "stage_block_predictions.v1",
-                    "block_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE", "2": "KNOWLEDGE"},
-                    "label_blocks": {
+                    "schema_version": "semantic_row_predictions.v1",
+                    "row_labels": {"0": "RECIPE_TITLE", "1": "INGREDIENT_LINE", "2": "KNOWLEDGE"},
+                    "label_rows": {
                         "RECIPE_TITLE": [0],
                         "INGREDIENT_LINE": [1],
                         "KNOWLEDGE": [2],
@@ -885,7 +886,7 @@ def test_generate_pred_run_artifacts_processed_output_reuses_final_nonrecipe_aut
     stage_payload = json.loads(
         Path(result["semantic_row_predictions_path"]).read_text(encoding="utf-8")
     )
-    assert stage_payload["block_labels"]["2"] == "KNOWLEDGE"
+    assert stage_payload["row_labels"]["2"] == "KNOWLEDGE"
 
 
 def test_generate_pred_run_artifacts_processed_output_reports_final_nonrecipe_authority_projection(
@@ -913,7 +914,7 @@ def test_generate_pred_run_artifacts_processed_output_reports_final_nonrecipe_au
         "final_authority_projection"
     )
     assert telemetry_payload["mode"] == "final_authority_projection"
-    assert telemetry_payload["changed_block_indices"] == [2]
+    assert telemetry_payload["changed_row_indices"] == [2]
 
 
 def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() -> None:
@@ -932,16 +933,17 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
     ]
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({10: "other"}),
-        routing=make_routing_result(candidate_block_indices=[10]),
+        routing=make_routing_result(candidate_row_indices=[10]),
         authority=make_authority_result({10: "other"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[10],
             reviewed_block_indices=[10],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
             "scored_effect": "final_authority",
-            "changed_blocks": [{"block_index": 10}],
+            "changed_rows": [{"row_index": 10}],
         },
     )
 
@@ -950,7 +952,7 @@ def test_nonrecipe_authority_projection_preserves_recipe_notes_outside_recipe() 
         nonrecipe_stage_result=nonrecipe_stage_result,
     )
 
-    assert summary["changed_block_count"] == 1
+    assert summary["changed_row_count"] == 1
     assert len(adjusted) == 1
     assert adjusted[0].label == "RECIPE_NOTES"
     assert "nonrecipe_authority:other" not in adjusted[0].reason_tags
@@ -972,16 +974,17 @@ def test_nonrecipe_authority_projection_ignores_unresolved_candidate_without_fin
     ]
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({10: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[10]),
+        routing=make_routing_result(candidate_row_indices=[10]),
         authority=make_authority_result({}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[],
             reviewed_block_indices=[],
             unreviewed_block_category_by_index={10: "candidate"},
         ),
         refinement_report={
             "authority_mode": "deterministic_route_only",
             "scored_effect": "route_only",
-            "changed_blocks": [],
+            "changed_rows": [],
         },
     )
 
@@ -1011,16 +1014,17 @@ def test_nonrecipe_authority_projection_marks_reviewed_candidate_as_codex_withou
     ]
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({10: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[10]),
+        routing=make_routing_result(candidate_row_indices=[10]),
         authority=make_authority_result({10: "other"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[10],
             reviewed_block_indices=[10],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "nonrecipe_finalized_candidates",
             "scored_effect": "final_authority",
-            "changed_blocks": [],
+            "changed_rows": [],
         },
     )
 
@@ -1029,9 +1033,9 @@ def test_nonrecipe_authority_projection_marks_reviewed_candidate_as_codex_withou
         nonrecipe_stage_result=nonrecipe_stage_result,
     )
 
-    assert summary["reviewed_candidate_block_count"] == 1
-    assert summary["reviewed_candidate_block_indices"] == [10]
-    assert summary["changed_block_count"] == 0
+    assert summary["reviewed_candidate_row_count"] == 1
+    assert summary["reviewed_candidate_row_indices"] == [10]
+    assert summary["changed_row_count"] == 0
     assert adjusted[0].label == "OTHER"
     assert adjusted[0].decided_by == "codex"
     assert "nonrecipe_authority:other" in adjusted[0].reason_tags
@@ -1053,16 +1057,17 @@ def test_nonrecipe_authority_projection_preserves_row_level_exclude_inside_knowl
     ]
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({10: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[10]),
+        routing=make_routing_result(candidate_row_indices=[10]),
         authority=make_authority_result({10: "knowledge"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[10],
             reviewed_block_indices=[10],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
             "scored_effect": "final_authority",
-            "changed_blocks": [{"block_index": 10}],
+            "changed_rows": [{"row_index": 10}],
         },
     )
 
@@ -1071,7 +1076,7 @@ def test_nonrecipe_authority_projection_preserves_row_level_exclude_inside_knowl
         nonrecipe_stage_result=nonrecipe_stage_result,
     )
 
-    assert summary["changed_block_count"] == 1
+    assert summary["changed_row_count"] == 1
     assert adjusted[0].label == "OTHER"
     assert adjusted[0].decided_by == "codex"
     assert "nonrecipe_authority:preserved_exclude" in adjusted[0].reason_tags
@@ -1105,20 +1110,21 @@ def test_nonrecipe_authority_projection_uses_row_level_authority_inside_mixed_so
     ]
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({10: "candidate", 11: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[10, 11]),
+        routing=make_routing_result(candidate_row_indices=[10, 11]),
         authority=make_authority_result(
             {10: "knowledge"},
             row_category_by_index={10: "other", 11: "knowledge"},
             row_source_block_index_by_index={10: 10, 11: 10},
         ),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[10, 11],
             reviewed_block_indices=[10, 11],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
             "scored_effect": "final_authority",
-            "changed_blocks": [{"block_index": 11}],
+            "changed_rows": [{"row_index": 11}],
         },
     )
 
@@ -1195,16 +1201,17 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
 
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({2: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[2]),
+        routing=make_routing_result(candidate_row_indices=[2]),
         authority=make_authority_result({}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[],
             reviewed_block_indices=[],
             unreviewed_block_category_by_index={2: "candidate"},
         ),
         refinement_report={
             "authority_mode": "deterministic_route_only",
             "scored_effect": "route_only",
-            "changed_blocks": [],
+            "changed_rows": [],
         },
     )
 
@@ -1228,9 +1235,9 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
     stage_payload = json.loads(
         artifacts["semantic_row_predictions_path"].read_text(encoding="utf-8")
     )
-    assert stage_payload["block_labels"]["2"] == "OTHER"
-    assert stage_payload["unresolved_candidate_block_indices"] == [2]
-    assert stage_payload["unresolved_candidate_route_by_index"] == {"2": "candidate"}
+    assert stage_payload["row_labels"]["2"] == "OTHER"
+    assert stage_payload["unresolved_candidate_row_indices"] == [2]
+    assert stage_payload["unresolved_candidate_route_by_row_index"] == {"2": "candidate"}
     assert (
         "Unresolved candidate outside-recipe rows were marked unresolved and excluded from semantic scoring."
         in stage_payload["notes"]
@@ -1240,7 +1247,7 @@ def test_line_role_projection_stage_payload_marks_unresolved_candidate_outside_r
         artifacts["telemetry_summary_path"].read_text(encoding="utf-8")
     )
     assert telemetry_payload["unresolved_candidate_line_count"] == 1
-    assert telemetry_payload["unresolved_candidate_block_indices"] == [2]
+    assert telemetry_payload["unresolved_candidate_row_indices"] == [2]
     assert summary["unresolved_candidate_line_count"] == 1
 
 
@@ -1295,16 +1302,17 @@ def test_line_role_artifacts_write_semantic_predictions_for_reviewed_nonrecipe_c
 
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({1: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[1]),
+        routing=make_routing_result(candidate_row_indices=[1]),
         authority=make_authority_result({1: "other"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[1],
             reviewed_block_indices=[1],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "nonrecipe_finalized_candidates",
             "scored_effect": "final_authority",
-            "changed_blocks": [],
+            "changed_rows": [],
         },
     )
 
@@ -1340,7 +1348,7 @@ def test_line_role_artifacts_write_semantic_predictions_for_reviewed_nonrecipe_c
     assert semantic_row["label"] == "OTHER"
     assert semantic_row["decided_by"] == "codex"
     assert summary["authoritative_stage_outputs_mutated"] is True
-    assert summary["reviewed_candidate_block_indices"] == [1]
+    assert summary["reviewed_candidate_row_indices"] == [1]
 
 
 def test_line_role_stage_payload_overrides_outside_recipe_howto_with_final_authority(
@@ -1372,16 +1380,17 @@ def test_line_role_stage_payload_overrides_outside_recipe_howto_with_final_autho
 
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({23: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[23]),
+        routing=make_routing_result(candidate_row_indices=[23]),
         authority=make_authority_result({23: "knowledge"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[23],
             reviewed_block_indices=[23],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
             "scored_effect": "final_authority",
-            "changed_blocks": [{"block_index": 23}],
+            "changed_rows": [{"row_index": 23}],
         },
     )
 
@@ -1404,8 +1413,8 @@ def test_line_role_stage_payload_overrides_outside_recipe_howto_with_final_autho
     stage_payload = json.loads(
         artifacts["semantic_row_predictions_path"].read_text(encoding="utf-8")
     )
-    assert stage_payload["block_labels"]["0"] == "KNOWLEDGE"
-    assert stage_payload["unresolved_candidate_block_indices"] == []
+    assert stage_payload["row_labels"]["0"] == "KNOWLEDGE"
+    assert stage_payload["unresolved_candidate_row_indices"] == []
 
 
 def test_authoritative_line_role_artifacts_preserve_runtime_telemetry_summary(
@@ -1492,16 +1501,17 @@ def test_authoritative_line_role_artifacts_preserve_runtime_telemetry_summary(
 
     nonrecipe_stage_result = make_stage_result(
         seed=make_seed_result({1: "candidate"}),
-        routing=make_routing_result(candidate_block_indices=[1]),
+        routing=make_routing_result(candidate_row_indices=[1]),
         authority=make_authority_result({1: "knowledge"}),
         candidate_status=make_finalize_status_result(
+            reviewed_row_indices=[1],
             reviewed_block_indices=[1],
             unreviewed_block_category_by_index={},
         ),
         refinement_report={
             "authority_mode": "knowledge_refined_final",
             "scored_effect": "final_authority",
-            "changed_blocks": [{"block_index": 1}],
+            "changed_rows": [{"row_index": 1}],
         },
     )
 
@@ -1528,9 +1538,9 @@ def test_authoritative_line_role_artifacts_preserve_runtime_telemetry_summary(
     assert telemetry_payload["runtime_artifacts"]["runtime_root"] == (
         "line-role-pipeline/runtime"
     )
-    assert telemetry_payload["reviewed_candidate_block_indices"] == [1]
-    assert telemetry_payload["changed_block_indices"] == [1]
-    assert summary["reviewed_candidate_block_indices"] == [1]
+    assert telemetry_payload["reviewed_candidate_row_indices"] == [1]
+    assert telemetry_payload["changed_row_indices"] == [1]
+    assert summary["reviewed_candidate_row_indices"] == [1]
 
 
 def test_generate_pred_run_artifacts_line_role_lets_labeler_resolve_inflight_default(
@@ -1871,9 +1881,9 @@ def test_generate_pred_run_artifacts_passes_write_markdown_to_processed_outputs(
         stage_predictions_path.write_text(
             json.dumps(
                 {
-                    "schema_version": "stage_block_predictions.v1",
-                    "block_labels": {},
-                    "label_blocks": {},
+                    "schema_version": "semantic_row_predictions.v1",
+                    "row_labels": {},
+                    "label_rows": {},
                     "workbook_slug": "book",
                 },
                 indent=2,

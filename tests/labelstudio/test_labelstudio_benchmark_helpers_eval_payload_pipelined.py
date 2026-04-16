@@ -247,7 +247,7 @@ def test_labelstudio_benchmark_pipelined_mode_replays_streamed_records_without_u
             encoding="utf-8"
         )
     )
-    assert replay_payload["block_labels"] == {"0": "RECIPE_TITLE", "1": "OTHER"}
+    assert replay_payload["row_labels"] == {"0": "RECIPE_TITLE", "1": "OTHER"}
 
 def test_labelstudio_benchmark_pipelined_mode_propagates_consumer_stream_errors(
     monkeypatch: pytest.MonkeyPatch,
@@ -326,7 +326,7 @@ def _run_canonical_text_pipelined_fixture(
         prediction_run=prediction_run,
         source_file=source_file,
         stage_subdir="line-role-pipeline",
-        block_labels={"0": "OTHER"},
+        row_labels={"0": "OTHER"},
         manifest_payload={
             "run_config": {"workers": 1, "line_role_pipeline": "deterministic-route-v2"},
             "run_config_hash": "cfg-hash",
@@ -336,7 +336,7 @@ def _run_canonical_text_pipelined_fixture(
     _write_benchmark_prediction_run_fixture(
         prediction_run=prediction_run,
         source_file=source_file,
-        block_labels={"0": "RECIPE_TITLE"},
+        row_labels={"0": "RECIPE_TITLE"},
         manifest_payload={
             "run_config": {"workers": 1, "line_role_pipeline": "deterministic-route-v2"},
             "run_config_hash": "cfg-hash",
@@ -470,7 +470,7 @@ def test_labelstudio_benchmark_source_rows_mode_uses_row_evaluator(
     replay_payload = json.loads(
         replay_stage_predictions_path.read_text(encoding="utf-8")
     )
-    assert replay_payload["block_labels"] == {"0": "OTHER"}
+    assert replay_payload["row_labels"] == {"0": "OTHER"}
 
 
 def test_labelstudio_benchmark_source_rows_mode_records_timing_and_scheduler_artifacts(

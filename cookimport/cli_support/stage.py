@@ -176,7 +176,7 @@ def _write_stage_run_manifest(
             artifacts[artifact_key] = path_key
     bench_prediction_paths = sorted(run_root.glob(".bench/**/semantic_row_predictions.json"))
     if bench_prediction_paths:
-        artifacts["stage_block_predictions"] = [
+        artifacts["semantic_row_predictions"] = [
             str(path.relative_to(run_root))
             for path in bench_prediction_paths
         ]

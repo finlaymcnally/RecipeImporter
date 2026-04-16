@@ -221,7 +221,7 @@ def _write_benchmark_prediction_run_fixture(
     *,
     prediction_run: Path,
     source_file: Path,
-    block_labels: dict[str, str] | None = None,
+    row_labels: dict[str, str] | None = None,
     extracted_rows: list[dict[str, object]] | None = None,
     include_label_studio_tasks: bool = False,
     manifest_payload: dict[str, object] | None = None,
@@ -235,14 +235,14 @@ def _write_benchmark_prediction_run_fixture(
     stage_root.mkdir(parents=True, exist_ok=True)
     stage_predictions_path = stage_root / "semantic_row_predictions.json"
     extracted_archive_path = stage_root / "extracted_archive.json"
-    block_labels = dict(block_labels or {})
+    row_labels = dict(row_labels or {})
     extracted_rows = list(extracted_rows or [])
     stage_predictions_path.write_text(
         json.dumps(
             {
                 "schema_version": "semantic_row_predictions.v1",
-                "block_count": len(block_labels),
-                "block_labels": block_labels,
+                "row_count": len(row_labels),
+                "row_labels": row_labels,
             },
             sort_keys=True,
         ),

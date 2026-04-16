@@ -15,7 +15,7 @@ from cookimport.bench.row_gold_lines import (
     resolve_row_gold_path_from_eval_report,
 )
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
-from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
+from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
 _WHITESPACE_RE = re.compile(r"\s+")

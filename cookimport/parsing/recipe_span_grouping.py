@@ -118,25 +118,29 @@ def _build_span_decision(
     atomic_indices_by_block: dict[int, list[int]],
     warning: str | None,
 ) -> RecipeSpanDecision:
-    block_indices = [int(row.source_block_index) for row in block_rows]
+    source_block_indices = [int(row.source_block_index) for row in block_rows]
     source_block_ids = [str(row.source_block_id) for row in block_rows]
-    atomic_indices: list[int] = []
-    title_block_index: int | None = None
+    row_indices: list[int] = []
+    title_row_index: int | None = None
+    title_source_block_index: int | None = None
     title_atomic_index: int | None = None
     warnings: list[str] = []
     escalation_reasons: list[str] = []
     decision_notes: list[str] = []
 
     for row in block_rows:
-        block_atomic_indices = sorted(
+        block_row_indices = sorted(
             int(value) for value in atomic_indices_by_block.get(int(row.source_block_index), [])
         )
-        atomic_indices.extend(block_atomic_indices)
+        row_indices.extend(block_row_indices)
         escalation_reasons.extend(row.escalation_reasons)
-        if title_block_index is None and str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_ANCHOR_LABELS:
-            title_block_index = int(row.source_block_index)
-            if block_atomic_indices:
-                title_atomic_index = block_atomic_indices[0]
+        if title_row_index is None and str(row.final_label or "NONRECIPE_CANDIDATE") in _TITLE_ANCHOR_LABELS:
+            title_source_block_index = int(row.source_block_index)
+            if block_row_indices:
+                title_row_index = block_row_indices[0]
+                title_atomic_index = block_row_indices[0]
+            else:
+                title_row_index = int(row.source_block_index)
 
     if warning:
         warnings.append(warning)
@@ -157,12 +161,12 @@ def _build_span_decision(
             decision_notes.append(f"span_missing_{field_name}_block")
         rejection_reason = _rejection_reason_for_missing_core_fields(missing_core_fields)
 
-    if title_block_index is not None:
+    if title_source_block_index is not None:
         title_row = next(
             (
                 row
                 for row in block_rows
-                if int(row.source_block_index) == int(title_block_index)
+                if int(row.source_block_index) == title_source_block_index
             ),
             None,
         )
@@ -170,7 +174,8 @@ def _build_span_decision(
             escalation_reasons.append("fallback_title_block")
             decision_notes.append("title_block_was_not_rule_held")
 
-    atomic_indices = sorted(set(atomic_indices))
+    row_indices = sorted(set(row_indices)) or list(source_block_indices)
+    atomic_indices = list(row_indices)
     if rejection_reason is not None:
         decision_notes.append(rejection_reason)
 
@@ -182,14 +187,14 @@ def _build_span_decision(
             else "rejected_pseudo_recipe_span"
         ),
         rejection_reason=rejection_reason,
-        start_block_index=min(block_indices),
-        end_block_index=max(block_indices),
-        block_indices=block_indices,
+        start_row_index=min(row_indices),
+        end_row_index=max(row_indices),
+        row_indices=row_indices,
         source_block_ids=source_block_ids,
         start_atomic_index=atomic_indices[0] if atomic_indices else None,
         end_atomic_index=atomic_indices[-1] if atomic_indices else None,
         atomic_indices=atomic_indices,
-        title_block_index=title_block_index,
+        title_row_index=title_row_index,
         title_atomic_index=title_atomic_index,
         warnings=warnings,
         escalation_reasons=escalation_reasons,
@@ -286,16 +291,16 @@ def _normalize_recipe_boundary_block_labels(
     ordered_blocks: Sequence[AuthoritativeBlockLabel],
     accepted_spans: Sequence[RecipeSpan],
 ) -> list[AuthoritativeBlockLabel]:
-    accepted_block_indices = {
-        int(block_index)
+    accepted_block_ids = {
+        str(source_block_id)
         for span in accepted_spans
-        for block_index in span.block_indices
+        for source_block_id in span.source_block_ids
     }
     normalized_blocks: list[AuthoritativeBlockLabel] = []
     for block in ordered_blocks:
-        block_index = int(block.source_block_index)
+        block_id = str(block.source_block_id)
         label = str(block.final_label or "NONRECIPE_CANDIDATE")
-        if block_index in accepted_block_indices:
+        if block_id in accepted_block_ids:
             if label in _RECIPE_LOCAL_LABELS:
                 normalized_blocks.append(block)
                 continue

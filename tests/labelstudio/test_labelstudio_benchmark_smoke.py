@@ -396,7 +396,7 @@ def _run_interactive_single_book_simulated_runtime(
         fixture_paths = _write_benchmark_prediction_run_fixture(
             prediction_run=prediction_run,
             source_file=source_file,
-            block_labels={"0": "RECIPE_TITLE", "1": "OTHER"},
+            row_labels={"0": "RECIPE_TITLE", "1": "OTHER"},
             extracted_rows=[
                 {
                     "index": 0,

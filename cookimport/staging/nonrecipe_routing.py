@@ -8,37 +8,37 @@ from .nonrecipe_seed import build_nonrecipe_spans_from_categories
 
 def build_nonrecipe_routing_result(
     *,
-    full_blocks_by_index: Mapping[int, Mapping[str, Any]],
-    candidate_block_indices: Sequence[int],
-    excluded_block_indices: Sequence[int],
-    block_preview_by_index: Mapping[int, str],
+    full_rows_by_index: Mapping[int, Mapping[str, Any]],
+    candidate_row_indices: Sequence[int],
+    excluded_row_indices: Sequence[int],
+    row_preview_by_index: Mapping[int, str],
     warnings: Sequence[str],
 ) -> NonRecipeRoutingResult:
     candidate_nonrecipe_spans = build_nonrecipe_spans_from_categories(
-        full_blocks_by_index=full_blocks_by_index,
-        block_category_by_index={
-            int(index): "candidate" for index in sorted(candidate_block_indices)
+        full_rows_by_index=full_rows_by_index,
+        row_category_by_index={
+            int(index): "candidate" for index in sorted(candidate_row_indices)
         },
     )
     excluded_nonrecipe_spans = build_nonrecipe_spans_from_categories(
-        full_blocks_by_index=full_blocks_by_index,
-        block_category_by_index={
-            int(index): "exclude" for index in sorted(excluded_block_indices)
+        full_rows_by_index=full_rows_by_index,
+        row_category_by_index={
+            int(index): "exclude" for index in sorted(excluded_row_indices)
         },
     )
-    route_by_block = {
-        **{int(index): "candidate" for index in sorted(candidate_block_indices)},
-        **{int(index): "exclude" for index in sorted(excluded_block_indices)},
+    route_by_row = {
+        **{int(index): "candidate" for index in sorted(candidate_row_indices)},
+        **{int(index): "exclude" for index in sorted(excluded_row_indices)},
     }
     return NonRecipeRoutingResult(
-        route_by_block=route_by_block,
+        route_by_row=route_by_row,
         candidate_nonrecipe_spans=candidate_nonrecipe_spans,
         excluded_nonrecipe_spans=excluded_nonrecipe_spans,
-        candidate_block_indices=[int(index) for index in candidate_block_indices],
-        excluded_block_indices=[int(index) for index in excluded_block_indices],
-        block_preview_by_index={
+        candidate_row_indices=[int(index) for index in candidate_row_indices],
+        excluded_row_indices=[int(index) for index in excluded_row_indices],
+        row_preview_by_index={
             int(index): str(preview)
-            for index, preview in block_preview_by_index.items()
+            for index, preview in row_preview_by_index.items()
         },
         warnings=[str(warning) for warning in warnings],
     )

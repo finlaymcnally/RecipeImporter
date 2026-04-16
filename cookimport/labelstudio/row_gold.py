@@ -63,12 +63,10 @@ def derive_row_gold_bundle(
         label = normalize_freeform_label(str(span_row.get("label") or "OTHER"))
         touched_rows = span_row.get("touched_rows")
         if not isinstance(touched_rows, list):
+            touched_rows = span_row.get("touched_blocks")
+        if not isinstance(touched_rows, list):
             touched_rows = []
         if not touched_rows:
-            touched_blocks = span_row.get("touched_blocks")
-            if isinstance(touched_blocks, list):
-                touched_rows = touched_blocks
-        if not isinstance(touched_rows, list):
             continue
         for touched in touched_rows:
             if not isinstance(touched, dict):

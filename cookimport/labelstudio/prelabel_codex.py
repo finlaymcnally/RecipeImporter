@@ -40,12 +40,7 @@ _PROMPT_TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "llm_pipelines" / "
 _FULL_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-full.prompt.md"
 _SPAN_PROMPT_TEMPLATE_PATH = _PROMPT_TEMPLATE_DIR / "freeform-prelabel-span.prompt.md"
 _PROMPT_TEMPLATE_CACHE: dict[Path, tuple[int, str]] = {}
-PRELABEL_GRANULARITY_BLOCK = "block"
 PRELABEL_GRANULARITY_SPAN = "span"
-_PRELABEL_GRANULARITY_ALIASES = {
-    PRELABEL_GRANULARITY_BLOCK: PRELABEL_GRANULARITY_BLOCK,
-    PRELABEL_GRANULARITY_SPAN: PRELABEL_GRANULARITY_SPAN,
-}
 CODEX_REASONING_EFFORT_VALUES = (
     "none",
     "minimal",
@@ -516,12 +511,11 @@ class CodexFarmProvider:
 def normalize_prelabel_granularity(value: str | None) -> str:
     normalized = (value or PRELABEL_GRANULARITY_SPAN).strip().lower()
     normalized = normalized.replace("-", "_").replace(" ", "_")
-    resolved = _PRELABEL_GRANULARITY_ALIASES.get(normalized)
-    if resolved != PRELABEL_GRANULARITY_SPAN:
+    if normalized != PRELABEL_GRANULARITY_SPAN:
         raise ValueError(
             "prelabel_granularity must be: span."
         )
-    return resolved
+    return PRELABEL_GRANULARITY_SPAN
 def normalize_codex_reasoning_effort(value: str | None) -> str | None:
     normalized = (value or "").strip().lower()
     if not normalized:

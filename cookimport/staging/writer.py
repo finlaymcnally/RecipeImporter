@@ -66,7 +66,7 @@ from cookimport.staging.recipe_authority_decisions import (
     RecipeAuthorityDecision,
     recipe_authority_decisions_to_payload,
 )
-from cookimport.staging.stage_block_predictions import build_stage_block_predictions
+from cookimport.staging.semantic_row_predictions import build_semantic_row_predictions
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -969,7 +969,7 @@ def write_semantic_row_predictions(
     label_first_result: LabelFirstStageResult | None = None,
 ) -> Path:
     """Write benchmark-facing semantic row predictions."""
-    payload = build_stage_block_predictions(
+    payload = build_semantic_row_predictions(
         results,
         workbook_slug,
         recipe_ownership_result=recipe_ownership_result,
@@ -983,7 +983,7 @@ def write_semantic_row_predictions(
             else None
         ),
         nonrecipe_stage_result=nonrecipe_stage_result,
-        boundary_block_labels=(
+        boundary_labels=(
             list(label_first_result.block_labels)
             if label_first_result is not None
             else None
@@ -1037,24 +1037,20 @@ def _serialize_nonrecipe_span(span: Any) -> dict[str, Any]:
     return {
         "span_id": span.span_id,
         "category": span.category,
-        "row_start_index": span.block_start_index,
-        "row_end_index": span.block_end_index,
-        "row_indices": list(span.block_indices),
-        "row_ids": list(span.block_ids),
-        "block_start_index": span.block_start_index,
-        "block_end_index": span.block_end_index,
-        "block_indices": list(span.block_indices),
-        "block_ids": list(span.block_ids),
+        "row_start_index": span.row_start_index,
+        "row_end_index": span.row_end_index,
+        "row_indices": list(span.row_indices),
+        "row_ids": list(span.row_ids),
     }
 
 
-def _knowledge_counts_for_block_map(block_category_by_index: Mapping[int, str]) -> dict[str, int]:
+def _knowledge_counts_for_row_map(row_category_by_index: Mapping[int, str]) -> dict[str, int]:
     return {
-        "knowledge_blocks": sum(
-            1 for category in block_category_by_index.values() if category == "knowledge"
+        "knowledge_rows": sum(
+            1 for category in row_category_by_index.values() if category == "knowledge"
         ),
-        "other_blocks": sum(
-            1 for category in block_category_by_index.values() if category == "other"
+        "other_rows": sum(
+            1 for category in row_category_by_index.values() if category == "other"
         ),
     }
 
@@ -1067,13 +1063,13 @@ def write_nonrecipe_route_artifact(
 ) -> Path:
     path = output_dir / NONRECIPE_ROUTE_FILE_NAME
     routing = stage_result.routing
-    candidate_block_ids = [
-        _block_id_for_stage_result(stage_result, int(block_index))
-        for block_index in routing.candidate_block_indices
+    candidate_row_ids = [
+        _block_id_for_stage_result(stage_result, int(row_index))
+        for row_index in routing.candidate_row_indices
     ]
-    excluded_block_ids = [
-        _block_id_for_stage_result(stage_result, int(block_index))
-        for block_index in routing.excluded_block_indices
+    excluded_row_ids = [
+        _block_id_for_stage_result(stage_result, int(row_index))
+        for row_index in routing.excluded_row_indices
     ]
     payload = {
         "schema_version": NONRECIPE_ROUTE_SCHEMA_VERSION,
@@ -1083,10 +1079,8 @@ def write_nonrecipe_route_artifact(
             "seed_excluded_spans": len(stage_result.seed.seed_excluded_spans),
             "candidate_nonrecipe_spans": len(routing.candidate_nonrecipe_spans),
             "excluded_nonrecipe_spans": len(routing.excluded_nonrecipe_spans),
-            "candidate_rows": len(routing.candidate_block_indices),
-            "excluded_rows": len(routing.excluded_block_indices),
-            "candidate_blocks": len(routing.candidate_block_indices),
-            "excluded_blocks": len(routing.excluded_block_indices),
+            "candidate_rows": len(routing.candidate_row_indices),
+            "excluded_rows": len(routing.excluded_row_indices),
             "warnings": len(routing.warnings),
         },
         "warnings": list(routing.warnings),
@@ -1096,20 +1090,12 @@ def write_nonrecipe_route_artifact(
         },
         "route_by_row": {
             str(index): route
-            for index, route in sorted(routing.route_by_block.items())
+            for index, route in sorted(routing.route_by_row.items())
         },
-        "route_by_block": {
-            str(index): route
-            for index, route in sorted(routing.route_by_block.items())
-        },
-        "candidate_row_indices": list(routing.candidate_block_indices),
-        "candidate_row_ids": candidate_block_ids,
-        "candidate_block_indices": list(routing.candidate_block_indices),
-        "candidate_block_ids": candidate_block_ids,
-        "excluded_row_indices": list(routing.excluded_block_indices),
-        "excluded_row_ids": excluded_block_ids,
-        "excluded_block_indices": list(routing.excluded_block_indices),
-        "excluded_block_ids": excluded_block_ids,
+        "candidate_row_indices": list(routing.candidate_row_indices),
+        "candidate_row_ids": candidate_row_ids,
+        "excluded_row_indices": list(routing.excluded_row_indices),
+        "excluded_row_ids": excluded_row_ids,
         "seed_nonrecipe_spans": [
             _serialize_nonrecipe_span(span)
             for span in stage_result.seed.seed_nonrecipe_spans
@@ -1122,13 +1108,9 @@ def write_nonrecipe_route_artifact(
             _serialize_nonrecipe_span(span)
             for span in routing.excluded_nonrecipe_spans
         ],
-        "block_preview_by_index": {
-            str(index): preview
-            for index, preview in sorted(routing.block_preview_by_index.items())
-        },
         "row_preview_by_index": {
             str(index): preview
-            for index, preview in sorted(routing.block_preview_by_index.items())
+            for index, preview in sorted(routing.row_preview_by_index.items())
         },
     }
     _write_json_payload(
@@ -1150,15 +1132,13 @@ def write_nonrecipe_exclusions_ledger(
     routing = stage_result.routing
     exclusion_rows = [
         {
-            "row_index": int(block_index),
-            "row_id": _block_id_for_stage_result(stage_result, int(block_index)),
-            "block_index": int(block_index),
-            "block_id": _block_id_for_stage_result(stage_result, int(block_index)),
+            "row_index": int(row_index),
+            "row_id": _block_id_for_stage_result(stage_result, int(row_index)),
             "final_category": "other",
-            "preview": str(routing.block_preview_by_index.get(int(block_index)) or ""),
+            "preview": str(routing.row_preview_by_index.get(int(row_index)) or ""),
             "exclusion_source": "line_role",
         }
-        for block_index in sorted(routing.excluded_block_indices)
+        for row_index in sorted(routing.excluded_row_indices)
     ]
     exclusion_payload = "\n".join(
         json.dumps(row, sort_keys=True) for row in exclusion_rows
@@ -1211,7 +1191,7 @@ def write_nonrecipe_authority_artifact(
     path = run_root / NONRECIPE_AUTHORITY_FILE_NAME
     authority = stage_result.authority
     grounding_counts = dict(stage_result.refinement_report.get("grounding_counts") or {})
-    grounding_by_block = dict(stage_result.refinement_report.get("grounding_by_block") or {})
+    grounding_by_row = dict(stage_result.refinement_report.get("grounding_by_row") or {})
     payload = {
         "schema_version": NONRECIPE_AUTHORITY_SCHEMA_VERSION,
         "authority_mode": str(
@@ -1227,8 +1207,7 @@ def write_nonrecipe_authority_artifact(
             "authoritative_knowledge_spans": len(authority.authoritative_knowledge_spans),
             "authoritative_other_spans": len(authority.authoritative_other_spans),
             "final_authority_rows": len(authority.authoritative_row_indices),
-            "final_authority_blocks": len(authority.authoritative_block_indices),
-            **_knowledge_counts_for_block_map(authority.authoritative_block_category_by_index),
+            **_knowledge_counts_for_row_map(authority.authoritative_row_category_by_index),
             "kept_for_review_block_count": int(
                 grounding_counts.get("kept_for_review_block_count") or 0
             ),
@@ -1254,14 +1233,9 @@ def write_nonrecipe_authority_artifact(
             "warnings": len(stage_result.routing.warnings),
         },
         "final_authority_row_indices": list(authority.authoritative_row_indices),
-        "final_authority_block_indices": list(authority.authoritative_block_indices),
         "authoritative_row_category_by_index": {
             str(index): category
             for index, category in sorted(authority.authoritative_row_category_by_index.items())
-        },
-        "authoritative_block_category_by_index": {
-            str(index): category
-            for index, category in sorted(authority.authoritative_block_category_by_index.items())
         },
         "authoritative_row_source_block_index_by_index": {
             str(index): source_block_index
@@ -1269,7 +1243,7 @@ def write_nonrecipe_authority_artifact(
                 authority.authoritative_row_source_block_index_by_index.items()
             )
         },
-        "knowledge_grounding_by_block": grounding_by_block,
+        "knowledge_grounding_by_row": grounding_by_row,
         "authoritative_spans": [
             _serialize_nonrecipe_span(span)
             for span in authority.authoritative_nonrecipe_spans
@@ -1334,13 +1308,13 @@ def write_nonrecipe_finalize_status_artifact(
     routing = stage_result.routing
     authority = stage_result.authority
     candidate_status_result = stage_result.candidate_status
-    finalized_candidate_block_indices = list(
-        candidate_status_result.finalized_candidate_block_indices
+    finalized_candidate_row_indices = list(
+        candidate_status_result.finalized_candidate_row_indices
     )
-    changed_block_indices = [
-        int(row.get("block_index"))
-        for row in (stage_result.refinement_report.get("changed_blocks") or [])
-        if isinstance(row, dict) and row.get("block_index") is not None
+    changed_row_indices = [
+        int(row.get("row_index"))
+        for row in (stage_result.refinement_report.get("changed_rows") or [])
+        if isinstance(row, dict) and row.get("row_index") is not None
     ]
     candidate_status = str(
         (llm_report or {}).get("candidate_status")
@@ -1357,19 +1331,12 @@ def write_nonrecipe_finalize_status_artifact(
         "candidate_status": candidate_status,
         "stage_status": str((llm_report or {}).get("stage_status") or ""),
         "counts": {
-            "candidate_rows": len(routing.candidate_block_indices),
-            "excluded_rows": len(routing.excluded_block_indices),
-            "finalized_candidate_rows": len(finalized_candidate_block_indices),
+            "candidate_rows": len(routing.candidate_row_indices),
+            "excluded_rows": len(routing.excluded_row_indices),
+            "finalized_candidate_rows": len(finalized_candidate_row_indices),
             "final_authority_rows": len(authority.authoritative_row_indices),
             "unresolved_candidate_rows": len(
-                candidate_status_result.unresolved_candidate_block_indices
-            ),
-            "candidate_blocks": len(routing.candidate_block_indices),
-            "excluded_blocks": len(routing.excluded_block_indices),
-            "finalized_candidate_blocks": len(finalized_candidate_block_indices),
-            "final_authority_blocks": len(authority.authoritative_block_indices),
-            "unresolved_candidate_blocks": len(
-                candidate_status_result.unresolved_candidate_block_indices
+                candidate_status_result.unresolved_candidate_row_indices
             ),
             "shards_written": int(counts.get("shards_written") or 0),
             "outputs_parsed": int(counts.get("outputs_parsed") or 0),
@@ -1377,7 +1344,7 @@ def write_nonrecipe_finalize_status_artifact(
             "skipped_packet_count": int(counts.get("skipped_packet_count") or 0),
             "snippets_written": int(counts.get("snippets_written") or 0),
             "decisions_applied": int(counts.get("decisions_applied") or 0),
-            "changed_blocks": int(counts.get("changed_blocks") or 0),
+            "changed_rows": int(counts.get("changed_rows") or counts.get("changed_blocks") or 0),
         },
         "pipeline": str((llm_report or {}).get("pipeline") or "off"),
         "enabled": bool((llm_report or {}).get("enabled")),
@@ -1400,23 +1367,13 @@ def write_nonrecipe_finalize_status_artifact(
         ),
         "route_by_row": {
             str(index): route
-            for index, route in sorted(routing.route_by_block.items())
+            for index, route in sorted(routing.route_by_row.items())
         },
-        "route_by_block": {
-            str(index): route
-            for index, route in sorted(routing.route_by_block.items())
-        },
-        "candidate_row_indices": list(routing.candidate_block_indices),
-        "candidate_block_indices": list(routing.candidate_block_indices),
-        "excluded_row_indices": list(routing.excluded_block_indices),
-        "excluded_block_indices": list(routing.excluded_block_indices),
-        "finalized_candidate_row_indices": finalized_candidate_block_indices,
-        "finalized_candidate_block_indices": finalized_candidate_block_indices,
+        "candidate_row_indices": list(routing.candidate_row_indices),
+        "excluded_row_indices": list(routing.excluded_row_indices),
+        "finalized_candidate_row_indices": finalized_candidate_row_indices,
         "unresolved_candidate_row_indices": list(
-            candidate_status_result.unresolved_candidate_block_indices
-        ),
-        "unresolved_candidate_block_indices": list(
-            candidate_status_result.unresolved_candidate_block_indices
+            candidate_status_result.unresolved_candidate_row_indices
         ),
         "unresolved_candidate_route_by_index": {
             str(index): route
@@ -1428,7 +1385,7 @@ def write_nonrecipe_finalize_status_artifact(
             _serialize_nonrecipe_span(span)
             for span in candidate_status_result.unresolved_candidate_spans
         ],
-        "changed_block_indices": changed_block_indices,
+        "changed_row_indices": changed_row_indices,
         "warnings": list(routing.warnings),
         "refinement_report": dict(stage_result.refinement_report),
         "snippets_written": len(snippet_records or []),

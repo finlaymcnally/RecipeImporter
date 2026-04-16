@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from cookimport.labelstudio.label_config_freeform import normalize_freeform_label
-from cookimport.staging.stage_block_predictions import FREEFORM_LABELS
+from cookimport.labelstudio.label_config_freeform import FREEFORM_LABELS
 
 _FREEFORM_LABEL_SET = set(FREEFORM_LABELS)
 

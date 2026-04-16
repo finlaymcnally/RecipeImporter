@@ -553,7 +553,6 @@ def _all_method_gold_fingerprint(gold_spans_path: Path) -> dict[str, Any]:
     for artifact_name in (
         "row_gold_labels.jsonl",
         "row_gold_conflicts.jsonl",
-        "block_gold_labels.jsonl",
     ):
         artifact_path = gold_export_root / artifact_name
         if not artifact_path.exists() or not artifact_path.is_file():

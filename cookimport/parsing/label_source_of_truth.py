@@ -4,7 +4,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from cookimport.config.run_settings import RunSettings
 from cookimport.core.progress_messages import format_stage_counter_progress
@@ -155,18 +155,40 @@ class RecipeSpan(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     span_id: str
-    start_block_index: int
-    end_block_index: int
-    block_indices: list[int] = Field(default_factory=list)
+    start_row_index: int = Field(validation_alias=AliasChoices("start_row_index", "start_block_index"))
+    end_row_index: int = Field(validation_alias=AliasChoices("end_row_index", "end_block_index"))
+    row_indices: list[int] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("row_indices", "block_indices"),
+    )
     source_block_ids: list[str] = Field(default_factory=list)
     start_atomic_index: int | None = None
     end_atomic_index: int | None = None
     atomic_indices: list[int] = Field(default_factory=list)
-    title_block_index: int | None = None
+    title_row_index: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("title_row_index", "title_block_index"),
+    )
     title_atomic_index: int | None = None
     warnings: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
     decision_notes: list[str] = Field(default_factory=list)
+
+    @property
+    def start_block_index(self) -> int:
+        return int(self.start_row_index)
+
+    @property
+    def end_block_index(self) -> int:
+        return int(self.end_row_index)
+
+    @property
+    def block_indices(self) -> list[int]:
+        return list(self.row_indices)
+
+    @property
+    def title_block_index(self) -> int | None:
+        return self.title_row_index
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "RecipeSpan":
@@ -182,18 +204,40 @@ class RecipeSpanDecision(BaseModel):
     span_id: str
     decision: Literal["accepted_recipe_span", "rejected_pseudo_recipe_span"]
     rejection_reason: str | None = None
-    start_block_index: int
-    end_block_index: int
-    block_indices: list[int] = Field(default_factory=list)
+    start_row_index: int = Field(validation_alias=AliasChoices("start_row_index", "start_block_index"))
+    end_row_index: int = Field(validation_alias=AliasChoices("end_row_index", "end_block_index"))
+    row_indices: list[int] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("row_indices", "block_indices"),
+    )
     source_block_ids: list[str] = Field(default_factory=list)
     start_atomic_index: int | None = None
     end_atomic_index: int | None = None
     atomic_indices: list[int] = Field(default_factory=list)
-    title_block_index: int | None = None
+    title_row_index: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("title_row_index", "title_block_index"),
+    )
     title_atomic_index: int | None = None
     warnings: list[str] = Field(default_factory=list)
     escalation_reasons: list[str] = Field(default_factory=list)
     decision_notes: list[str] = Field(default_factory=list)
+
+    @property
+    def start_block_index(self) -> int:
+        return int(self.start_row_index)
+
+    @property
+    def end_block_index(self) -> int:
+        return int(self.end_row_index)
+
+    @property
+    def block_indices(self) -> list[int]:
+        return list(self.row_indices)
+
+    @property
+    def title_block_index(self) -> int | None:
+        return self.title_row_index
 
     @model_validator(mode="after")
     def _normalize_metadata(self) -> "RecipeSpanDecision":
@@ -405,14 +449,14 @@ def build_conversion_result_from_label_spans(
             else RecipeSpanDecision(
                 span_id=span.span_id,
                 decision="accepted_recipe_span",
-                start_block_index=span.start_block_index,
-                end_block_index=span.end_block_index,
-                block_indices=list(span.block_indices),
+                start_row_index=span.start_row_index,
+                end_row_index=span.end_row_index,
+                row_indices=list(span.row_indices),
                 source_block_ids=list(span.source_block_ids),
                 start_atomic_index=span.start_atomic_index,
                 end_atomic_index=span.end_atomic_index,
                 atomic_indices=list(span.atomic_indices),
-                title_block_index=span.title_block_index,
+                title_row_index=span.title_row_index,
                 title_atomic_index=span.title_atomic_index,
                 warnings=list(span.warnings),
                 escalation_reasons=list(span.escalation_reasons),
@@ -499,7 +543,7 @@ def build_conversion_result_from_label_spans(
     )
 
 
-def build_authoritative_stage_block_predictions(
+def build_authoritative_semantic_row_predictions(
     *,
     block_labels: Sequence[AuthoritativeBlockLabel],
     archive_blocks: Sequence[dict[str, Any]],
@@ -508,29 +552,28 @@ def build_authoritative_stage_block_predictions(
     workbook_slug: str,
     notes: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    max_index = max(
+    row_count = max(
         (int(block.get("index", -1)) for block in archive_blocks if isinstance(block, dict)),
         default=-1,
-    )
-    block_count = max_index + 1 if max_index >= 0 else 0
+    ) + 1
     resolved = {int(row.source_block_index): row.final_label for row in block_labels}
-    label_blocks: dict[str, list[int]] = {label: [] for label in FREEFORM_LABELS}
-    for block_index in range(block_count):
-        label = str(resolved.get(block_index, "OTHER") or "OTHER")
-        label_blocks.setdefault(label, []).append(block_index)
+    label_rows: dict[str, list[int]] = {label: [] for label in FREEFORM_LABELS}
+    for row_index in range(row_count):
+        label = str(resolved.get(row_index, "OTHER") or "OTHER")
+        label_rows.setdefault(label, []).append(row_index)
     return {
-        "schema_version": "stage_block_predictions.v1",
+        "schema_version": "semantic_row_predictions.v1",
         "source_file": str(source_file),
         "source_hash": str(source_hash or "unknown"),
         "workbook_slug": str(workbook_slug),
-        "block_count": block_count,
-        "block_labels": {
-            str(block_index): str(resolved.get(block_index, "OTHER") or "OTHER")
-            for block_index in range(block_count)
+        "row_count": row_count,
+        "row_labels": {
+            str(row_index): str(resolved.get(row_index, "OTHER") or "OTHER")
+            for row_index in range(row_count)
         },
-        "label_blocks": {
+        "label_rows": {
             label: sorted(indices)
-            for label, indices in label_blocks.items()
+            for label, indices in label_rows.items()
         },
         "conflicts": [],
         "notes": [

@@ -127,11 +127,11 @@ def test_recipe_boundary_from_labels_splits_on_non_recipe_boundaries_and_rejects
         "accepted_recipe_span",
         "rejected_pseudo_recipe_span",
     ]
-    assert spans[0].block_indices == [0, 1, 2]
-    assert spans[0].title_block_index == 0
+    assert spans[0].row_indices == [0, 1, 2]
+    assert spans[0].title_row_index == 0
     assert spans[0].escalation_reasons == []
-    assert span_decisions[1].block_indices == [4, 5]
-    assert span_decisions[1].title_block_index == 4
+    assert span_decisions[1].row_indices == [3, 4]
+    assert span_decisions[1].title_row_index == 3
     assert span_decisions[1].rejection_reason == "rejected_missing_ingredient_evidence"
     assert "recipe_span_missing_ingredient_label" in span_decisions[1].warnings
     assert [row.final_label for row in normalized_blocks] == [
@@ -525,7 +525,7 @@ def test_recipe_boundary_from_labels_keeps_anchored_recipe_through_single_nonrec
     )
 
     assert len(spans) == 1
-    assert spans[0].block_indices == [0, 1, 2, 4, 5]
+    assert spans[0].row_indices == [0, 1, 2, 4, 5]
     assert [row.decision for row in span_decisions] == ["accepted_recipe_span"]
     assert [row.final_label for row in normalized_blocks] == [
         "RECIPE_TITLE",
@@ -635,8 +635,8 @@ def test_recipe_boundary_from_labels_keeps_trailing_variant_run_inside_parent_re
     )
 
     assert len(spans) == 1
-    assert spans[0].block_indices == [0, 1, 2, 3, 4]
-    assert spans[0].title_block_index == 0
+    assert spans[0].row_indices == [0, 1, 2, 3, 4]
+    assert spans[0].title_row_index == 0
     assert [row.decision for row in span_decisions] == ["accepted_recipe_span"]
     assert [row.final_label for row in normalized_blocks] == [
         "RECIPE_TITLE",
@@ -797,10 +797,10 @@ def test_recipe_boundary_from_labels_keeps_variant_run_after_excluded_cue_outsid
     )
 
     assert len(spans) == 2
-    assert spans[0].block_indices == [0, 1, 2, 4]
-    assert spans[0].start_block_index == 0
-    assert spans[0].end_block_index == 4
-    assert spans[1].block_indices == [5, 6, 7]
+    assert spans[0].row_indices == [0, 1, 2, 4]
+    assert spans[0].start_row_index == 0
+    assert spans[0].end_row_index == 4
+    assert spans[1].row_indices == [5, 6, 7]
     assert [row.decision for row in span_decisions] == [
         "accepted_recipe_span",
         "accepted_recipe_span",
@@ -950,12 +950,12 @@ def test_recipe_boundary_from_labels_closes_before_long_excluded_gap() -> None:
     )
 
     assert len(spans) == 1
-    assert spans[0].block_indices == [0, 1, 2]
+    assert spans[0].row_indices == [0, 1, 2]
     assert [row.decision for row in span_decisions] == [
         "accepted_recipe_span",
         "rejected_pseudo_recipe_span",
     ]
-    assert span_decisions[1].block_indices == [6]
+    assert span_decisions[1].row_indices == [6]
     assert span_decisions[1].rejection_reason == "rejected_missing_title_anchor"
     assert [row.final_label for row in normalized_blocks] == [
         "RECIPE_TITLE",

@@ -135,7 +135,7 @@ def test_nonrecipe_stage_normalizes_divested_recipe_local_labels_to_candidates()
     assert result.routing.candidate_block_indices == [1]
     assert result.routing.excluded_block_indices == [2]
     assert result.routing.warnings == [
-        "block 1: divested recipe-local label 'RECIPE_NOTES' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
+        "row 1: divested recipe-local label 'RECIPE_NOTES' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
     ]
 
 
@@ -321,7 +321,7 @@ def test_nonrecipe_stage_writes_canonical_artifacts_when_llm_off(tmp_path: Path)
     assert candidate_status_payload["schema_version"] == "nonrecipe_finalize_status.v1"
     assert candidate_status_payload["candidate_status"] == "not_run"
     assert candidate_status_payload["counts"]["snippets_written"] == 0
-    assert candidate_status_payload["counts"]["final_authority_blocks"] == 1
+    assert candidate_status_payload["counts"]["final_authority_rows"] == 1
     assert candidate_status_payload["unresolved_candidate_route_by_index"] == {
         "1": "candidate",
     }
@@ -378,7 +378,7 @@ def test_nonrecipe_stage_refinement_tracks_reviewed_blocks_without_reviewer_meta
     assert refined.authority.authoritative_block_category_by_index == {0: "other"}
     assert refined.candidate_status.finalized_candidate_block_indices == [0]
     assert refined.candidate_status.unresolved_candidate_block_indices == []
-    assert refined.refinement_report["reviewed_block_count"] == 1
+    assert refined.refinement_report["reviewed_candidate_row_count"] == 1
 
 
 def test_nonrecipe_stage_refinement_keeps_grounding_metadata_visible() -> None:
@@ -431,7 +431,7 @@ def test_nonrecipe_stage_refinement_keeps_grounding_metadata_visible() -> None:
         "tag_proposal_count": 0,
         "proposal_resolution_details": [],
     }
-    assert refined.refinement_report["grounding_by_block"] == {
+    assert refined.refinement_report["grounding_by_row"] == {
         "0": {
             "packet_id": "book.ks0000.nr",
             "grounding": {
@@ -480,8 +480,6 @@ def test_nonrecipe_stage_writes_exclusion_ledger(tmp_path: Path) -> None:
             "preview": "Acknowledgments",
             "row_id": "b0",
             "row_index": 0,
-            "block_id": "b0",
-            "block_index": 0,
         }
     ]
 
@@ -491,7 +489,7 @@ def test_nonrecipe_stage_requires_final_label_for_every_nonrecipe_block() -> Non
         {"index": 0, "block_id": "b0", "text": "Intro"},
         {"index": 1, "block_id": "b1", "text": "Useful technique"},
     ]
-    with pytest.raises(ValueError, match="Missing final block label for non-recipe block 1"):
+    with pytest.raises(ValueError, match="Missing final row label for non-recipe row 1"):
         build_nonrecipe_stage_result(
             full_blocks=full_blocks,
             final_block_labels=[_block_label(0, "NONRECIPE_CANDIDATE")],
@@ -527,7 +525,7 @@ def test_nonrecipe_stage_normalizes_recipe_only_labels_outside_recipe() -> None:
     assert result.seed.seed_route_by_index == {0: "candidate"}
     assert result.routing.candidate_block_indices == [0]
     assert result.routing.warnings == [
-        "block 0: available recipe-local label 'RECIPE_TITLE' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
+        "row 0: available recipe-local label 'RECIPE_TITLE' normalized to NONRECIPE_CANDIDATE for nonrecipe routing"
     ]
 
 

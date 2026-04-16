@@ -24,8 +24,8 @@ def _run_prune_after_csv_fixture(
         json.dumps(
             {
                 "schema_version": "semantic_row_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "row_count": 0,
+                "row_labels": {},
             },
             sort_keys=True,
         ),
@@ -208,8 +208,8 @@ def _run_interactive_prune_fixture(
         json.dumps(
             {
                 "schema_version": "semantic_row_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "row_count": 0,
+                "row_labels": {},
             },
             sort_keys=True,
         ),
@@ -375,8 +375,8 @@ def test_labelstudio_benchmark_applies_epub_extractor_for_prediction_import(
         json.dumps(
             {
                 "schema_version": "semantic_row_predictions.v1",
-                "block_count": 0,
-                "block_labels": {},
+                "row_count": 0,
+                "row_labels": {},
             },
             sort_keys=True,
         ),
