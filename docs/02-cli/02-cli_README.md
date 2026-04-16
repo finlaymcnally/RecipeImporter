@@ -24,11 +24,12 @@ Current package note:
 
 ## Entry Points
 
-`pyproject.toml` defines five CLI scripts:
+`pyproject.toml` defines these user-facing CLI scripts:
 
 - `cookimport` -> `cookimport.cli:app`
 - `cf-debug` -> `cookimport.cf_debug_cli:app`
 - `C3imp` -> `cookimport.c3imp_entrypoint:main`
+- `C4imp` -> `cookimport.c4imp_entrypoint:main`
 
 Remember to do source .venv/bin/activate
 
@@ -48,6 +49,21 @@ Behavior differences:
 - `C3imp`:
   - one positive integer arg: sets `C3IMP_LIMIT=N`, clears args, then enters interactive mode
   - otherwise: falls back to normal Typer command parsing (`app()`)
+- `C4imp`:
+  - launches the separate `cookimport bitter-recipe` app instead of the main interactive menu
+  - one positive integer arg: sets `C4IMP_LIMIT=N`, clears args, then enters bitter-recipe interactive mode
+  - otherwise: falls back to normal Typer command parsing on the bitter-recipe app
+
+Corpus-first offshoot:
+
+- `cookimport bitter-recipe ...` is a deliberately smaller command family for corpus building.
+- its product is reviewed row-gold, not staged recipe drafts or benchmark artifacts.
+- it reuses source-row extraction and Label Studio import/export, but writes to its own roots under `data/bitter-recipe/`.
+- current commands are:
+  - `cookimport bitter-recipe prepare`
+  - `cookimport bitter-recipe export`
+  - `cookimport bitter-recipe status`
+  - `cookimport bitter-recipe mark-reviewed`
 
 ## Interactive Mode Walkthrough
 

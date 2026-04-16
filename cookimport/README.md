@@ -6,11 +6,16 @@ Durable orchestration and CLI rules live in `cookimport/CONVENTIONS.md`.
 CLI entrypoints live in
 `cookimport/cli.py`, core models live in `cookimport/core/`, and staging output
 helpers live in `cookimport/staging/`.
-CLI entrypoints include `cookimport` plus the short alias `C3imp` for interactive
-runs. `C3imp 30` preserves the interactive flow while limiting output to the first
-30 recipes. For non-interactive batch runs, use `cookimport stage`; for example,
-`cookimport stage --limit 30` processes the first 30 recipes from `data/input`
-to `data/output`.
+CLI entrypoints include `cookimport` plus the short aliases `C3imp` and `C4imp`.
+`C3imp 30` preserves the full interactive flow while limiting output to the first
+30 recipes. `C4imp` launches the separate `cookimport bitter-recipe` corpus-first
+lane for building reviewed row-gold through Label Studio. For non-interactive batch
+runs, use `cookimport stage`; for example, `cookimport stage --limit 30` processes
+the first 30 recipes from `data/input` to `data/output`.
+
+`cookimport bitter-recipe` is intentionally much smaller than the main product. It
+reuses source-row extraction plus Label Studio import/export, writes under
+`data/bitter-recipe/`, and treats reviewed `row_gold_labels.jsonl` as the main output.
 
 RecipeCandidate supports optional schema.org Recipe fields like `image`,
 `recipeCategory`, `datePublished`, `creditText`, `isBasedOn`, `comment`, and
@@ -39,8 +44,8 @@ environments (for example `CODEX_CI=1`, `CODEX_THREAD_ID`, or
 noise in polled PTY logs. Use `COOKIMPORT_PLAIN_PROGRESS=1` to force plain
 progress everywhere, or `COOKIMPORT_PLAIN_PROGRESS=0` to keep live spinner
 status even in those agent envs.
-`C3imp` also sets `COOKIMPORT_PLAIN_PROGRESS=0` by default so interactive menu
-runs keep the animated spinner unless you override it.
+`C3imp` and `C4imp` both set `COOKIMPORT_PLAIN_PROGRESS=0` by default so their
+interactive menu runs keep the animated spinner unless you override it.
 Codex-farm `task X/Y` callback messages intentionally omit per-file `active ...`
 tails so plain-progress mode only emits meaningful counter/error changes.
 Interactive all-method benchmark runs now keep one persistent dashboard-style

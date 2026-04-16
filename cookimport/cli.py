@@ -3,6 +3,7 @@ from __future__ import annotations
 import typer
 
 from cookimport import cli_support as _support
+from cookimport.bitter_recipe.app import app as bitter_recipe_app
 from cookimport.cli_commands import (
     analytics as analytics_commands,
     bench as bench_commands,
@@ -23,6 +24,7 @@ compare_control_app = typer.Typer(
 app.add_typer(bench_app)
 app.add_typer(compare_control_app, name="compare-control")
 app.add_typer(epub_app, name="epub")
+app.add_typer(bitter_recipe_app, name="bitter-recipe")
 
 
 globals().update(

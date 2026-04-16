@@ -86,6 +86,7 @@ ingredientparse = [
 cookimport = "cookimport.cli:app"
 cf-debug = "cookimport.cf_debug_cli:app"
 C3imp = "cookimport.c3imp_entrypoint:main"
+C4imp = "cookimport.c4imp_entrypoint:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

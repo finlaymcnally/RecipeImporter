@@ -59,6 +59,15 @@ Active Label Studio runtime scope is `freeform-spans`.
 - `cookimport labelstudio-eval`
 - `cookimport labelstudio-benchmark`
 - `cookimport labelstudio-benchmark compare --baseline ... --candidate ...`
+- `cookimport bitter-recipe prepare`
+- `cookimport bitter-recipe export`
+- `cookimport bitter-recipe status`
+- `cookimport bitter-recipe mark-reviewed`
+
+The new `bitter-recipe` lane is a separate corpus-first product surface. It does not expose
+the benchmark, dashboard, or full stage menus. It reuses the same import/export engines for
+freeform row-native Label Studio work, but it writes under `data/bitter-recipe/` and keeps its
+own small per-book ledger there.
 
 ### 1.3 Default roots
 
@@ -66,6 +75,9 @@ Active Label Studio runtime scope is `freeform-spans`.
 - Export output root: `data/golden/pulled-from-labelstudio`
 - Benchmark scratch root: `data/golden/benchmark-vs-golden`
 - Benchmark processed output root: `data/output`
+- Bitter-recipe import root: `data/bitter-recipe/sent-to-labelstudio`
+- Bitter-recipe export root: `data/bitter-recipe/pulled-from-labelstudio`
+- Bitter-recipe ledger root: `data/bitter-recipe/ledger`
 
 ## 2) Write Safety and Interactive Behavior
 
@@ -81,6 +93,11 @@ Active Label Studio runtime scope is `freeform-spans`.
 - Interactive Label Studio import uploads directly (no second upload confirmation prompt).
 - Interactive Label Studio import uses overwrite semantics (`overwrite=True`, `resume=False`).
 - Interactive Label Studio import includes freeform prelabel mode selection, but labeling style is fixed to actual row spans.
+- Interactive `cookimport bitter-recipe` uses the same row-native Label Studio engines behind a much smaller menu:
+  - prepare or resume one book
+  - export reviewed labels for one book
+  - inspect queue status
+  - mark a book reviewed
 - CLI import exposes `--upload-batch-size` (default `200`) and threads it directly into the upload loop; callers can shrink batches without editing repo code.
 - Interactive export resolves credentials, fetches project titles, and shows detected type tags for operator context.
 - Interactive benchmark is offline-only and offers:
