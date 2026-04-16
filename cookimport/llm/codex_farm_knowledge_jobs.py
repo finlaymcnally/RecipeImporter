@@ -142,8 +142,8 @@ def build_knowledge_jobs(
                 f"of {requested_shard_count}; packet-budget planning would have split "
                 f"the queue into {packet_count_before_partition} shards."
             )
-        row_partitions = _repartition_rows_to_target_count(
-            rows=ordered_review_rows,
+        row_partitions = _repartition_budget_partitions_to_target_count(
+            row_partitions=budget_row_partitions,
             target_count=requested_shard_count,
         )
     prepared_packets: list[_PreparedKnowledgePacket] = []
@@ -374,46 +374,28 @@ def _partition_rows_by_budget(
     return partitions
 
 
-def _split_budget_partitions_to_target_count(
+def _repartition_budget_partitions_to_target_count(
     *,
     row_partitions: Sequence[Sequence[Mapping[str, Any]]],
     target_count: int,
 ) -> list[list[dict[str, Any]]]:
-    partitions = [
+    normalized_partitions = [
         [dict(row) for row in partition if isinstance(row, Mapping)]
         for partition in row_partitions
         if partition
     ]
-    while len(partitions) < max(1, int(target_count or 1)):
-        split_index = max(
-            range(len(partitions)),
-            key=lambda index: len(partitions[index]),
-            default=-1,
-        )
-        if split_index < 0 or len(partitions[split_index]) <= 1:
-            break
-        largest = partitions.pop(split_index)
-        midpoint = max(1, len(largest) // 2)
-        partitions.insert(split_index, largest[:midpoint])
-        partitions.insert(split_index + 1, largest[midpoint:])
-    return partitions
-
-
-def _repartition_rows_to_target_count(
-    *,
-    rows: Sequence[Mapping[str, Any]],
-    target_count: int,
-) -> list[list[dict[str, Any]]]:
-    normalized_rows = [dict(row) for row in rows if isinstance(row, Mapping)]
-    if not normalized_rows:
+    if not normalized_partitions:
         return []
+    effective_target_count = max(1, int(target_count or 1))
+    if len(normalized_partitions) <= effective_target_count:
+        return normalized_partitions
     return [
-        [dict(row) for row in partition]
-        for partition in partition_contiguous_items(
-            normalized_rows,
-            shard_count=max(1, int(target_count or 1)),
+        [dict(row) for partition in grouped_partitions for row in partition]
+        for grouped_partitions in partition_contiguous_items(
+            normalized_partitions,
+            shard_count=effective_target_count,
         )
-        if partition
+        if grouped_partitions
     ]
 
 

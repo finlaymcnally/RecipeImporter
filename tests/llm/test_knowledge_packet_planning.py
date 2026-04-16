@@ -74,7 +74,9 @@ def test_build_knowledge_jobs_exposes_only_live_planner_controls(tmp_path: Path)
     assert [block["i"] for block in payload["b"]] == [2]
 
 
-def test_build_knowledge_jobs_uses_prompt_target_as_shard_count(tmp_path: Path) -> None:
+def test_build_knowledge_jobs_treats_prompt_target_as_cap_without_fragmenting_budget_safe_packets(
+    tmp_path: Path,
+) -> None:
     report = build_knowledge_jobs(
         full_blocks=[
             {"index": index, "text": f"Technique {index}"}
@@ -100,15 +102,13 @@ def test_build_knowledge_jobs_uses_prompt_target_as_shard_count(tmp_path: Path) 
 
     assert report.packet_count_before_partition == 1
     assert report.requested_shard_count == 2
-    assert report.packets_written == 2
-    assert report.packet_ids == ["fixturebook.ks0000.nr", "fixturebook.ks0001.nr"]
+    assert report.packets_written == 1
+    assert report.packet_ids == ["fixturebook.ks0000.nr"]
     assert [entry.shard_id for entry in report.shard_entries] == [
         "fixturebook.ks0000.nr",
-        "fixturebook.ks0001.nr",
     ]
     assert [entry.metadata["owned_block_indices"] for entry in report.shard_entries] == [
-        [0, 1, 2],
-        [3, 4],
+        [0, 1, 2, 3, 4],
     ]
 
 
@@ -238,7 +238,6 @@ def test_build_knowledge_stage_phase_plan_centralizes_worker_and_survivability_f
         worker_count=2,
         worker_id_by_shard_id={
             "fixturebook.ks0000.nr": "worker-001",
-            "fixturebook.ks0001.nr": "worker-002",
         },
         survivability_report={
             "minimum_safe_shard_count": 1,
@@ -250,11 +249,10 @@ def test_build_knowledge_stage_phase_plan_centralizes_worker_and_survivability_f
 
     assert phase_plan["requested_shard_count"] == 2
     assert phase_plan["budget_native_shard_count"] == 1
-    assert phase_plan["launch_shard_count"] == 2
+    assert phase_plan["launch_shard_count"] == 1
     assert phase_plan["minimum_safe_shard_count"] == 1
     assert [shard["worker_id"] for shard in phase_plan["shards"]] == [
         "worker-001",
-        "worker-002",
     ]
 
 
