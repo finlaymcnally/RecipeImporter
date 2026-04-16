@@ -608,8 +608,8 @@ def _prompt_rows_for_cutdown_fixture() -> list[dict[str, object]]:
             "parsed_response": {
                 "is_recipe": True,
                 "recipe_id": "recipe:c0",
-                "start_block_index": 0,
-                "end_block_index": 3,
+                "start_row_index": 0,
+                "end_row_index": 3,
             },
             "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
         },
@@ -637,8 +637,8 @@ def _prompt_rows_for_starter_pack_fixture() -> list[dict[str, object]]:
             "parsed_response": {
                 "is_recipe": True,
                 "recipe_id": "recipe:c0",
-                "start_block_index": 0,
-                "end_block_index": 2,
+                "start_row_index": 0,
+                "end_row_index": 2,
                 "title": "Dish Title",
                 "excluded_block_ids": [],
             },

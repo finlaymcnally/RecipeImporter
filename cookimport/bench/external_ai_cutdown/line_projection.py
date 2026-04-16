@@ -67,8 +67,8 @@ def _build_recipe_spans_from_full_prompt_rows(
                 spans.append(
                     {
                         "recipe_id": recipe_id,
-                        "start_block_index": start,
-                        "end_block_index": end,
+                        "start_row_index": start,
+                        "end_row_index": end,
                         "title": title,
                         "call_id": row.get("call_id"),
                     }
@@ -88,8 +88,8 @@ def _build_recipe_spans_from_full_prompt_rows(
                 if index is not None
             ]
         if not indices:
-            start = _coerce_int(parsed_response.get("start_block_index"))
-            end = _coerce_int(parsed_response.get("end_block_index"))
+            start = _coerce_int(parsed_response.get("start_row_index"))
+            end = _coerce_int(parsed_response.get("end_row_index"))
             if start is not None and end is not None and end >= start:
                 indices = list(range(int(start), int(end) + 1))
         if not indices:
@@ -115,8 +115,8 @@ def _build_recipe_spans_from_full_prompt_rows(
         spans.append(
             {
                 "recipe_id": recipe_id,
-                "start_block_index": start,
-                "end_block_index": end,
+                "start_row_index": start,
+                "end_row_index": end,
                 "title": canonical_recipe.get("title")
                 or parsed_response.get("title")
                 or None,
@@ -125,8 +125,8 @@ def _build_recipe_spans_from_full_prompt_rows(
         )
     spans.sort(
         key=lambda row: (
-            int(row["start_block_index"]),
-            int(row["end_block_index"]) - int(row["start_block_index"]),
+            int(row["start_row_index"]),
+            int(row["end_row_index"]) - int(row["start_row_index"]),
             str(row["recipe_id"]),
         )
     )
@@ -173,14 +173,14 @@ def _normalize_recipe_spans_to_line_coordinates(
     for span in normalized:
         if "line_indices" in span:
             continue
-        start_block_index = _coerce_int(span.get("start_block_index"))
-        end_block_index = _coerce_int(span.get("end_block_index"))
-        if start_block_index is None or end_block_index is None or end_block_index < start_block_index:
+        start_row_index = _coerce_int(span.get("start_row_index"))
+        end_row_index = _coerce_int(span.get("end_row_index"))
+        if start_row_index is None or end_row_index is None or end_row_index < start_row_index:
             continue
         projected_line_indices = sorted(
             line_index
             for block_index, line_indices in line_indices_by_block_index.items()
-            if start_block_index <= block_index <= end_block_index
+            if start_row_index <= block_index <= end_row_index
             for line_index in line_indices
         )
         span["line_indices"] = projected_line_indices
@@ -220,11 +220,11 @@ def _span_line_bounds(span: dict[str, Any]) -> tuple[int | None, int | None]:
     if start_line_index is not None and end_line_index is not None:
         return int(start_line_index), int(end_line_index)
 
-    start_block_index = _coerce_int(span.get("start_block_index"))
-    end_block_index = _coerce_int(span.get("end_block_index"))
-    if start_block_index is None or end_block_index is None:
+    start_row_index = _coerce_int(span.get("start_row_index"))
+    end_row_index = _coerce_int(span.get("end_row_index"))
+    if start_row_index is None or end_row_index is None:
         return None, None
-    return int(start_block_index), int(end_block_index)
+    return int(start_row_index), int(end_row_index)
 
 
 def _span_contains_line(*, span: dict[str, Any], line_index: int) -> bool:

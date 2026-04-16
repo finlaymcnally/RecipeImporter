@@ -161,7 +161,7 @@ def _build_project_context_digest(
             "`RECIPE_NOTES`, and `OTHER`."
         ),
         (
-            "- projection_bridge: build-intermediate prompt spans (`start_block_index`/`end_block_index`) "
+            "- projection_bridge: build-intermediate prompt spans (`start_row_index`/`end_row_index`) "
             "are projected into row-level diagnostics so changed-line rows can be split into "
             "`inside_active_recipe_span` vs `outside_active_recipe_span`."
         ),

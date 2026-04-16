@@ -155,9 +155,9 @@ def test_format_suite_report_md():
 
 def test_dedupe_predictions():
     preds = [
-        {"source_hash": "h", "source_file": "f", "label": "A", "start_block_index": 0, "end_block_index": 5},
-        {"source_hash": "h", "source_file": "f", "label": "A", "start_block_index": 0, "end_block_index": 5},
-        {"source_hash": "h", "source_file": "f", "label": "B", "start_block_index": 0, "end_block_index": 5},
+        {"source_hash": "h", "source_file": "f", "label": "A", "start_row_index": 0, "end_row_index": 5},
+        {"source_hash": "h", "source_file": "f", "label": "A", "start_row_index": 0, "end_row_index": 5},
+        {"source_hash": "h", "source_file": "f", "label": "B", "start_row_index": 0, "end_row_index": 5},
     ]
     deduped = dedupe_predictions(preds)
     assert len(deduped) == 2
@@ -165,13 +165,13 @@ def test_dedupe_predictions():
 
 def test_consolidate_predictions():
     preds = [
-        {"label": "A", "start_block_index": 0, "end_block_index": 10},
-        {"label": "A", "start_block_index": 2, "end_block_index": 5},
+        {"label": "A", "start_row_index": 0, "end_row_index": 10},
+        {"label": "A", "start_row_index": 2, "end_row_index": 5},
     ]
     result = consolidate_predictions(preds)
     assert len(result) == 1
     # Should keep the smaller span
-    assert result[0]["start_block_index"] == 2
+    assert result[0]["start_row_index"] == 2
 
 
 def test_gate_noise():
@@ -201,8 +201,8 @@ def test_estimate_llm_costs_empty():
 
 def test_estimate_llm_costs_with_predictions():
     preds = [
-        {"start_block_index": 0, "end_block_index": 5},
-        {"start_block_index": 10, "end_block_index": 15},
+        {"start_row_index": 0, "end_row_index": 5},
+        {"start_row_index": 10, "end_row_index": 15},
     ]
     result = estimate_llm_costs(preds)
     assert result["total_calls"] == 2

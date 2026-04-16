@@ -28,7 +28,7 @@ def estimate_llm_costs(
     predictions: list[dict[str, Any]],
     *,
     pricing: dict[str, float] | None = None,
-    avg_block_chars: int = 120,
+    avg_row_chars: int = 120,
 ) -> dict[str, Any]:
     """Estimate LLM costs for repairing/verifying predictions.
 
@@ -44,11 +44,11 @@ def estimate_llm_costs(
     total_output_chars = 0
 
     for pred in predictions:
-        start = int(pred.get("start_block_index", 0))
-        end = int(pred.get("end_block_index", start))
-        span_blocks = max(1, end - start + 1)
-        input_chars = span_blocks * avg_block_chars + _TEMPLATE_OVERHEAD_TOKENS * _CHARS_PER_TOKEN
-        output_chars = max(50, span_blocks * avg_block_chars // 2)
+        start = int(pred.get("start_row_index", 0))
+        end = int(pred.get("end_row_index", start))
+        span_rows = max(1, end - start + 1)
+        input_chars = span_rows * avg_row_chars + _TEMPLATE_OVERHEAD_TOKENS * _CHARS_PER_TOKEN
+        output_chars = max(50, span_rows * avg_row_chars // 2)
         total_input_chars += input_chars
         total_output_chars += output_chars
 

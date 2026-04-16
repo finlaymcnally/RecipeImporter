@@ -94,8 +94,8 @@ def _build_intermediate_selected_blocks(
     if not blocks_candidate:
         return [], None, None
 
-    start = coerce_int(parsed_response.get("start_block_index"))
-    end = coerce_int(parsed_response.get("end_block_index"))
+    start = coerce_int(parsed_response.get("start_row_index"))
+    end = coerce_int(parsed_response.get("end_row_index"))
     excluded_ids = {
         str(value).strip()
         for value in coerce_str_list(parsed_response.get("excluded_block_ids"))

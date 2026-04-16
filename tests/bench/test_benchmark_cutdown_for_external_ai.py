@@ -95,8 +95,8 @@ def test_build_pair_diagnostics_emits_changed_lines_and_breakdowns(tmp_path: Pat
             "parsed_response": {
                 "is_recipe": True,
                 "recipe_id": "recipe:c0",
-                "start_block_index": 0,
-                "end_block_index": 2,
+                "start_row_index": 0,
+                "end_row_index": 2,
                 "title": "Dish Title",
             },
             "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
@@ -172,8 +172,8 @@ def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
             "parsed_response": {
                 "is_recipe": True,
                 "recipe_id": "recipe:c0",
-                "start_block_index": 10,
-                "end_block_index": 12,
+                "start_row_index": 10,
+                "end_row_index": 12,
                 "title": "Dish Title",
             },
             "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
@@ -319,15 +319,15 @@ def test_build_recipe_spans_from_full_prompt_rows_supports_sharded_recipe_payloa
     assert spans == [
         {
             "recipe_id": "recipe:a0",
-            "start_block_index": 0,
-            "end_block_index": 1,
+            "start_row_index": 0,
+            "end_row_index": 1,
             "title": "Dish Title",
             "call_id": "recipe-shard-0000-r0000-r0001",
         },
         {
             "recipe_id": "recipe:b0",
-            "start_block_index": 2,
-            "end_block_index": 3,
+            "start_row_index": 2,
+            "end_row_index": 3,
             "title": "Chef Note Dish",
             "call_id": "recipe-shard-0000-r0000-r0001",
         },
@@ -421,8 +421,8 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
             "parsed_response": {
                 "is_recipe": True,
                 "recipe_id": "recipe:c0",
-                "start_block_index": 10,
-                "end_block_index": 12,
+                "start_row_index": 10,
+                "end_row_index": 12,
                 "title": "Dish Title",
                 "excluded_block_ids": [],
             },
@@ -866,8 +866,8 @@ def test_build_comparison_summary_includes_pair_diagnostics(tmp_path: Path) -> N
                 "parsed_response": {
                     "is_recipe": True,
                     "recipe_id": "recipe:c0",
-                    "start_block_index": 0,
-                    "end_block_index": 2,
+                    "start_row_index": 0,
+                    "end_row_index": 2,
                 },
                 "request_input_payload": {"blocks_candidate": [{"text": "Dish Title"}]},
             },

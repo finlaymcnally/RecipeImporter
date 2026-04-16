@@ -401,16 +401,16 @@ def _build_pair_diagnostics(
         correction_row = stage_rows_by_recipe.get(recipe_id, {}).get("recipe_refine")
         build_final_row = stage_rows_by_recipe.get(recipe_id, {}).get("recipe_build_final")
         manifest_diagnostics = manifest_diagnostics_by_recipe.get(recipe_id, {})
-        build_intermediate_start_block_index: int | None = None
-        build_intermediate_end_block_index: int | None = None
+        build_intermediate_start_row_index: int | None = None
+        build_intermediate_end_row_index: int | None = None
         build_intermediate_selected_block_count = 0
         build_intermediate_blocks: list[dict[str, Any]] = []
 
         if isinstance(build_intermediate_row, dict):
             (
                 build_intermediate_blocks,
-                build_intermediate_start_block_index,
-                build_intermediate_end_block_index,
+                build_intermediate_start_row_index,
+                build_intermediate_end_row_index,
             ) = build_intermediate_selected_blocks(
                 build_intermediate_row
             )
@@ -561,8 +561,8 @@ def _build_pair_diagnostics(
                 "build_final_call_id": str(build_final_row.get("call_id") or "")
                 if isinstance(build_final_row, dict)
                 else "",
-                "build_intermediate_start_block_index": build_intermediate_start_block_index,
-                "build_intermediate_end_block_index": build_intermediate_end_block_index,
+                "build_intermediate_start_row_index": build_intermediate_start_row_index,
+                "build_intermediate_end_row_index": build_intermediate_end_row_index,
                 "build_intermediate_selected_block_count": build_intermediate_selected_block_count,
                 "correction_input_block_count": correction_input_block_count,
                 "build_intermediate_missing_block_count": 0,

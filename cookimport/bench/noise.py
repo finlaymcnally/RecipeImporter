@@ -9,7 +9,7 @@ def dedupe_predictions(predictions: list[dict[str, Any]]) -> list[dict[str, Any]
     """Collapse identical/equivalent predicted spans.
 
     Two predictions are equivalent if they share the same
-    source_hash + source_file + label + start_block_index + end_block_index.
+    source_hash + source_file + label + start_row_index + end_row_index.
     """
     seen: set[tuple[str, str, str, int, int]] = set()
     deduped: list[dict[str, Any]] = []
@@ -18,8 +18,8 @@ def dedupe_predictions(predictions: list[dict[str, Any]]) -> list[dict[str, Any]
             str(pred.get("source_hash") or ""),
             str(pred.get("source_file") or ""),
             str(pred.get("label") or ""),
-            int(pred.get("start_block_index", 0)),
-            int(pred.get("end_block_index", 0)),
+            int(pred.get("start_row_index", 0)),
+            int(pred.get("end_row_index", 0)),
         )
         if key in seen:
             continue
@@ -46,18 +46,18 @@ def consolidate_predictions(
         sorted_preds = sorted(
             preds,
             key=lambda p: (
-                int(p.get("start_block_index", 0)),
-                int(p.get("end_block_index", 0)),
+                int(p.get("start_row_index", 0)),
+                int(p.get("end_row_index", 0)),
             ),
         )
         kept: list[dict[str, Any]] = []
         for pred in sorted_preds:
-            start = int(pred.get("start_block_index", 0))
-            end = int(pred.get("end_block_index", 0))
+            start = int(pred.get("start_row_index", 0))
+            end = int(pred.get("end_row_index", 0))
             overlaps_existing = False
             for existing in kept:
-                ex_start = int(existing.get("start_block_index", 0))
-                ex_end = int(existing.get("end_block_index", 0))
+                ex_start = int(existing.get("start_row_index", 0))
+                ex_end = int(existing.get("end_row_index", 0))
                 if start <= ex_end and end >= ex_start:
                     overlaps_existing = True
                     # Keep the smaller span
