@@ -10,6 +10,11 @@ read_when:
 
 This document is the current source of truth for implemented Label Studio behavior.
 
+Related docs:
+
+- `docs/06-label-studio/AI-agent-labelling-guide.md` for the durable semantic labeling rules distilled from the live recipe, canonical line-role, and two-pass knowledge prompt contracts.
+- `docs/06-label-studio/AI-labelling-instructions.md` for quick prompt-template editing notes specific to freeform prelabel.
+
 Code surfaces (primary):
 
 - `cookimport/labelstudio/ingest_flows/prediction_run.py` (offline prediction-run/task-generation owner)
