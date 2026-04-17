@@ -397,10 +397,10 @@ def test_knowledge_orchestrator_marks_invalid_post_validation_category_runtime_f
     def invalid_category_updates(**_kwargs):  # noqa: ANN003
         return ({0: "maybe"}, {}, [], [])
 
-    monkeypatch.setattr(knowledge_module, "_collect_block_category_updates", invalid_category_updates)
+    monkeypatch.setattr(knowledge_module, "_collect_row_category_updates", invalid_category_updates)
     monkeypatch.setitem(
         run_codex_farm_nonrecipe_finalize.__globals__,
-        "_collect_block_category_updates",
+        "_collect_row_category_updates",
         invalid_category_updates,
     )
 

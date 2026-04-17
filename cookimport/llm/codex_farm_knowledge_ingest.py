@@ -26,13 +26,13 @@ _KNOWLEDGE_COVERAGE_VALIDATION_ERRORS = frozenset(
         "unexpected_packet_results",
         "duplicate_packet_results",
         "packet_result_validation_failed",
-        "missing_owned_block_decisions",
-        "unexpected_block_decisions",
-        "block_decision_order_mismatch",
-        "knowledge_block_missing_group",
-        "knowledge_block_group_conflict",
+        "missing_owned_row_decisions",
+        "unexpected_row_decisions",
+        "row_decision_order_mismatch",
+        "knowledge_row_missing_group",
+        "knowledge_row_group_conflict",
         "knowledge_group_grounding_mismatch",
-        "group_contains_other_block",
+        "group_contains_other_row",
         "unknown_grounding_tag_key",
         "unknown_grounding_category_key",
         "invalid_proposed_tag_key",
@@ -50,13 +50,13 @@ _KNOWLEDGE_REPAIRABLE_NEAR_MISS_ERRORS = frozenset(
         "response_json_invalid",
         "response_not_json_object",
         "schema_invalid",
-        "missing_owned_block_decisions",
-        "unexpected_block_decisions",
-        "block_decision_order_mismatch",
-        "knowledge_block_missing_group",
-        "knowledge_block_group_conflict",
+        "missing_owned_row_decisions",
+        "unexpected_row_decisions",
+        "row_decision_order_mismatch",
+        "knowledge_row_missing_group",
+        "knowledge_row_group_conflict",
         "knowledge_group_grounding_mismatch",
-        "group_contains_other_block",
+        "group_contains_other_row",
         "unknown_grounding_tag_key",
         "unknown_grounding_category_key",
         "invalid_proposed_tag_key",
@@ -87,14 +87,14 @@ def normalize_knowledge_worker_payload(
                 "packet_id" not in payload_dict
                 and "bid" not in payload_dict
                 and (
-                    isinstance(payload_dict.get("block_decisions"), list)
-                    or isinstance(payload_dict.get("idea_groups"), list)
+                    isinstance(payload_dict.get("row_decisions"), list)
+                    or isinstance(payload_dict.get("row_groups"), list)
                     or isinstance(payload_dict.get("d"), list)
                     or isinstance(payload_dict.get("g"), list)
                 )
             ):
-                if isinstance(payload_dict.get("block_decisions"), list) or isinstance(
-                    payload_dict.get("idea_groups"), list
+                if isinstance(payload_dict.get("row_decisions"), list) or isinstance(
+                    payload_dict.get("row_groups"), list
                 ):
                     semantic_result = KnowledgePacketSemanticResultV1.model_validate(
                         {
@@ -148,22 +148,22 @@ def sanitize_knowledge_worker_payload_for_shard(
     )
     parsed = KnowledgeBundleOutputV2.model_validate(normalized_payload)
     serialized_decisions: list[dict[str, Any]] = []
-    for decision in parsed.block_decisions:
+    for decision in parsed.row_decisions:
         serialized_decisions.append(
             {
-                "i": int(decision.block_index),
+                "i": int(decision.row_index),
                 "c": str(decision.category),
                 "gr": _serialize_grounding_for_payload(decision.grounding),
             }
         )
 
     serialized_groups: list[dict[str, Any]] = []
-    for group in parsed.idea_groups:
+    for group in parsed.row_groups:
         serialized_groups.append(
             {
                 "gid": str(group.group_id),
                 "l": str(group.topic_label),
-                "bi": [int(block_index) for block_index in group.block_indices],
+                "bi": [int(row_index) for row_index in group.row_indices],
                 "gr": _serialize_grounding_for_payload(group.grounding),
                 "wn": str(group.why_no_existing_tag or "").strip() or None,
                 "rq": str(group.retrieval_query or "").strip() or None,
@@ -172,7 +172,7 @@ def sanitize_knowledge_worker_payload_for_shard(
                         "b": str(snippet.body),
                         "e": [
                             {
-                                "i": int(evidence.block_index),
+                                "i": int(evidence.row_index),
                                 "q": str(evidence.quote),
                             }
                             for evidence in snippet.evidence
@@ -554,11 +554,11 @@ def _packet_surfaces_for_shard(shard: ShardManifestEntryV1) -> list[dict[str, An
             int(
                 block.get("i")
                 if block.get("i") is not None
-                else block.get("block_index")
+                else block.get("row_index")
             )
             for block in (packet.get("b") or packet.get("blocks") or [])
             if isinstance(block, Mapping)
-            and (block.get("i") is not None or block.get("block_index") is not None)
+            and (block.get("i") is not None or block.get("row_index") is not None)
         ]
         packet_surfaces.append(
             {
@@ -608,18 +608,18 @@ def _validate_single_packet_payload(
         }
 
     expected_row_indices = [int(value) for value in packet_surface.get("owned_row_indices") or []]
-    actual_row_indices = [int(row.block_index) for row in parsed.block_decisions]
+    actual_row_indices = [int(row.row_index) for row in parsed.row_decisions]
     metadata["result_row_decision_count"] = len(actual_row_indices)
-    metadata["idea_group_count"] = len(parsed.idea_groups)
+    metadata["idea_group_count"] = len(parsed.row_groups)
     metadata["knowledge_decision_count"] = sum(
         1
-        for row in parsed.block_decisions
+        for row in parsed.row_decisions
         if str(row.category) == "knowledge"
     )
     metadata["reviewed_all_other"] = (
         actual_row_indices == expected_row_indices
         and metadata["knowledge_decision_count"] == 0
-        and not parsed.idea_groups
+        and not parsed.row_groups
     )
 
     errors: list[str] = []
@@ -632,7 +632,7 @@ def _validate_single_packet_payload(
     proposed_tag_key_conflicts_existing: set[str] = set()
     proposed_tag_display_name_conflicts_existing: set[str] = set()
     knowledge_grounding_existing_tag_required_rows: set[int] = set()
-    for row in parsed.block_decisions:
+    for row in parsed.row_decisions:
         row_has_existing_tag_conflict = False
         for tag_key in row.grounding.tag_keys:
             normalized_tag_key = normalize_knowledge_tag_key(tag_key)
@@ -660,7 +660,7 @@ def _validate_single_packet_payload(
                 proposed_tag_display_name_conflicts_existing.add(normalized_display_name)
                 row_has_existing_tag_conflict = True
         if row_has_existing_tag_conflict and not row.grounding.tag_keys:
-            knowledge_grounding_existing_tag_required_rows.add(int(row.block_index))
+            knowledge_grounding_existing_tag_required_rows.add(int(row.row_index))
     if unknown_grounding_tag_keys:
         errors.append("unknown_grounding_tag_key")
         metadata["unknown_grounding_tag_keys"] = sorted(unknown_grounding_tag_keys)
@@ -694,76 +694,76 @@ def _validate_single_packet_payload(
         missing = [idx for idx in expected_row_indices if idx not in actual_row_indices]
         unexpected = [idx for idx in actual_row_indices if idx not in expected_row_indices]
         if missing:
-            errors.append("missing_owned_block_decisions")
+            errors.append("missing_owned_row_decisions")
             metadata["missing_owned_row_indices"] = missing
         if unexpected:
-            errors.append("unexpected_block_decisions")
+            errors.append("unexpected_row_decisions")
             metadata["unexpected_row_indices"] = unexpected
         if not missing and not unexpected:
-            errors.append("block_decision_order_mismatch")
+            errors.append("row_decision_order_mismatch")
 
-    category_by_block = {
-        int(row.block_index): str(row.category)
-        for row in parsed.block_decisions
+    category_by_row = {
+        int(row.row_index): str(row.category)
+        for row in parsed.row_decisions
     }
-    grouped_blocks: dict[int, str] = {}
+    grouped_rows: dict[int, str] = {}
     group_labels_by_id: dict[str, str] = {}
     group_grounding_by_id: dict[str, dict[str, Any]] = {}
-    conflicting_blocks: set[int] = set()
-    groups_on_other_blocks: set[int] = set()
+    conflicting_rows: set[int] = set()
+    groups_on_other_rows: set[int] = set()
     group_grounding_mismatch_rows: set[int] = set()
-    for group in parsed.idea_groups:
+    for group in parsed.row_groups:
         normalized_group_id = str(group.group_id).strip()
         normalized_topic_label = str(group.topic_label).strip()
         previous_topic = group_labels_by_id.get(normalized_group_id)
         if previous_topic is None:
             group_labels_by_id[normalized_group_id] = normalized_topic_label
         elif previous_topic != normalized_topic_label:
-            errors.append("knowledge_block_group_conflict")
+            errors.append("knowledge_row_group_conflict")
             metadata.setdefault("group_id_topic_conflicts", []).append(normalized_group_id)
         group_grounding_by_id[normalized_group_id] = _serialize_grounding_for_payload(
             group.grounding
         )
-        for block_index in group.block_indices:
-            normalized_block_index = int(block_index)
-            if category_by_block.get(normalized_block_index) != "knowledge":
-                groups_on_other_blocks.add(normalized_block_index)
+        for row_index in group.row_indices:
+            normalized_row_index = int(row_index)
+            if category_by_row.get(normalized_row_index) != "knowledge":
+                groups_on_other_rows.add(normalized_row_index)
                 continue
-            previous_group_id = grouped_blocks.get(normalized_block_index)
+            previous_group_id = grouped_rows.get(normalized_row_index)
             if previous_group_id is None:
-                grouped_blocks[normalized_block_index] = normalized_group_id
+                grouped_rows[normalized_row_index] = normalized_group_id
                 decision = next(
                     (
                         row
-                        for row in parsed.block_decisions
-                        if int(row.block_index) == normalized_block_index
+                        for row in parsed.row_decisions
+                        if int(row.row_index) == normalized_row_index
                     ),
                     None,
                 )
                 if decision is not None and _serialize_grounding_for_payload(
                     decision.grounding
                 ) != group_grounding_by_id.get(normalized_group_id):
-                    group_grounding_mismatch_rows.add(normalized_block_index)
+                    group_grounding_mismatch_rows.add(normalized_row_index)
                 continue
             if previous_group_id != normalized_group_id:
-                conflicting_blocks.add(normalized_block_index)
+                conflicting_rows.add(normalized_row_index)
     knowledge_rows = [
         row_index
         for row_index in expected_row_indices
-        if category_by_block.get(row_index) == "knowledge"
+        if category_by_row.get(row_index) == "knowledge"
     ]
     missing_group_rows = [
-        row_index for row_index in knowledge_rows if row_index not in grouped_blocks
+        row_index for row_index in knowledge_rows if row_index not in grouped_rows
     ]
     if missing_group_rows:
-        errors.append("knowledge_block_missing_group")
+        errors.append("knowledge_row_missing_group")
         metadata["knowledge_rows_missing_group"] = missing_group_rows
-    if conflicting_blocks:
-        errors.append("knowledge_block_group_conflict")
-        metadata["knowledge_rows_with_group_conflicts"] = sorted(conflicting_blocks)
-    if groups_on_other_blocks:
-        errors.append("group_contains_other_block")
-        metadata["group_rows_out_of_surface"] = sorted(groups_on_other_blocks)
+    if conflicting_rows:
+        errors.append("knowledge_row_group_conflict")
+        metadata["knowledge_rows_with_group_conflicts"] = sorted(conflicting_rows)
+    if groups_on_other_rows:
+        errors.append("group_contains_other_row")
+        metadata["group_rows_out_of_surface"] = sorted(groups_on_other_rows)
     if group_grounding_mismatch_rows:
         errors.append("knowledge_group_grounding_mismatch")
         metadata["knowledge_group_grounding_mismatch_rows"] = sorted(

@@ -537,9 +537,9 @@ def _write_prediction_run_knowledge_stage_outputs(
                 {
                     "chunk_id": chunk_id,
                     "is_useful": True,
-                    "block_decisions": [
-                        {"block_index": 1, "category": "knowledge"},
-                        {"block_index": 2, "category": "other"},
+                    "row_decisions": [
+                        {"row_index": 1, "category": "knowledge"},
+                        {"row_index": 2, "category": "other"},
                     ],
                     "snippets": [
                         {
@@ -547,7 +547,7 @@ def _write_prediction_run_knowledge_stage_outputs(
                             "body": "Roast until deeply browned.",
                             "tags": ["fixture"],
                             "evidence": [
-                                {"block_index": 1, "quote": "Roast until deeply browned."}
+                                {"row_index": 1, "quote": "Roast until deeply browned."}
                             ],
                         }
                     ],

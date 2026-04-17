@@ -87,8 +87,8 @@ def make_runtime_conversion_result(block_texts: list[str]) -> ConversionResult:
     )
 
 
-def knowledge_span(*block_indices: int) -> NonRecipeSpan:
-    ordered = [int(index) for index in block_indices]
+def knowledge_span(*row_indices: int) -> NonRecipeSpan:
+    ordered = [int(index) for index in row_indices]
     start = ordered[0]
     end = ordered[-1] + 1
     return NonRecipeSpan(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,10 @@ def evaluate_source_rows(
     authority_by_row_index, authority_by_block_index, authority_path = _load_nonrecipe_authority_by_block_index(
         stage_predictions_json
     )
+    gold_position_by_prediction_position = _build_text_sequence_alignment(
+        gold_rows=gold_rows,
+        prediction_rows=prediction_rows,
+    )
 
     gold_by_row_id: dict[str, dict[str, Any]] = {}
     gold_row_id_by_row_index: dict[int, str] = {}
@@ -42,37 +47,52 @@ def evaluate_source_rows(
 
     prediction_by_row_id: dict[str, dict[str, Any]] = {}
     direct_row_id_match_rows = 0
+    text_sequence_match_rows = 0
     row_index_fallback_match_rows = 0
     row_identity_conflict_rows = 0
-    for row in prediction_rows:
+    for prediction_position, row in enumerate(prediction_rows):
         original_row_id = str(row.get("row_id") or "").strip()
-        row_index = _coerce_int(row.get("row_index", row.get("atomic_index")))
+        semantic_row_index = _prediction_semantic_row_index(row)
         resolved_gold_row: dict[str, Any] | None = None
         match_mode = ""
         direct_gold_row = gold_by_row_id.get(original_row_id) if original_row_id else None
-        row_index_gold_row = gold_by_row_index.get(row_index) if row_index is not None else None
-        if direct_gold_row is not None and row_index_gold_row is not None:
-            if direct_gold_row is row_index_gold_row:
-                resolved_gold_row = direct_gold_row
-                match_mode = "row_id"
-            else:
-                row_identity_conflict_rows += 1
-                resolved_gold_row, match_mode = _resolve_conflicting_gold_rows(
-                    prediction_row=row,
-                    direct_gold_row=direct_gold_row,
-                    row_index_gold_row=row_index_gold_row,
-                )
-        elif direct_gold_row is not None:
-            if _prediction_matches_gold_row(
-                prediction_row=row,
-                gold_row=direct_gold_row,
-                require_row_index_match=False,
-            ):
-                resolved_gold_row = direct_gold_row
-                match_mode = "row_id"
-        elif row_index_gold_row is not None:
+        row_index_gold_row = (
+            gold_by_row_index.get(semantic_row_index) if semantic_row_index is not None else None
+        )
+        text_sequence_gold_row = None
+        gold_position = gold_position_by_prediction_position.get(prediction_position)
+        if gold_position is not None and 0 <= gold_position < len(gold_rows):
+            text_sequence_gold_row = gold_rows[gold_position]
+
+        distinct_candidates = {
+            id(candidate)
+            for candidate in (
+                direct_gold_row,
+                text_sequence_gold_row,
+                row_index_gold_row,
+            )
+            if candidate is not None
+        }
+        if len(distinct_candidates) > 1:
+            row_identity_conflict_rows += 1
+
+        if direct_gold_row is not None and _prediction_matches_gold_row(
+            prediction_row=row,
+            gold_row=direct_gold_row,
+            require_row_index_match=False,
+        ):
+            resolved_gold_row = direct_gold_row
+            match_mode = "row_id"
+        elif row_index_gold_row is not None and _prediction_matches_gold_row(
+            prediction_row=row,
+            gold_row=row_index_gold_row,
+            require_row_index_match=True,
+        ):
             resolved_gold_row = row_index_gold_row
             match_mode = "row_index"
+        elif text_sequence_gold_row is not None:
+            resolved_gold_row = text_sequence_gold_row
+            match_mode = "text_sequence"
         if resolved_gold_row is None:
             continue
         resolved_row_id = str(resolved_gold_row.get("row_id") or "").strip()
@@ -89,6 +109,8 @@ def evaluate_source_rows(
     for row in prediction_by_row_id.values():
         if row.get("_match_mode") == "row_id":
             direct_row_id_match_rows += 1
+        elif row.get("_match_mode") == "text_sequence":
+            text_sequence_match_rows += 1
         elif row.get("_match_mode") == "row_index":
             row_index_fallback_match_rows += 1
 
@@ -116,8 +138,8 @@ def evaluate_source_rows(
             (prediction or {}).get("label") or (prediction or {}).get("final_label") or "OTHER"
         )
         pred_label = normalize_freeform_label(raw_pred_label)
-        pred_block_index = _coerce_int((prediction or {}).get("block_index"))
-        pred_row_index = _coerce_int((prediction or {}).get("atomic_index", (prediction or {}).get("row_index")))
+        pred_block_index = _prediction_provenance_block_index(prediction or {})
+        pred_row_index = _prediction_semantic_row_index(prediction or {})
         reason_tags = {
             str(tag or "").strip()
             for tag in ((prediction or {}).get("reason_tags") or [])
@@ -230,6 +252,7 @@ def evaluate_source_rows(
             "wrong_rows": len(wrong_rows),
             "missing_prediction_rows": missing_prediction_count,
             "direct_row_id_match_rows": direct_row_id_match_rows,
+            "text_sequence_match_rows": text_sequence_match_rows,
             "row_index_fallback_match_rows": row_index_fallback_match_rows,
             "row_identity_conflict_rows": row_identity_conflict_rows,
             "authority_override_rows": authority_override_rows,
@@ -283,6 +306,7 @@ def format_source_row_eval_report_md(report: dict[str, Any]) -> str:
         f"- Wrong rows: {counts.get('wrong_rows', 0)}",
         f"- Missing prediction rows: {counts.get('missing_prediction_rows', 0)}",
         f"- Direct row-id matches: {counts.get('direct_row_id_match_rows', 0)}",
+        f"- Text-sequence matches: {counts.get('text_sequence_match_rows', 0)}",
         f"- Row-index fallback matches: {counts.get('row_index_fallback_match_rows', 0)}",
         f"- Row identity conflicts: {counts.get('row_identity_conflict_rows', 0)}",
         f"- Authority overrides: {counts.get('authority_override_rows', 0)}",
@@ -333,6 +357,23 @@ def _resolve_prediction_rows_path(stage_predictions_json: Path) -> Path:
     raise FileNotFoundError(
         f"Could not locate row prediction artifact beside {stage_predictions_json}"
     )
+
+
+def _build_text_sequence_alignment(
+    *,
+    gold_rows: list[dict[str, Any]],
+    prediction_rows: list[dict[str, Any]],
+) -> dict[int, int]:
+    gold_texts = [_normalize_match_text(row.get("text")) for row in gold_rows]
+    prediction_texts = [_normalize_match_text(row.get("text")) for row in prediction_rows]
+    matcher = difflib.SequenceMatcher(None, gold_texts, prediction_texts, autojunk=False)
+    mapping: dict[int, int] = {}
+    for block in matcher.get_matching_blocks():
+        if int(block.size) <= 0:
+            continue
+        for offset in range(int(block.size)):
+            mapping[int(block.b) + offset] = int(block.a) + offset
+    return mapping
 
 
 def _load_nonrecipe_authority_by_block_index(
@@ -407,38 +448,13 @@ def _authority_category_to_label(category: str | None) -> str | None:
     return None
 
 
-def _resolve_conflicting_gold_rows(
-    *,
-    prediction_row: dict[str, Any],
-    direct_gold_row: dict[str, Any],
-    row_index_gold_row: dict[str, Any],
-) -> tuple[dict[str, Any], str]:
-    direct_text_match = _prediction_matches_gold_row(
-        prediction_row=prediction_row,
-        gold_row=direct_gold_row,
-        require_row_index_match=False,
-    )
-    row_index_text_match = _prediction_matches_gold_row(
-        prediction_row=prediction_row,
-        gold_row=row_index_gold_row,
-        require_row_index_match=True,
-    )
-    if row_index_text_match and not direct_text_match:
-        return row_index_gold_row, "row_index"
-    if direct_text_match and not row_index_text_match:
-        return direct_gold_row, "row_id"
-    return row_index_gold_row, "row_index"
-
-
 def _prediction_matches_gold_row(
     *,
     prediction_row: dict[str, Any],
     gold_row: dict[str, Any],
     require_row_index_match: bool,
 ) -> bool:
-    pred_row_index = _coerce_int(
-        prediction_row.get("row_index", prediction_row.get("atomic_index"))
-    )
+    pred_row_index = _prediction_semantic_row_index(prediction_row)
     gold_row_index = _coerce_int(gold_row.get("row_index"))
     if require_row_index_match and pred_row_index is not None and gold_row_index is not None:
         if pred_row_index != gold_row_index:
@@ -458,11 +474,31 @@ def _normalize_match_text(value: Any) -> str:
 
 def _match_mode_rank(value: Any) -> int:
     mode = str(value or "").strip().lower()
+    if mode == "row_index":
+        return 3
+    if mode == "text_sequence":
+        return 2
     if mode == "row_id":
         return 1
-    if mode == "row_index":
-        return 2
     return 0
+
+
+def _prediction_semantic_row_index(prediction_row: dict[str, Any]) -> int | None:
+    atomic_index = _coerce_int(prediction_row.get("atomic_index"))
+    if atomic_index is not None:
+        return atomic_index
+    return _coerce_int(prediction_row.get("row_index"))
+
+
+def _prediction_provenance_block_index(prediction_row: dict[str, Any]) -> int | None:
+    source_block_index = _coerce_int(prediction_row.get("source_block_index"))
+    if source_block_index is not None:
+        return source_block_index
+    if prediction_row.get("atomic_index") is not None:
+        row_index = _coerce_int(prediction_row.get("row_index"))
+        if row_index is not None:
+            return row_index
+    return _coerce_int(prediction_row.get("block_index"))
 
 
 def _normalize_labels(value: Any) -> list[str]:

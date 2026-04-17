@@ -49,8 +49,8 @@ def _shard(*, shard_id: str, blocks: list[tuple[int, str]]) -> ShardManifestEntr
             "v": "1",
             "bid": shard_id,
             "b": [
-                {"i": block_index, "id": f"{shard_id}:{block_index}", "t": text}
-                for block_index, text in blocks
+                {"i": row_index, "id": f"{shard_id}:{row_index}", "t": text}
+                for row_index, text in blocks
             ],
             "x": {
                 "p": [{"i": 1, "t": "Local heading context."}],
@@ -58,7 +58,7 @@ def _shard(*, shard_id: str, blocks: list[tuple[int, str]]) -> ShardManifestEntr
             },
         },
         metadata={
-            "owned_row_indices": [block_index for block_index, _text in blocks],
+            "owned_row_indices": [row_index for row_index, _text in blocks],
             "owned_row_count": len(blocks),
         },
     )

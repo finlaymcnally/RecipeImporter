@@ -936,7 +936,7 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
     assert [row["request_input_payload"]["bid"] for row in knowledge_rows] == [
         "fixturebook.ks0000.nr",
     ]
-    assert [row["recipe_id"] for row in knowledge_rows] == ["blocks:2..2"]
+    assert [row["recipe_id"] for row in knowledge_rows] == ["rows:2..2"]
     assert [row["runtime_owned_ids"] for row in knowledge_rows] == [
         ["fixturebook.ks0000.nr"],
     ]

@@ -228,7 +228,7 @@ def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
             {
                 "atomic_index": 100,
                 "block_id": "b10",
-                "block_index": 10,
+                "row_index": 10,
                 "label": "RECIPE_TITLE",
                 "line_index": 0,
                 "recipe_id": "recipe:0",
@@ -239,7 +239,7 @@ def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
             {
                 "atomic_index": 101,
                 "block_id": "b11",
-                "block_index": 11,
+                "row_index": 11,
                 "label": "INGREDIENT_LINE",
                 "line_index": 1,
                 "recipe_id": "recipe:0",
@@ -250,7 +250,7 @@ def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
             {
                 "atomic_index": 102,
                 "block_id": "b12",
-                "block_index": 12,
+                "row_index": 12,
                 "label": "INSTRUCTION_LINE",
                 "line_index": 2,
                 "recipe_id": "recipe:0",
@@ -261,7 +261,7 @@ def test_build_pair_diagnostics_projects_recipe_spans_from_projected_spans(
             {
                 "atomic_index": 103,
                 "block_id": "b13",
-                "block_index": 13,
+                "row_index": 13,
                 "label": "RECIPE_NOTES",
                 "line_index": 3,
                 "recipe_id": None,
@@ -498,7 +498,7 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
             {
                 "atomic_index": 100,
                 "block_id": "b10",
-                "block_index": 10,
+                "row_index": 10,
                 "label": "RECIPE_TITLE",
                 "line_index": 0,
                 "recipe_id": "recipe:0",
@@ -509,7 +509,7 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
             {
                 "atomic_index": 101,
                 "block_id": "b11",
-                "block_index": 11,
+                "row_index": 11,
                 "label": "INGREDIENT_LINE",
                 "line_index": 1,
                 "recipe_id": "recipe:0",
@@ -520,7 +520,7 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
             {
                 "atomic_index": 102,
                 "block_id": "b12",
-                "block_index": 12,
+                "row_index": 12,
                 "label": "INSTRUCTION_LINE",
                 "line_index": 2,
                 "recipe_id": "recipe:0",
@@ -531,7 +531,7 @@ def test_build_upload_bundle_uses_projected_spans_for_recipe_stage_blame(
             {
                 "atomic_index": 103,
                 "block_id": "b13",
-                "block_index": 13,
+                "row_index": 13,
                 "label": "RECIPE_NOTES",
                 "line_index": 3,
                 "recipe_id": None,

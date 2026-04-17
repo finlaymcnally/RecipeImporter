@@ -13,8 +13,8 @@ Evidence rules:
 - `context_before_rows` and `context_after_rows` are nearby context only; never cite them.
 - `ontology` is the checked-in Cookbook tag catalog. Use it as the grounding surface for stored concepts.
 - `recipe_neighbor_block_indices` marks nearby recipe blocks. Do not let recipe content leak into outside-recipe decisions.
-- Each owned row is rendered as `rXX | block_index | text`.
-- Neighboring context rows are rendered as `block_index | text`.
+- Each owned row is rendered as `rXX | row_index | text`.
+- Neighboring context rows are rendered as `row_index | text`.
 - Block order is preserved, but packet adjacency is not semantic proof. Large block-index jumps or obvious topic shifts often mean unrelated source regions were packed together.
 - Classify each owned block on its own merits. Use nearby blocks only as weak context, and weaken grouping assumptions across large index jumps or abrupt topic changes.
 - Do the keep/drop judgment block by block before you think about idea groups.
@@ -74,8 +74,8 @@ Short output keys:
 
 Input keys:
 - top level: `v` packet version, `bid` packet id, `rows` owned packet rows, optional `context_before_rows`, optional `context_after_rows`, optional `recipe_neighbor_block_indices`, optional `ontology`
-- per owned row: `rXX | block_index | text`
-- per neighboring context row: `block_index | text`
+- per owned row: `rXX | row_index | text`
+- per neighboring context row: `row_index | text`
 - ontology: `categories[*].key`, `categories[*].display_name`, `tags[*].key`, `tags[*].display_name`, `tags[*].category_key`
 
 Packet result:

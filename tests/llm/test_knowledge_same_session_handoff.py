@@ -32,7 +32,7 @@ def _assignment(tmp_path: Path) -> WorkerAssignmentV1:
 
 def _shard(
     *,
-    block_index: int = 8,
+    row_index: int = 8,
     text: str = "Use low heat and whisk steadily.",
 ) -> ShardManifestEntryV1:
     return ShardManifestEntryV1(
@@ -43,13 +43,13 @@ def _shard(
             "bid": "book.ks0000.nr",
             "b": [
                 {
-                    "i": block_index,
-                    "id": f"book.ks0000.nr:{block_index}",
+                    "i": row_index,
+                    "id": f"book.ks0000.nr:{row_index}",
                     "t": text,
                 }
             ],
         },
-        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
+        metadata={"owned_row_indices": [row_index], "owned_row_count": 1},
     )
 
 
@@ -167,9 +167,9 @@ def test_same_session_handoff_advances_to_grouping_and_projects_group_grounding(
     assert grouping_result["grouping_validation_count"] == 1
     assert output_payload == {
         "packet_id": "book.ks0000.nr",
-        "block_decisions": [
+        "row_decisions": [
             {
-                "block_index": 8,
+                "row_index": 8,
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["saute"],
@@ -178,11 +178,11 @@ def test_same_session_handoff_advances_to_grouping_and_projects_group_grounding(
                 },
             }
         ],
-        "idea_groups": [
+        "row_groups": [
             {
                 "group_id": "g01",
                 "topic_label": "Heat control",
-                "block_indices": [8],
+                "row_indices": [8],
                 "grounding": {
                     "tag_keys": ["saute"],
                     "category_keys": ["cooking-method"],
@@ -250,19 +250,19 @@ def test_same_session_grouping_task_shows_short_other_rows_in_ordered_context(
         {
             "display_id": "ctx01",
             "ng": True,
-            "block_index": 7,
+            "row_index": 7,
             "text": "BALANCE",
         },
         {
             "display_id": "r01",
             "row_id": "r01",
-            "block_index": 8,
+            "row_index": 8,
             "text": "Use low heat and whisk steadily.",
         },
         {
             "display_id": "r02",
             "row_id": "r02",
-            "block_index": 9,
+            "row_index": 9,
             "text": "Add butter off the heat to prevent splitting.",
         },
     ]
@@ -287,9 +287,9 @@ def test_same_session_handoff_completes_without_grouping_when_all_rows_are_other
 
     assert result["status"] == "completed_without_grouping"
     assert result["final_output_shard_count"] == 1
-    assert output_payload["block_decisions"] == [
+    assert output_payload["row_decisions"] == [
         {
-            "block_index": 8,
+            "row_index": 8,
             "category": "other",
             "grounding": {
                 "tag_keys": [],
@@ -298,7 +298,7 @@ def test_same_session_handoff_completes_without_grouping_when_all_rows_are_other
             },
         }
     ]
-    assert output_payload["idea_groups"] == []
+    assert output_payload["row_groups"] == []
 
 
 def test_same_session_handoff_rewrites_invalid_grouping_answers_as_repair(
@@ -344,7 +344,7 @@ def test_same_session_handoff_rewrites_invalid_grouping_answers_as_repair(
 
     assert repair_result["status"] == "repair_required"
     assert repair_result["same_session_repair_rewrite_count"] == 1
-    assert "knowledge_block_missing_group" in repair_result["validation_errors"]
+    assert "knowledge_row_missing_group" in repair_result["validation_errors"]
     assert repair_task["mode"] == "repair"
     assert repair_task["stage_key"] == "knowledge_group"
 
@@ -364,11 +364,11 @@ def test_same_session_handoff_advances_across_multiple_grouping_batches(
                     "bid": "book.ks0000.nr",
                     "b": [
                         {
-                            "i": block_index,
-                            "id": f"book.ks0000.nr:{block_index}",
-                            "t": f"Knowledge block {block_index}",
+                            "i": row_index,
+                            "id": f"book.ks0000.nr:{row_index}",
+                            "t": f"Knowledge block {row_index}",
                         }
-                        for block_index in range(block_count)
+                        for row_index in range(block_count)
                     ],
                 },
                 metadata={
@@ -441,12 +441,12 @@ def test_same_session_handoff_advances_across_multiple_grouping_batches(
 
     assert final_result["status"] == "completed_with_grouping"
     assert final_result["grouping_validation_count"] == 2
-    assert len(output_payload["block_decisions"]) == block_count
-    assert output_payload["idea_groups"] == [
+    assert len(output_payload["row_decisions"]) == block_count
+    assert output_payload["row_groups"] == [
         {
             "group_id": "g01",
             "topic_label": "Heat control",
-            "block_indices": list(range(block_count)),
+            "row_indices": list(range(block_count)),
             "grounding": {
                 "tag_keys": ["saute"],
                 "category_keys": ["cooking-method"],

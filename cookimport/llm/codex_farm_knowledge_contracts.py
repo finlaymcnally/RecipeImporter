@@ -38,48 +38,48 @@ class KnowledgeCompactTableHintV1(BaseModel):
     row_index_in_table: int | None = Field(default=None, alias="r")
 
 
-class KnowledgePacketBlockV1(BaseModel):
+class KnowledgePacketRowV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    block_index: int = Field(alias="i")
+    row_index: int = Field(alias="i")
     text: str = Field(alias="t")
     heading_level: int | None = Field(default=None, alias="hl")
     table_hint: KnowledgeCompactTableHintV1 | None = Field(default=None, alias="th")
 
-    @field_validator("block_index", mode="before")
+    @field_validator("row_index", mode="before")
     @classmethod
-    def _coerce_block_index(cls, value: Any) -> Any:
+    def _coerce_row_index(cls, value: Any) -> Any:
         return int(value)
 
 
-class KnowledgePacketContextBlockV1(BaseModel):
+class KnowledgePacketContextRowV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    block_index: int = Field(alias="i")
+    row_index: int = Field(alias="i")
     text: str = Field(alias="t")
     heading_level: int | None = Field(default=None, alias="hl")
 
-    @field_validator("block_index", mode="before")
+    @field_validator("row_index", mode="before")
     @classmethod
-    def _coerce_block_index(cls, value: Any) -> Any:
+    def _coerce_row_index(cls, value: Any) -> Any:
         return int(value)
 
 
 class KnowledgePacketContextPayloadV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    blocks_before: list[KnowledgePacketContextBlockV1] = Field(default_factory=list, alias="p")
-    blocks_after: list[KnowledgePacketContextBlockV1] = Field(default_factory=list, alias="n")
+    rows_before: list[KnowledgePacketContextRowV1] = Field(default_factory=list, alias="p")
+    rows_after: list[KnowledgePacketContextRowV1] = Field(default_factory=list, alias="n")
 
 
 class KnowledgePacketGuardrailsPayloadV1(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
-    context_recipe_block_indices: list[int] = Field(default_factory=list, alias="r")
+    context_recipe_row_indices: list[int] = Field(default_factory=list, alias="r")
 
-    @field_validator("context_recipe_block_indices", mode="before")
+    @field_validator("context_recipe_row_indices", mode="before")
     @classmethod
-    def _coerce_context_recipe_block_indices(cls, value: Any) -> Any:
+    def _coerce_context_recipe_row_indices(cls, value: Any) -> Any:
         if value is None:
             return []
         if isinstance(value, list):
@@ -92,7 +92,7 @@ class KnowledgePacketJobInputV1(BaseModel):
 
     packet_version: Literal["1"] = Field(default=_PACKET_VERSION_V1, alias="v")
     packet_id: str = Field(alias="bid")
-    blocks: list[KnowledgePacketBlockV1] = Field(default_factory=list, alias="b")
+    rows: list[KnowledgePacketRowV1] = Field(default_factory=list, alias="b")
     context: KnowledgePacketContextPayloadV1 | None = Field(default=None, alias="x")
     guardrails: KnowledgePacketGuardrailsPayloadV1 | None = Field(default=None, alias="g")
 
@@ -123,17 +123,17 @@ def knowledge_input_packets(payload: Mapping[str, Any] | None) -> list[dict[str,
         packets = data.get("packets")
     if isinstance(packets, list):
         return [dict(item) for item in packets if isinstance(item, dict)]
-    blocks = data.get("b")
-    if not isinstance(blocks, list):
-        blocks = data.get("blocks")
-    if not isinstance(blocks, list):
+    rows = data.get("b")
+    if not isinstance(rows, list):
+        rows = data.get("rows")
+    if not isinstance(rows, list):
         return []
     packet_id = str(data.get("bid") or data.get("packet_id") or "").strip()
     if not packet_id:
         return []
     packet_payload: dict[str, Any] = {
         "bid": packet_id,
-        "b": [dict(item) for item in blocks if isinstance(item, dict)],
+        "b": [dict(item) for item in rows if isinstance(item, dict)],
     }
     if isinstance(data.get("x"), Mapping):
         packet_payload["x"] = dict(data["x"])
@@ -144,17 +144,17 @@ def knowledge_input_packets(payload: Mapping[str, Any] | None) -> list[dict[str,
     return [packet_payload]
 
 
-def knowledge_input_blocks(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
+def knowledge_input_rows(payload: Mapping[str, Any] | None) -> list[dict[str, Any]]:
     packets = knowledge_input_packets(payload)
     if len(packets) == 1:
-        blocks = packets[0].get("b")
-        if isinstance(blocks, list):
-            return [dict(item) for item in blocks if isinstance(item, dict)]
+        rows = packets[0].get("b")
+        if isinstance(rows, list):
+            return [dict(item) for item in rows if isinstance(item, dict)]
     return [
-        dict(block)
+        dict(row)
         for packet in packets
-        for block in (packet.get("b") or [])
-        if isinstance(block, dict)
+        for row in (packet.get("b") or [])
+        if isinstance(row, dict)
     ]
 
 
@@ -167,20 +167,20 @@ def knowledge_input_packet_ids(payload: Mapping[str, Any] | None) -> list[str]:
     if packet_ids:
         return packet_ids
     bundle_id = knowledge_input_bundle_id(payload)
-    blocks = knowledge_input_blocks(payload)
-    if not bundle_id or not blocks:
+    rows = knowledge_input_rows(payload)
+    if not bundle_id or not rows:
         return []
     return [bundle_id]
 
 
-def knowledge_input_block_index(block_payload: Mapping[str, Any] | None) -> int | None:
-    data = block_payload or {}
-    value = data.get("i", data.get("block_index"))
+def knowledge_input_row_index(row_payload: Mapping[str, Any] | None) -> int | None:
+    data = row_payload or {}
+    value = data.get("i", data.get("row_index"))
     if value is None:
         return None
     return int(value)
 
 
-def knowledge_input_block_text(block_payload: Mapping[str, Any] | None) -> str:
-    data = block_payload or {}
+def knowledge_input_row_text(row_payload: Mapping[str, Any] | None) -> str:
+    data = row_payload or {}
     return str(data.get("t", data.get("text")) or "")

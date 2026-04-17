@@ -20,12 +20,12 @@ ALLOWED_KNOWLEDGE_PROPOSAL_DECISIONS: tuple[str, ...] = (
 class EvidencePointerV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    block_index: int = Field(alias="i")
+    row_index: int = Field(alias="i")
     quote: str = Field(alias="q")
 
-    @field_validator("block_index", mode="before")
+    @field_validator("row_index", mode="before")
     @classmethod
-    def _coerce_block_index(cls, value: object) -> object:
+    def _coerce_row_index(cls, value: object) -> object:
         return int(value)
 
     @field_validator("quote", mode="before")
@@ -99,20 +99,20 @@ class KnowledgeGroundingV1(BaseModel):
         return deduped
 
 
-class KnowledgeBlockDecisionV1(BaseModel):
+class KnowledgeRowDecisionV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    block_index: int = Field(alias="i")
+    row_index: int = Field(alias="i")
     category: Literal["knowledge", "other"] = Field(alias="c")
     grounding: KnowledgeGroundingV1 = Field(default_factory=KnowledgeGroundingV1, alias="gr")
 
-    @field_validator("block_index", mode="before")
+    @field_validator("row_index", mode="before")
     @classmethod
-    def _coerce_block_index(cls, value: object) -> object:
+    def _coerce_row_index(cls, value: object) -> object:
         return int(value)
 
     @model_validator(mode="after")
-    def _validate_grounding(self) -> "KnowledgeBlockDecisionV1":
+    def _validate_grounding(self) -> "KnowledgeRowDecisionV1":
         if self.category != "knowledge":
             if (
                 self.grounding.tag_keys
@@ -123,12 +123,12 @@ class KnowledgeBlockDecisionV1(BaseModel):
         return self
 
 
-class KnowledgeIdeaGroupV1(BaseModel):
+class KnowledgeRowGroupV1(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     group_id: str = Field(alias="gid")
     topic_label: str = Field(alias="l")
-    block_indices: list[int] = Field(default_factory=list, alias="bi")
+    row_indices: list[int] = Field(default_factory=list, alias="bi")
     grounding: KnowledgeGroundingV1 = Field(default_factory=KnowledgeGroundingV1, alias="gr")
     why_no_existing_tag: str | None = Field(default=None, alias="wn")
     retrieval_query: str | None = Field(default=None, alias="rq")
@@ -149,39 +149,39 @@ class KnowledgeIdeaGroupV1(BaseModel):
         cleaned = str(value).strip()
         return cleaned or None
 
-    @field_validator("block_indices", mode="before")
+    @field_validator("row_indices", mode="before")
     @classmethod
-    def _coerce_block_indices(cls, value: object) -> object:
+    def _coerce_row_indices(cls, value: object) -> object:
         if value is None:
             return []
         return [int(item) for item in value]
 
-    @field_validator("block_indices")
+    @field_validator("row_indices")
     @classmethod
-    def _require_unique_block_indices(cls, value: list[int]) -> list[int]:
+    def _require_unique_row_indices(cls, value: list[int]) -> list[int]:
         if not value:
-            raise ValueError("idea_groups must include at least one block index.")
+            raise ValueError("row_groups must include at least one row index.")
         if len(set(value)) != len(value):
-            raise ValueError("idea_groups must not repeat block indices.")
+            raise ValueError("row_groups must not repeat row indices.")
         return value
 
     @model_validator(mode="after")
-    def _validate_group_grounding(self) -> "KnowledgeIdeaGroupV1":
+    def _validate_group_grounding(self) -> "KnowledgeRowGroupV1":
         has_existing_tags = bool(self.grounding.tag_keys)
         has_proposed_tags = bool(self.grounding.proposed_tags)
         if not has_existing_tags and not has_proposed_tags:
             raise ValueError(
-                "idea_groups must include at least one existing tag or proposed tag."
+                "row_groups must include at least one existing tag or proposed tag."
             )
         if has_proposed_tags and (
             not self.why_no_existing_tag or not self.retrieval_query
         ):
             raise ValueError(
-                "idea_groups with proposed_tags must include why_no_existing_tag and retrieval_query."
+                "row_groups with proposed_tags must include why_no_existing_tag and retrieval_query."
             )
         if not has_proposed_tags and (self.why_no_existing_tag or self.retrieval_query):
             raise ValueError(
-                "idea_groups without proposed_tags must not include proposal-only justification fields."
+                "row_groups without proposed_tags must not include proposal-only justification fields."
             )
         return self
 
@@ -190,62 +190,62 @@ class KnowledgeBundleOutputV2(BaseModel):
 
     bundle_version: Literal["3"] = Field(default=_BUNDLE_VERSION_V3, alias="v")
     bundle_id: str = Field(alias="bid")
-    block_decisions: list[KnowledgeBlockDecisionV1] = Field(default_factory=list, alias="d")
-    idea_groups: list[KnowledgeIdeaGroupV1] = Field(default_factory=list, alias="g")
+    row_decisions: list[KnowledgeRowDecisionV1] = Field(default_factory=list, alias="d")
+    row_groups: list[KnowledgeRowGroupV1] = Field(default_factory=list, alias="g")
 
     @field_validator("bundle_id", mode="before")
     @classmethod
     def _normalize_bundle_id(cls, value: object) -> object:
         return str(value).strip()
 
-    @field_validator("block_decisions")
+    @field_validator("row_decisions")
     @classmethod
-    def _require_unique_block_decisions(
-        cls, value: list[KnowledgeBlockDecisionV1]
-    ) -> list[KnowledgeBlockDecisionV1]:
+    def _require_unique_row_decisions(
+        cls, value: list[KnowledgeRowDecisionV1]
+    ) -> list[KnowledgeRowDecisionV1]:
         seen: set[int] = set()
         for decision in value:
-            if decision.block_index in seen:
+            if decision.row_index in seen:
                 raise ValueError(
-                    "block_decisions must not repeat block_index "
-                    f"{decision.block_index}."
+                    "row_decisions must not repeat row_index "
+                    f"{decision.row_index}."
                 )
-            seen.add(decision.block_index)
+            seen.add(decision.row_index)
         return value
 
-    @field_validator("idea_groups")
+    @field_validator("row_groups")
     @classmethod
     def _require_unique_group_ids(
-        cls, value: list[KnowledgeIdeaGroupV1]
-    ) -> list[KnowledgeIdeaGroupV1]:
+        cls, value: list[KnowledgeRowGroupV1]
+    ) -> list[KnowledgeRowGroupV1]:
         seen: set[str] = set()
         for group in value:
             if group.group_id in seen:
-                raise ValueError(f"idea_groups must not repeat group_id {group.group_id!r}.")
+                raise ValueError(f"row_groups must not repeat group_id {group.group_id!r}.")
             seen.add(group.group_id)
         return value
 
     @property
     def is_useful(self) -> bool:
-        return bool(self.idea_groups)
+        return bool(self.row_groups)
 
     @property
     def snippets(self) -> list[KnowledgeSnippetV1]:
         return [
             snippet
-            for group in self.idea_groups
+            for group in self.row_groups
             for snippet in group.snippets
         ]
 
 class KnowledgeSemanticEvidenceV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    block_index: int
+    row_index: int
     quote: str
 
-    @field_validator("block_index", mode="before")
+    @field_validator("row_index", mode="before")
     @classmethod
-    def _coerce_block_index(cls, value: object) -> object:
+    def _coerce_row_index(cls, value: object) -> object:
         return int(value)
 
     @field_validator("quote", mode="before")
@@ -338,20 +338,20 @@ class KnowledgeSemanticGroundingV1(BaseModel):
         return deduped
 
 
-class KnowledgeSemanticBlockDecisionV1(BaseModel):
+class KnowledgeSemanticRowDecisionV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    block_index: int
+    row_index: int
     category: Literal["knowledge", "other"]
     grounding: KnowledgeSemanticGroundingV1 = Field(default_factory=KnowledgeSemanticGroundingV1)
 
-    @field_validator("block_index", mode="before")
+    @field_validator("row_index", mode="before")
     @classmethod
-    def _coerce_block_index(cls, value: object) -> object:
+    def _coerce_row_index(cls, value: object) -> object:
         return int(value)
 
     @model_validator(mode="after")
-    def _validate_grounding(self) -> "KnowledgeSemanticBlockDecisionV1":
+    def _validate_grounding(self) -> "KnowledgeSemanticRowDecisionV1":
         if self.category != "knowledge":
             if (
                 self.grounding.tag_keys
@@ -362,12 +362,12 @@ class KnowledgeSemanticBlockDecisionV1(BaseModel):
         return self
 
 
-class KnowledgeSemanticIdeaGroupV1(BaseModel):
+class KnowledgeSemanticRowGroupV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     group_id: str
     topic_label: str
-    block_indices: list[int] = Field(default_factory=list)
+    row_indices: list[int] = Field(default_factory=list)
     grounding: KnowledgeSemanticGroundingV1 = Field(default_factory=KnowledgeSemanticGroundingV1)
     why_no_existing_tag: str | None = None
     retrieval_query: str | None = None
@@ -388,30 +388,30 @@ class KnowledgeSemanticIdeaGroupV1(BaseModel):
         cleaned = str(value).strip()
         return cleaned or None
 
-    @field_validator("block_indices", mode="before")
+    @field_validator("row_indices", mode="before")
     @classmethod
-    def _coerce_block_indices(cls, value: object) -> object:
+    def _coerce_row_indices(cls, value: object) -> object:
         if value is None:
             return []
         return [int(item) for item in value]
 
     @model_validator(mode="after")
-    def _validate_group_grounding(self) -> "KnowledgeSemanticIdeaGroupV1":
+    def _validate_group_grounding(self) -> "KnowledgeSemanticRowGroupV1":
         has_existing_tags = bool(self.grounding.tag_keys)
         has_proposed_tags = bool(self.grounding.proposed_tags)
         if not has_existing_tags and not has_proposed_tags:
             raise ValueError(
-                "idea_groups must include at least one existing tag or proposed tag."
+                "row_groups must include at least one existing tag or proposed tag."
             )
         if has_proposed_tags and (
             not self.why_no_existing_tag or not self.retrieval_query
         ):
             raise ValueError(
-                "idea_groups with proposed_tags must include why_no_existing_tag and retrieval_query."
+                "row_groups with proposed_tags must include why_no_existing_tag and retrieval_query."
             )
         if not has_proposed_tags and (self.why_no_existing_tag or self.retrieval_query):
             raise ValueError(
-                "idea_groups without proposed_tags must not include proposal-only justification fields."
+                "row_groups without proposed_tags must not include proposal-only justification fields."
             )
         return self
 
@@ -420,8 +420,8 @@ class KnowledgePacketSemanticResultV1(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     packet_id: str
-    block_decisions: list[KnowledgeSemanticBlockDecisionV1] = Field(default_factory=list)
-    idea_groups: list[KnowledgeSemanticIdeaGroupV1] = Field(default_factory=list)
+    row_decisions: list[KnowledgeSemanticRowDecisionV1] = Field(default_factory=list)
+    row_groups: list[KnowledgeSemanticRowGroupV1] = Field(default_factory=list)
 
     @field_validator("packet_id", mode="before")
     @classmethod
@@ -437,7 +437,7 @@ def serialize_canonical_knowledge_packet(
         "bid": result.packet_id,
         "d": [
             {
-                "i": decision.block_index,
+                "i": decision.row_index,
                 "c": decision.category,
                 "gr": {
                     "tk": list(decision.grounding.tag_keys),
@@ -452,13 +452,13 @@ def serialize_canonical_knowledge_packet(
                     ],
                 },
             }
-            for decision in result.block_decisions
+            for decision in result.row_decisions
         ],
         "g": [
             {
                 "gid": group.group_id,
                 "l": group.topic_label,
-                "bi": list(group.block_indices),
+                "bi": list(group.row_indices),
                 "gr": {
                     "tk": list(group.grounding.tag_keys),
                     "ck": list(group.grounding.category_keys),
@@ -478,7 +478,7 @@ def serialize_canonical_knowledge_packet(
                         "b": snippet.body,
                         "e": [
                             {
-                                "i": evidence.block_index,
+                                "i": evidence.row_index,
                                 "q": evidence.quote,
                             }
                             for evidence in snippet.evidence
@@ -487,6 +487,6 @@ def serialize_canonical_knowledge_packet(
                     for snippet in group.snippets
                 ],
             }
-            for group in result.idea_groups
+            for group in result.row_groups
         ],
     }

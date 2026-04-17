@@ -199,7 +199,7 @@ def _knowledge_local_row_maps(
 ) -> tuple[dict[str, str], dict[str, str], dict[str, int], list[str]]:
     row_id_by_unit_id: dict[str, str] = {}
     unit_id_by_row_id: dict[str, str] = {}
-    block_index_by_unit_id: dict[str, int] = {}
+    row_index_by_unit_id: dict[str, int] = {}
     ordered_row_ids: list[str] = []
     for index, unit in enumerate(original_task_file.get("units") or []):
         if not isinstance(unit, Mapping):
@@ -210,31 +210,31 @@ def _knowledge_local_row_maps(
         row_id = _knowledge_local_row_id(index)
         row_id_by_unit_id[unit_id] = row_id
         unit_id_by_row_id[row_id] = unit_id
-        block_index_by_unit_id[unit_id] = int(
-            _coerce_dict(unit.get("evidence")).get("block_index") or 0
+        row_index_by_unit_id[unit_id] = int(
+            _coerce_dict(unit.get("evidence")).get("row_index") or 0
         )
         ordered_row_ids.append(row_id)
-    return row_id_by_unit_id, unit_id_by_row_id, block_index_by_unit_id, ordered_row_ids
+    return row_id_by_unit_id, unit_id_by_row_id, row_index_by_unit_id, ordered_row_ids
 
 
 def _compact_knowledge_packet_row(
     *,
     row_id: str,
-    block_index: int,
+    row_index: int,
     text: str,
 ) -> str:
-    return f"{row_id} | {int(block_index)} | {str(text or '')}"
+    return f"{row_id} | {int(row_index)} | {str(text or '')}"
 
 
 def _compact_knowledge_context_row(
     *,
     row_id: str,
-    block_index: int | None,
+    row_index: int | None,
     text: str,
 ) -> str:
-    if block_index is None:
+    if row_index is None:
         return f"{row_id} | {str(text or '')}"
-    return f"{row_id} | {int(block_index)} | {str(text or '')}"
+    return f"{row_id} | {int(row_index)} | {str(text or '')}"
 
 
 def _compact_knowledge_ordered_row(row: Mapping[str, Any]) -> str | None:
@@ -242,14 +242,14 @@ def _compact_knowledge_ordered_row(row: Mapping[str, Any]) -> str | None:
     text = str(row.get("text") or "").strip()
     if not display_id or not text:
         return None
-    block_index = row.get("block_index")
+    row_index = row.get("row_index")
     no_group = bool(row.get("ng"))
-    if block_index is None:
+    if row_index is None:
         return f"{display_id} | ng | {text}" if no_group else f"{display_id} | {text}"
     return (
-        f"{display_id} | ng | {int(block_index)} | {text}"
+        f"{display_id} | ng | {int(row_index)} | {text}"
         if no_group
-        else f"{display_id} | {int(block_index)} | {text}"
+        else f"{display_id} | {int(row_index)} | {text}"
     )
 
 
@@ -264,7 +264,7 @@ def _compact_knowledge_row_facts(
 
 def _compact_repair_error_detail(detail: Mapping[str, Any]) -> dict[str, Any]:
     compact: dict[str, Any] = {}
-    for key in ("code", "message", "path", "row_id", "block_index"):
+    for key in ("code", "message", "path", "row_id", "row_index"):
         value = detail.get(key)
         if value in (None, "", [], {}):
             continue
@@ -468,12 +468,12 @@ def knowledge_task_file_to_structured_packet(
         evidence = _coerce_dict(unit.get("evidence"))
         row_id = _knowledge_local_row_id(index)
         row_text = str(evidence.get("text") or "")
-        block_index = int(evidence.get("block_index") or 0)
+        row_index = int(evidence.get("row_index") or 0)
         if stage_key != KNOWLEDGE_GROUP_STAGE_KEY:
             rows.append(
                 _compact_knowledge_packet_row(
                     row_id=row_id,
-                    block_index=block_index,
+                    row_index=row_index,
                     text=row_text,
                 )
             )
@@ -482,9 +482,9 @@ def knowledge_task_file_to_structured_packet(
             context_before_rows.append(
                 _compact_knowledge_context_row(
                     row_id=row_id,
-                    block_index=(
-                        int(evidence.get("context_before_block_index"))
-                        if evidence.get("context_before_block_index") is not None
+                    row_index=(
+                        int(evidence.get("context_before_row_index"))
+                        if evidence.get("context_before_row_index") is not None
                         else None
                     ),
                     text=context_before,
@@ -495,9 +495,9 @@ def knowledge_task_file_to_structured_packet(
             context_after_rows.append(
                 _compact_knowledge_context_row(
                     row_id=row_id,
-                    block_index=(
-                        int(evidence.get("context_after_block_index"))
-                        if evidence.get("context_after_block_index") is not None
+                    row_index=(
+                        int(evidence.get("context_after_row_index"))
+                        if evidence.get("context_after_row_index") is not None
                         else None
                     ),
                     text=context_after,
@@ -636,8 +636,8 @@ def build_knowledge_structured_prompt(
         task_note = (
             "Review the ordered kept knowledge rows and partition them into contiguous reading-order groups.\n"
             "Use `ordered_rows` as the single reading-order surface.\n"
-            "Plain `rXX | block_index | text` rows are groupable by default.\n"
-            "Rows rendered as `ctxXX | ng | block_index | text` are context only; `ng` means do not group.\n"
+            "Plain `rXX | row_index | text` rows are groupable by default.\n"
+            "Rows rendered as `ctxXX | ng | row_index | text` are context only; `ng` means do not group.\n"
             "This is a split-and-tag pass: choose the group boundaries with the tag story in mind.\n"
             "Every `rXX` row in `ordered_rows` already survived the binary review and must belong to exactly one contiguous group.\n"
             "Only the plain `rXX` rows are groupable. `ctxXX | ng | ...` rows are structural context only and must never appear in returned group spans.\n"
@@ -661,7 +661,7 @@ def build_knowledge_structured_prompt(
         response_shape = '{"rows":[{"row_id":"r01","category":"keep_for_review"},{"row_id":"r02","category":"other"}]}'
         task_note = (
             "Review the ordered knowledge rows and answer every `row_id` exactly once.\n"
-            "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | block_index | text`.\n"
+            "The packet `rows` array is ordered and authoritative; each row is rendered as `rXX | row_index | text`.\n"
             "Reason about the packet holistically first: read short local runs of adjacent rows together before deciding any single row.\n"
             "Decide by local span, emit by row. Neighboring rows often explain what role a row plays, but you must still return one final answer per `row_id`.\n"
             "Return one ordered `rows` array with exactly one `{row_id, category}` object per row.\n"
@@ -745,7 +745,7 @@ def _response_contract_metadata(
     (
         row_id_by_unit_id,
         unit_id_by_row_id,
-        block_index_by_unit_id,
+        row_index_by_unit_id,
         owned_row_ids,
     ) = _knowledge_unit_maps(original_task_file)
     missing_unit_id_set = {
@@ -759,9 +759,9 @@ def _response_contract_metadata(
         if unit_id in row_id_by_unit_id
     ]
     missing_row_indices = [
-        int(block_index_by_unit_id[unit_id])
+        int(row_index_by_unit_id[unit_id])
         for unit_id in sorted(missing_unit_id_set)
-        if unit_id in block_index_by_unit_id
+        if unit_id in row_index_by_unit_id
     ]
     duplicate_row_id_list = sorted(
         {str(value).strip() for value in duplicate_row_ids if str(value).strip()}
@@ -774,9 +774,9 @@ def _response_contract_metadata(
         }
     )
     duplicate_row_indices = [
-        int(block_index_by_unit_id[unit_id])
+        int(row_index_by_unit_id[unit_id])
         for unit_id in duplicate_unit_ids
-        if unit_id in block_index_by_unit_id
+        if unit_id in row_index_by_unit_id
     ]
     unknown_row_id_list = sorted(
         {str(value).strip() for value in unknown_row_ids if str(value).strip()}
@@ -794,7 +794,7 @@ def _response_contract_metadata(
                     "code": "knowledge_missing_response_row",
                     "message": "response did not return a row for this owned row_id",
                     "row_id": row_id,
-                    "block_index": block_index_by_unit_id.get(unit_id),
+                    "row_index": row_index_by_unit_id.get(unit_id),
                 }
             )
     if duplicate_row_id_list:
@@ -807,7 +807,7 @@ def _response_contract_metadata(
                     "code": "knowledge_duplicate_row_id",
                     "message": "response returned more than one row for this row_id",
                     "row_id": row_id,
-                    "block_index": block_index_by_unit_id.get(unit_id),
+                    "row_index": row_index_by_unit_id.get(unit_id),
                 }
             )
     if unknown_row_id_list:
@@ -862,7 +862,7 @@ def build_knowledge_edited_task_file_from_classification_response(
     (
         _row_id_by_unit_id,
         unit_id_by_row_id,
-        _block_index_by_unit_id,
+        _row_index_by_unit_id,
         owned_row_ids,
     ) = _knowledge_unit_maps(original_task_file)
     answers_by_unit_id: dict[str, dict[str, Any]] = {}
@@ -933,7 +933,7 @@ def build_knowledge_edited_task_file_from_grouping_response(
     (
         _row_id_by_unit_id,
         unit_id_by_row_id,
-        _block_index_by_unit_id,
+        _row_index_by_unit_id,
         owned_row_ids,
     ) = _knowledge_unit_maps(original_task_file)
     answers_by_unit_id: dict[str, dict[str, Any]] = {}

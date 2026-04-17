@@ -7,12 +7,12 @@ from cookimport.llm.codex_farm_knowledge_ingest import (
 from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 
 
-def _packet_payload(*, packet_id: str, block_indices: list[int]) -> dict[str, object]:
+def _packet_payload(*, packet_id: str, row_indices: list[int]) -> dict[str, object]:
     return {
         "packet_id": packet_id,
-        "block_decisions": [
+        "row_decisions": [
             {
-                "block_index": block_index,
+                "row_index": row_index,
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["saute"],
@@ -20,13 +20,13 @@ def _packet_payload(*, packet_id: str, block_indices: list[int]) -> dict[str, ob
                     "proposed_tags": [],
                 },
             }
-            for block_index in block_indices
+            for row_index in row_indices
         ],
-        "idea_groups": [
+        "row_groups": [
             {
                 "group_id": "g01",
                 "topic_label": "Heat control",
-                "block_indices": list(block_indices),
+                "row_indices": list(row_indices),
                 "grounding": {
                     "tag_keys": ["saute"],
                     "category_keys": ["cooking-method"],
@@ -39,7 +39,7 @@ def _packet_payload(*, packet_id: str, block_indices: list[int]) -> dict[str, ob
                         "body": "Use steady heat to control the pan.",
                         "evidence": [
                             {
-                                "block_index": block_indices[0],
+                                "row_index": row_indices[0],
                                 "quote": "Use steady heat",
                             }
                         ],
@@ -50,23 +50,23 @@ def _packet_payload(*, packet_id: str, block_indices: list[int]) -> dict[str, ob
     }
 
 
-def _shard(*, packet_id: str, block_indices: list[int]) -> ShardManifestEntryV1:
+def _shard(*, packet_id: str, row_indices: list[int]) -> ShardManifestEntryV1:
     return ShardManifestEntryV1(
         shard_id=packet_id,
         owned_ids=(packet_id,),
-        evidence_refs=tuple(f"block:{index}" for index in block_indices),
+        evidence_refs=tuple(f"block:{index}" for index in row_indices),
         input_payload={
             "v": "1",
             "bid": packet_id,
-            "b": [{"i": index, "t": f"Block {index} text."} for index in block_indices],
+            "b": [{"i": index, "t": f"Block {index} text."} for index in row_indices],
         },
-        metadata={"owned_row_indices": list(block_indices)},
+        metadata={"owned_row_indices": list(row_indices)},
     )
 
 
 def test_normalize_knowledge_worker_payload_serializes_group_grounding() -> None:
     payload, metadata = normalize_knowledge_worker_payload(
-        _packet_payload(packet_id="book.kp0001.nr", block_indices=[4, 5])
+        _packet_payload(packet_id="book.kp0001.nr", row_indices=[4, 5])
     )
 
     assert metadata["worker_output_contract"] == "semantic_packet_result_v2"
@@ -106,8 +106,8 @@ def test_normalize_knowledge_worker_payload_serializes_group_grounding() -> None
 
 def test_validate_knowledge_shard_output_accepts_complete_grouped_result() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
-        _shard(packet_id="book.kp0002.nr", block_indices=[10, 11]),
-        _packet_payload(packet_id="book.kp0002.nr", block_indices=[10, 11]),
+        _shard(packet_id="book.kp0002.nr", row_indices=[10, 11]),
+        _packet_payload(packet_id="book.kp0002.nr", row_indices=[10, 11]),
     )
 
     assert valid is True
@@ -117,12 +117,12 @@ def test_validate_knowledge_shard_output_accepts_complete_grouped_result() -> No
 
 
 def test_validate_knowledge_shard_output_rejects_group_grounding_mismatch() -> None:
-    payload = _packet_payload(packet_id="book.kp0003.nr", block_indices=[20, 21])
-    payload["idea_groups"][0]["grounding"]["tag_keys"] = ["bright"]
-    payload["idea_groups"][0]["grounding"]["category_keys"] = ["flavor-profile"]
+    payload = _packet_payload(packet_id="book.kp0003.nr", row_indices=[20, 21])
+    payload["row_groups"][0]["grounding"]["tag_keys"] = ["bright"]
+    payload["row_groups"][0]["grounding"]["category_keys"] = ["flavor-profile"]
 
     valid, errors, metadata = validate_knowledge_shard_output(
-        _shard(packet_id="book.kp0003.nr", block_indices=[20, 21]),
+        _shard(packet_id="book.kp0003.nr", row_indices=[20, 21]),
         payload,
     )
 

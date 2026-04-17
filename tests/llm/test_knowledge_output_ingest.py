@@ -15,16 +15,16 @@ from cookimport.llm.phase_worker_runtime import ShardManifestEntryV1
 def _semantic_payload(
     *,
     packet_id: str = "book.ks0000.nr",
-    block_decisions: list[dict[str, object]] | None = None,
-    idea_groups: list[dict[str, object]] | None = None,
+    row_decisions: list[dict[str, object]] | None = None,
+    row_groups: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     return {
         "packet_id": packet_id,
-        "block_decisions": block_decisions
-        if block_decisions is not None
+        "row_decisions": row_decisions
+        if row_decisions is not None
         else [
             {
-                "block_index": 4,
+                "row_index": 4,
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["emulsify"],
@@ -33,18 +33,18 @@ def _semantic_payload(
                 },
             },
             {
-                "block_index": 5,
+                "row_index": 5,
                 "category": "other",
                 "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             },
         ],
-        "idea_groups": idea_groups
-        if idea_groups is not None
+        "row_groups": row_groups
+        if row_groups is not None
         else [
             {
                 "group_id": "g01",
                 "topic_label": "Heat control",
-                "block_indices": [4],
+                "row_indices": [4],
                 "grounding": {
                     "tag_keys": ["emulsify"],
                     "category_keys": ["techniques"],
@@ -113,8 +113,8 @@ def test_normalize_knowledge_worker_payload_serializes_semantic_packet_result() 
 def test_normalize_knowledge_worker_payload_recovers_missing_packet_id_from_fallback() -> None:
     payload, metadata = normalize_knowledge_worker_payload(
         {
-            "block_decisions": _semantic_payload()["block_decisions"],
-            "idea_groups": _semantic_payload()["idea_groups"],
+            "row_decisions": _semantic_payload()["row_decisions"],
+            "row_groups": _semantic_payload()["row_groups"],
         },
         fallback_packet_id="book.ks0000.nr",
     )
@@ -124,15 +124,15 @@ def test_normalize_knowledge_worker_payload_recovers_missing_packet_id_from_fall
     assert metadata["worker_output_packet_id_source"] == "fallback_packet_id"
 
 
-def test_validate_knowledge_shard_output_rejects_group_that_contains_other_block() -> None:
+def test_validate_knowledge_shard_output_rejects_group_that_contains_other_row() -> None:
     valid, errors, metadata = validate_knowledge_shard_output(
         _shard(),
         _semantic_payload(
-            idea_groups=[
+            row_groups=[
                 {
                     "group_id": "g01",
                     "topic_label": "Too broad",
-                    "block_indices": [4, 5],
+                    "row_indices": [4, 5],
                     "grounding": {
                         "tag_keys": ["emulsify"],
                         "category_keys": ["techniques"],
@@ -146,7 +146,7 @@ def test_validate_knowledge_shard_output_rejects_group_that_contains_other_block
     )
 
     assert valid is False
-    assert errors == ("group_contains_other_block",)
+    assert errors == ("group_contains_other_row",)
     assert metadata["group_rows_out_of_surface"] == [5]
 
 
@@ -187,5 +187,5 @@ def test_read_validated_knowledge_outputs_from_proposals_loads_group_grounding(t
     )
 
     assert list(outputs) == ["book.ks0000.nr"]
-    assert outputs["book.ks0000.nr"].idea_groups[0].grounding.tag_keys == ["emulsify"]
+    assert outputs["book.ks0000.nr"].row_groups[0].grounding.tag_keys == ["emulsify"]
     assert payloads_by_packet_id["book.ks0000.nr"]["g"][0]["gr"]["tk"] == ["emulsify"]

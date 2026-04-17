@@ -259,7 +259,7 @@ def test_prepare_direct_exec_taskfile_worker_mode_mirrors_assigned_tasks_files(
                     {
                         "unit_id": "knowledge::1",
                         "owned_id": "block:1",
-                        "evidence": {"block_index": 1, "text": "Use low heat."},
+                        "evidence": {"row_index": 1, "text": "Use low heat."},
                         "answer": {},
                     }
                 ],
@@ -338,7 +338,7 @@ def test_prepare_direct_exec_taskfile_worker_mode_knows_assignment_first_knowled
                     {
                         "unit_id": "knowledge::1",
                         "owned_id": "block:1",
-                        "evidence": {"block_index": 1, "text": "Use low heat."},
+                        "evidence": {"row_index": 1, "text": "Use low heat."},
                         "answer": {},
                     }
                 ],

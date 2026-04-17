@@ -26,16 +26,16 @@ def _assignment() -> WorkerAssignmentV1:
     )
 
 
-def _shard(*, shard_id: str, block_index: int, text: str) -> ShardManifestEntryV1:
+def _shard(*, shard_id: str, row_index: int, text: str) -> ShardManifestEntryV1:
     return ShardManifestEntryV1(
         shard_id=shard_id,
         owned_ids=(shard_id,),
         input_payload={
             "v": "1",
             "bid": shard_id,
-            "b": [{"i": block_index, "id": f"{shard_id}:{block_index}", "t": text}],
+            "b": [{"i": row_index, "id": f"{shard_id}:{row_index}", "t": text}],
         },
-        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
+        metadata={"owned_row_indices": [row_index], "owned_row_count": 1},
     )
 
 
@@ -43,8 +43,8 @@ def test_classification_structured_packet_and_prompt_use_compact_binary_surface(
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
-            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
+            _shard(shard_id="book.ks0000.nr", row_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", row_index=22, text="Chapter opener."),
         ],
     )
 
@@ -72,8 +72,8 @@ def test_classification_structured_response_accepts_row_grounded_rows_array() ->
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
-            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
+            _shard(shard_id="book.ks0000.nr", row_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", row_index=22, text="Chapter opener."),
         ],
     )
 
@@ -108,9 +108,9 @@ def test_classification_structured_response_narrows_missing_row_grounding() -> N
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
-            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
-            _shard(shard_id="book.ks0002.nr", block_index=23, text="Use gentle heat."),
+            _shard(shard_id="book.ks0000.nr", row_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", row_index=22, text="Chapter opener."),
+            _shard(shard_id="book.ks0002.nr", row_index=23, text="Use gentle heat."),
         ],
     )
 
@@ -328,7 +328,7 @@ def test_grouping_structured_response_salvages_nested_proposal_metadata() -> Non
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=41, text="Rest dough before rolling."),
+            _shard(shard_id="book.ks0000.nr", row_index=41, text="Rest dough before rolling."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -404,7 +404,7 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
+            _shard(shard_id="book.ks0000.nr", row_index=31, text="Use gentle heat for eggs."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -432,23 +432,23 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
         },
         validation_feedback_by_unit_id={
             "knowledge::31": {
-                "validation_errors": ["knowledge_block_missing_group"],
+                "validation_errors": ["knowledge_row_missing_group"],
                 "error_details": [
                     {
                         "path": "/units/knowledge::31/answer/topic_label",
-                        "code": "knowledge_block_missing_group",
+                        "code": "knowledge_row_missing_group",
                         "message": "topic_label must be a non-empty string",
                     }
                 ],
             }
         },
-        repair_validation_errors=["knowledge_block_missing_group"],
+        repair_validation_errors=["knowledge_row_missing_group"],
         repair_validation_metadata={
             "failed_unit_ids": ["knowledge::31"],
             "error_details": [
                 {
                     "path": "/units/knowledge::31/answer/topic_label",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "topic_label must be a non-empty string",
                 }
             ],
@@ -472,7 +472,7 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
     packet = knowledge_task_file_to_structured_packet(
         task_file_payload=repair_task_file,
         packet_kind="grouping_1_repair",
-        validation_errors=["knowledge_block_missing_group"],
+        validation_errors=["knowledge_row_missing_group"],
     )
     prompt = build_knowledge_structured_prompt(
         task_file_payload=repair_task_file,
@@ -493,11 +493,11 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
                 "why_no_existing_tag": None,
                 "retrieval_query": None,
             },
-            "validation_errors": ["knowledge_block_missing_group"],
+            "validation_errors": ["knowledge_row_missing_group"],
             "error_details": [
                 {
                     "path": "/units/knowledge::31/answer/topic_label",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "topic_label must be a non-empty string",
                 }
             ],
@@ -508,11 +508,11 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
             "start_row_id": "r01",
             "end_row_id": "r01",
             "row_ids": ["r01"],
-            "validation_errors": ["knowledge_block_missing_group"],
+            "validation_errors": ["knowledge_row_missing_group"],
             "error_details": [
                 {
                     "path": "/units/knowledge::31/answer/topic_label",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "topic_label must be a non-empty string",
                 }
             ],
@@ -525,7 +525,7 @@ def test_grouping_repair_packet_preserves_previous_answer_and_validation_feedbac
         }
     ]
     assert packet["repair_validation_summary"]["validation_errors"] == [
-        "knowledge_block_missing_group"
+        "knowledge_row_missing_group"
     ]
     assert packet["repair_root_cause_summary"]["validation_errors"] == [
         "invalid_proposed_tag_display_name"
@@ -540,8 +540,8 @@ def test_grouping_repair_packet_skips_blank_previous_answers_and_fake_previous_g
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
-            _shard(shard_id="book.ks0001.nr", block_index=32, text="Rest dough before rolling."),
+            _shard(shard_id="book.ks0000.nr", row_index=31, text="Use gentle heat for eggs."),
+            _shard(shard_id="book.ks0001.nr", row_index=32, text="Rest dough before rolling."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -633,9 +633,9 @@ def test_grouping_structured_response_rejects_noncontiguous_group_spans() -> Non
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=31, text="Use gentle heat for eggs."),
-            _shard(shard_id="book.ks0001.nr", block_index=32, text="Rest dough before rolling."),
-            _shard(shard_id="book.ks0002.nr", block_index=33, text="Return to gentle heat."),
+            _shard(shard_id="book.ks0000.nr", row_index=31, text="Use gentle heat for eggs."),
+            _shard(shard_id="book.ks0001.nr", row_index=32, text="Rest dough before rolling."),
+            _shard(shard_id="book.ks0002.nr", row_index=33, text="Return to gentle heat."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -681,8 +681,8 @@ def test_classification_repair_packet_preserves_packet_level_missing_row_feedbac
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich dishes."),
-            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
+            _shard(shard_id="book.ks0000.nr", row_index=21, text="Acid brightens rich dishes."),
+            _shard(shard_id="book.ks0001.nr", row_index=22, text="Chapter opener."),
         ],
     )
     repair_task_file = build_repair_task_file(

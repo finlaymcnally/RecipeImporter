@@ -939,9 +939,9 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
             {
                 "chunk_id": "knowledge:c0",
                 "is_useful": True,
-                "block_decisions": [
-                    {"block_index": 1, "category": "knowledge"},
-                    {"block_index": 2, "category": "other"},
+                "row_decisions": [
+                    {"row_index": 1, "category": "knowledge"},
+                    {"row_index": 2, "category": "other"},
                 ],
                 "snippets": [
                     {
@@ -949,7 +949,7 @@ def test_reconstruct_full_prompt_log_includes_knowledge_rows(
                         "body": "Roast until deeply browned.",
                         "tags": ["fixture"],
                         "evidence": [
-                            {"block_index": 1, "quote": "Roast until deeply browned."}
+                            {"row_index": 1, "quote": "Roast until deeply browned."}
                         ],
                     },
                 ],

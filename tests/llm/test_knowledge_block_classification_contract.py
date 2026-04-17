@@ -21,20 +21,20 @@ def _assignment() -> WorkerAssignmentV1:
     )
 
 
-def _shard(*, shard_id: str, block_index: int, text: str) -> ShardManifestEntryV1:
+def _shard(*, shard_id: str, row_index: int, text: str) -> ShardManifestEntryV1:
     return ShardManifestEntryV1(
         shard_id=shard_id,
         owned_ids=(shard_id,),
         input_payload={
             "v": "1",
             "bid": shard_id,
-            "b": [{"i": block_index, "id": f"{shard_id}:{block_index}", "t": text, "hl": 2}],
+            "b": [{"i": row_index, "id": f"{shard_id}:{row_index}", "t": text, "hl": 2}],
             "x": {
-                "p": [{"i": block_index - 1, "t": "Previous local context."}],
-                "n": [{"i": block_index + 1, "t": "Next local context."}],
+                "p": [{"i": row_index - 1, "t": "Previous local context."}],
+                "n": [{"i": row_index + 1, "t": "Next local context."}],
             },
         },
-        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
+        metadata={"owned_row_indices": [row_index], "owned_row_count": 1},
     )
 
 
@@ -44,7 +44,7 @@ def test_classification_task_file_is_binary_and_tag_free() -> None:
         shards=[
             _shard(
                 shard_id="book.ks0000.nr",
-                block_index=14,
+                row_index=14,
                 text="Balsamic Vinaigrette",
             )
         ],
@@ -73,8 +73,8 @@ def test_classification_validator_accepts_only_binary_categories() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=21, text="Acid brightens rich food."),
-            _shard(shard_id="book.ks0001.nr", block_index=22, text="Chapter opener."),
+            _shard(shard_id="book.ks0000.nr", row_index=21, text="Acid brightens rich food."),
+            _shard(shard_id="book.ks0001.nr", row_index=22, text="Chapter opener."),
         ],
     )
     edited = deepcopy(task_file)
@@ -97,7 +97,7 @@ def test_classification_validator_accepts_only_binary_categories() -> None:
 def test_classification_validator_rejects_extra_answer_keys_and_invalid_categories() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
-        shards=[_shard(shard_id="book.ks0000.nr", block_index=31, text="Acid can wake up heavy dishes.")],
+        shards=[_shard(shard_id="book.ks0000.nr", row_index=31, text="Acid can wake up heavy dishes.")],
     )
 
     invalid = deepcopy(task_file)
@@ -124,8 +124,8 @@ def test_classification_repair_scope_stays_filtered_to_failed_units() -> None:
     task_file, _ = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(shard_id="book.ks0000.nr", block_index=41, text="Use low heat."),
-            _shard(shard_id="book.ks0001.nr", block_index=42, text="Decorative heading."),
+            _shard(shard_id="book.ks0000.nr", row_index=41, text="Use low heat."),
+            _shard(shard_id="book.ks0001.nr", row_index=42, text="Decorative heading."),
         ],
     )
     invalid = deepcopy(task_file)

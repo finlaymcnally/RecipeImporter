@@ -17,17 +17,17 @@ _INPUT_JSON_START = "<BEGIN_INPUT_JSON>"
 _INPUT_JSON_END = "<END_INPUT_JSON>"
 
 
-def _compact_owned_row(block: Mapping[str, Any], *, row_index: int) -> str:
-    row_id = f"r{row_index + 1:02d}"
-    block_index = int(block.get("i", block.get("block_index")) or 0)
-    text = str(block.get("t", block.get("text")) or "")
-    return f"{row_id} | {block_index} | {text}"
+def _compact_owned_row(row: Mapping[str, Any], *, ordinal: int) -> str:
+    row_id = f"r{ordinal + 1:02d}"
+    row_index = int(row.get("i", row.get("row_index")) or 0)
+    text = str(row.get("t", row.get("text")) or "")
+    return f"{row_id} | {row_index} | {text}"
 
 
-def _compact_context_row(block: Mapping[str, Any]) -> str:
-    block_index = int(block.get("i", block.get("block_index")) or 0)
-    text = str(block.get("t", block.get("text")) or "")
-    return f"{block_index} | {text}"
+def _compact_context_row(row: Mapping[str, Any]) -> str:
+    row_index = int(row.get("i", row.get("row_index")) or 0)
+    text = str(row.get("t", row.get("text")) or "")
+    return f"{row_index} | {text}"
 
 
 def _compact_prompt_payload(input_payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -36,34 +36,34 @@ def _compact_prompt_payload(input_payload: Mapping[str, Any]) -> dict[str, Any]:
         "v": payload.get("v"),
         "bid": str(payload.get("bid") or payload.get("packet_id") or "").strip(),
         "rows": [
-            _compact_owned_row(block, row_index=index)
-            for index, block in enumerate(payload.get("b") or [])
-            if isinstance(block, Mapping)
+            _compact_owned_row(row, ordinal=index)
+            for index, row in enumerate(payload.get("b") or [])
+            if isinstance(row, Mapping)
         ],
     }
     context = dict(payload.get("x") or {}) if isinstance(payload.get("x"), Mapping) else {}
     context_before_rows = [
-        _compact_context_row(block)
-        for block in (context.get("p") or [])
-        if isinstance(block, Mapping)
+        _compact_context_row(row)
+        for row in (context.get("p") or [])
+        if isinstance(row, Mapping)
     ]
     if context_before_rows:
         compact_payload["context_before_rows"] = context_before_rows
     context_after_rows = [
-        _compact_context_row(block)
-        for block in (context.get("n") or [])
-        if isinstance(block, Mapping)
+        _compact_context_row(row)
+        for row in (context.get("n") or [])
+        if isinstance(row, Mapping)
     ]
     if context_after_rows:
         compact_payload["context_after_rows"] = context_after_rows
     guardrails = dict(payload.get("g") or {}) if isinstance(payload.get("g"), Mapping) else {}
-    recipe_neighbor_block_indices = [
+    recipe_neighbor_row_indices = [
         int(value)
         for value in (guardrails.get("r") or [])
         if value is not None
     ]
-    if recipe_neighbor_block_indices:
-        compact_payload["recipe_neighbor_block_indices"] = recipe_neighbor_block_indices
+    if recipe_neighbor_row_indices:
+        compact_payload["recipe_neighbor_row_indices"] = recipe_neighbor_row_indices
     if isinstance(payload.get("ontology"), Mapping):
         compact_payload["ontology"] = dict(payload["ontology"])
     return compact_payload

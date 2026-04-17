@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from cookimport.llm.codex_farm_knowledge_ingest import validate_knowledge_shard_output
-from cookimport.llm.knowledge_stage.promotion import _collect_block_grounding_details
+from cookimport.llm.knowledge_stage.promotion import _collect_row_grounding_details
 from cookimport.llm.knowledge_stage.task_file_contracts import (
     build_knowledge_classification_task_file,
     combine_knowledge_task_file_outputs,
@@ -31,12 +31,12 @@ def _shard(
             "v": "1",
             "bid": shard_id,
             "b": [
-                {"i": block_index, "id": f"{shard_id}:{block_index}", "t": text}
-                for block_index, text in blocks
+                {"i": row_index, "id": f"{shard_id}:{row_index}", "t": text}
+                for row_index, text in blocks
             ],
         },
         metadata={
-            "owned_row_indices": [block_index for block_index, _text in blocks],
+            "owned_row_indices": [row_index for row_index, _text in blocks],
             "owned_row_count": len(blocks),
         },
     )
@@ -99,14 +99,14 @@ def test_promotion_projects_group_grounding_onto_final_rows() -> None:
 
     assert outputs["book.ks0000.nr"] == {
         "packet_id": "book.ks0000.nr",
-        "block_decisions": [
+        "row_decisions": [
             {
-                "block_index": 10,
+                "row_index": 10,
                 "category": "other",
                 "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             },
             {
-                "block_index": 11,
+                "row_index": 11,
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["bright"],
@@ -115,7 +115,7 @@ def test_promotion_projects_group_grounding_onto_final_rows() -> None:
                 },
             },
             {
-                "block_index": 12,
+                "row_index": 12,
                 "category": "knowledge",
                 "grounding": {
                     "tag_keys": ["bright"],
@@ -124,11 +124,11 @@ def test_promotion_projects_group_grounding_onto_final_rows() -> None:
                 },
             },
         ],
-        "idea_groups": [
+        "row_groups": [
             {
                 "group_id": "g01",
                 "topic_label": "Acid balance",
-                "block_indices": [11, 12],
+                "row_indices": [11, 12],
                 "grounding": {
                     "tag_keys": ["bright"],
                     "category_keys": ["flavor-profile"],
@@ -141,14 +141,14 @@ def test_promotion_projects_group_grounding_onto_final_rows() -> None:
     }
     assert outputs["book.ks0001.nr"] == {
         "packet_id": "book.ks0001.nr",
-        "block_decisions": [
+        "row_decisions": [
             {
-                "block_index": 25,
+                "row_index": 25,
                 "category": "other",
                 "grounding": {"tag_keys": [], "category_keys": [], "proposed_tags": []},
             }
         ],
-        "idea_groups": [],
+        "row_groups": [],
     }
     for shard in shards:
         valid, errors, metadata = validate_knowledge_shard_output(
@@ -163,14 +163,14 @@ def test_promotion_projects_group_grounding_onto_final_rows() -> None:
 def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
     outputs = {
         "book.ks0000.nr": SimpleNamespace(
-            block_decisions=(
+            row_decisions=(
                 SimpleNamespace(
-                    block_index=10,
+                    row_index=10,
                     category="other",
                     grounding=SimpleNamespace(tag_keys=(), category_keys=(), proposed_tags=()),
                 ),
                 SimpleNamespace(
-                    block_index=11,
+                    row_index=11,
                     category="knowledge",
                     grounding=SimpleNamespace(
                         tag_keys=("heat-control",),
@@ -179,7 +179,7 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
                     ),
                 ),
                 SimpleNamespace(
-                    block_index=12,
+                    row_index=12,
                     category="knowledge",
                     grounding=SimpleNamespace(
                         tag_keys=(),
@@ -197,9 +197,9 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
         )
     }
 
-    _grounding_by_block, counts, proposal_rows = _collect_block_grounding_details(
+    _grounding_by_block, counts, proposal_rows = _collect_row_grounding_details(
         outputs=outputs,
-        allowed_block_indices={10: "candidate", 11: "candidate", 12: "candidate"},
+        allowed_row_indices={10: "candidate", 11: "candidate", 12: "candidate"},
         proposal_metadata_by_packet_id={
             "book.ks0000.nr": {
                 "kept_for_review_row_count": 2,
@@ -207,7 +207,7 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
                     {
                         "group_id": "g01",
                         "topic_label": "Heat control",
-                        "block_indices": [11],
+                        "row_indices": [11],
                         "grounding": {
                             "tag_keys": ["saute"],
                             "category_keys": ["cooking-method"],
@@ -217,7 +217,7 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
                     {
                         "group_id": "g02",
                         "topic_label": "Rendering fat",
-                        "block_indices": [12],
+                        "row_indices": [12],
                         "grounding": {
                             "tag_keys": [],
                             "category_keys": ["techniques"],
@@ -254,7 +254,7 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
             "category_key": "techniques",
             "occurrence_count": 1,
             "packet_ids": ["book.ks0000.nr"],
-            "block_indices": [12],
+            "row_indices": [12],
         }
     ]
 
@@ -342,11 +342,11 @@ def test_promotion_remaps_batch_local_group_ids_across_one_shard() -> None:
         unit_to_shard_id=unit_to_shard_id,
     )
 
-    assert outputs["book.ks0000.nr"]["idea_groups"] == [
+    assert outputs["book.ks0000.nr"]["row_groups"] == [
         {
             "group_id": "g01",
             "topic_label": "Salt fundamentals",
-            "block_indices": [11],
+            "row_indices": [11],
             "grounding": {
                 "tag_keys": [],
                 "category_keys": ["ingredients"],
@@ -364,7 +364,7 @@ def test_promotion_remaps_batch_local_group_ids_across_one_shard() -> None:
         {
             "group_id": "g02",
             "topic_label": "Salt types",
-            "block_indices": [12],
+            "row_indices": [12],
             "grounding": {
                 "tag_keys": [],
                 "category_keys": ["ingredients"],
@@ -382,7 +382,7 @@ def test_promotion_remaps_batch_local_group_ids_across_one_shard() -> None:
         {
             "group_id": "g03",
             "topic_label": "Seasoning to taste",
-            "block_indices": [13],
+            "row_indices": [13],
             "grounding": {
                 "tag_keys": [],
                 "category_keys": ["techniques"],
@@ -478,11 +478,11 @@ def test_promotion_keeps_separate_contiguous_runs_even_when_story_matches() -> N
         unit_to_shard_id=unit_to_shard_id,
     )
 
-    assert outputs["book.ks0000.nr"]["idea_groups"] == [
+    assert outputs["book.ks0000.nr"]["row_groups"] == [
         {
             "group_id": "g01",
             "topic_label": "Heat control",
-            "block_indices": [11],
+            "row_indices": [11],
             "grounding": {
                 "tag_keys": ["saute"],
                 "category_keys": ["cooking-method"],
@@ -494,7 +494,7 @@ def test_promotion_keeps_separate_contiguous_runs_even_when_story_matches() -> N
         {
             "group_id": "g02",
             "topic_label": "Dough resting",
-            "block_indices": [12],
+            "row_indices": [12],
             "grounding": {
                 "tag_keys": [],
                 "category_keys": ["techniques"],
@@ -512,7 +512,7 @@ def test_promotion_keeps_separate_contiguous_runs_even_when_story_matches() -> N
         {
             "group_id": "g03",
             "topic_label": "Heat control",
-            "block_indices": [13],
+            "row_indices": [13],
             "grounding": {
                 "tag_keys": ["saute"],
                 "category_keys": ["cooking-method"],

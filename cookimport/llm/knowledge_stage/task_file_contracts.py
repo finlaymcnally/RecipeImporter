@@ -23,7 +23,7 @@ from ..phase_worker_runtime import ShardManifestEntryV1, WorkerAssignmentV1
 
 KNOWLEDGE_CLASSIFY_STAGE_KEY = "nonrecipe_classify"
 KNOWLEDGE_GROUP_STAGE_KEY = "knowledge_group"
-KNOWLEDGE_CLASSIFY_SCHEMA_VERSION = "knowledge_block_classify.v1"
+KNOWLEDGE_CLASSIFY_SCHEMA_VERSION = "knowledge_row_classify.v1"
 KNOWLEDGE_GROUP_SCHEMA_VERSION = "knowledge_group_only.v1"
 KNOWLEDGE_GROUP_TASK_MAX_UNITS = 40
 KNOWLEDGE_GROUP_TASK_MAX_EVIDENCE_CHARS = 12000
@@ -96,7 +96,7 @@ def _packet_context_row(
     if not cleaned:
         return None
     return {
-        "block_index": int(row.get("i") or row.get("block_index") or 0),
+        "row_index": int(row.get("i") or row.get("row_index") or 0),
         "text": cleaned,
     }
 
@@ -850,15 +850,15 @@ def _build_grouping_ordered_rows(
                 "position": position,
                 "unit_id": unit_id,
                 "shard_id": shard_id,
-                "block_index": int(evidence.get("block_index") or 0),
+                "row_index": int(evidence.get("row_index") or 0),
                 "text": str(evidence.get("text") or ""),
                 "classification_category": classification_category,
                 "context_before": evidence.get("context_before"),
-                "context_before_block_index": evidence.get(
-                    "context_before_block_index"
+                "context_before_row_index": evidence.get(
+                    "context_before_row_index"
                 ),
                 "context_after": evidence.get("context_after"),
-                "context_after_block_index": evidence.get("context_after_block_index"),
+                "context_after_row_index": evidence.get("context_after_row_index"),
                 "structure": dict(_coerce_dict(evidence.get("structure"))),
             }
         )
@@ -917,7 +917,7 @@ def _build_grouping_ordered_rows(
                 {
                     "display_id": display_id,
                     "row_id": display_id,
-                    "block_index": int(row.get("block_index") or 0),
+                    "row_index": int(row.get("row_index") or 0),
                     "text": str(row.get("text") or ""),
                 }
             )
@@ -928,7 +928,7 @@ def _build_grouping_ordered_rows(
             {
                 "display_id": f"ctx{next_context_index:02d}",
                 "ng": True,
-                "block_index": int(row.get("block_index") or 0),
+                "row_index": int(row.get("row_index") or 0),
                 "text": str(row.get("text") or ""),
             }
         )
@@ -966,7 +966,7 @@ def _collect_knowledge_grouping_units(
         if category != "keep_for_review":
             continue
         evidence = _coerce_dict(unit_dict.get("evidence"))
-        block_index = int(evidence.get("block_index") or 0)
+        row_index = int(evidence.get("row_index") or 0)
         owned_id = str(unit_dict.get("owned_id") or evidence.get("block_id") or unit_id).strip()
         shard_id = str(unit_to_shard_id.get(unit_id) or "").strip()
         if not shard_id:
@@ -978,7 +978,7 @@ def _collect_knowledge_grouping_units(
                 "owned_id": owned_id,
                 "grouping_shard_id": shard_id,
                 "evidence": {
-                    "block_index": block_index,
+                    "row_index": row_index,
                     "block_id": str(evidence.get("block_id") or owned_id),
                 },
                 "classification": {
@@ -1080,7 +1080,7 @@ def _knowledge_same_session_group_rows(
                 "row_id": f"r{row_index:02d}",
                 "source_unit_id": str(unit_dict.get("unit_id") or "").strip(),
                 "owned_id": str(unit_dict.get("owned_id") or "").strip(),
-                "block_index": int(evidence.get("block_index") or 0),
+                "row_index": int(evidence.get("row_index") or 0),
                 "block_id": str(
                     evidence.get("block_id")
                     or unit_dict.get("owned_id")
@@ -1240,28 +1240,28 @@ def build_knowledge_classification_task_file(
             for block in packet.get("b") or []:
                 if not isinstance(block, Mapping):
                     continue
-                block_index = int(block.get("i") or 0)
+                row_index = int(block.get("i") or 0)
                 block_id = str(
-                    block.get("id") or block.get("block_id") or f"{shard.shard_id}:{block_index}"
+                    block.get("id") or block.get("block_id") or f"{shard.shard_id}:{row_index}"
                 ).strip()
-                unit_id = f"knowledge::{block_index}"
+                unit_id = f"knowledge::{row_index}"
                 unit_to_shard_id[unit_id] = shard.shard_id
                 unit_payload = {
                     "unit_id": unit_id,
                     "owned_id": block_id,
                     "evidence": {
-                        "block_index": block_index,
+                        "row_index": row_index,
                         "block_id": block_id,
                         "text": str(block.get("t") or ""),
                         "context_before": context_before,
-                        "context_before_block_index": (
-                            int(context_before_row.get("block_index") or 0)
+                        "context_before_row_index": (
+                            int(context_before_row.get("row_index") or 0)
                             if context_before_row is not None
                             else None
                         ),
                         "context_after": context_after,
-                        "context_after_block_index": (
-                            int(context_after_row.get("block_index") or 0)
+                        "context_after_row_index": (
+                            int(context_after_row.get("row_index") or 0)
                             if context_after_row is not None
                             else None
                         ),
@@ -1325,7 +1325,7 @@ def validate_knowledge_classification_task_file(
     }
     for unit_id, answer in answers_by_unit_id.items():
         unit = units_by_id.get(unit_id) or {}
-        block_index = int(_coerce_dict(unit.get("evidence")).get("block_index") or 0)
+        row_index = int(_coerce_dict(unit.get("evidence")).get("row_index") or 0)
         answer_keys = {str(key).strip() for key in answer.keys()}
         category = str(answer.get("category") or "").strip()
         unit_failed = False
@@ -1341,12 +1341,12 @@ def validate_knowledge_classification_task_file(
             )
             unit_failed = True
         if not category:
-            next_errors.append("knowledge_block_missing_decision")
-            missing_row_indices.append(block_index)
+            next_errors.append("knowledge_row_missing_decision")
+            missing_row_indices.append(row_index)
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/category",
-                    "code": "knowledge_block_missing_decision",
+                    "code": "knowledge_row_missing_decision",
                     "message": "response did not return a classification decision for this row",
                 }
             )
@@ -1363,7 +1363,7 @@ def validate_knowledge_classification_task_file(
             unit_failed = True
         if unit_failed:
             failed_unit_ids.append(unit_id)
-            unresolved_row_indices.append(block_index)
+            unresolved_row_indices.append(row_index)
             continue
         validated_answers[unit_id] = {"category": category}
     next_metadata = {
@@ -1491,8 +1491,8 @@ def _validate_knowledge_same_session_grouping_task_file(
         for row in rows
         if str(row.get("row_id") or "").strip() and str(row.get("source_unit_id") or "").strip()
     }
-    row_id_to_block_index = {
-        str(row.get("row_id") or "").strip(): int(row.get("block_index") or 0)
+    row_id_to_row_index = {
+        str(row.get("row_id") or "").strip(): int(row.get("row_index") or 0)
         for row in rows
         if str(row.get("row_id") or "").strip()
     }
@@ -1523,20 +1523,20 @@ def _validate_knowledge_same_session_grouping_task_file(
         ).strip()
         topic_label = str(group_dict.get("topic_label") or "").strip()
         if not group_id:
-            next_errors.append("knowledge_block_missing_group")
+            next_errors.append("knowledge_row_missing_group")
             error_details.append(
                 {
                     "path": f"/units/{batch_unit_id}/answer/groups/{group_index}/group_id",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "group_id must be a non-empty string",
                 }
             )
         if not topic_label:
-            next_errors.append("knowledge_block_missing_group")
+            next_errors.append("knowledge_row_missing_group")
             error_details.append(
                 {
                     "path": f"/units/{batch_unit_id}/answer/groups/{group_index}/topic_label",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "topic_label must be a non-empty string",
                 }
             )
@@ -1693,17 +1693,17 @@ def _validate_knowledge_same_session_grouping_task_file(
     ]
     unresolved_row_indices = sorted(
         {
-            row_id_to_block_index[row_id]
+            row_id_to_row_index[row_id]
             for row_id in set(missing_row_ids) | duplicate_row_ids | unknown_row_ids
-            if row_id in row_id_to_block_index
+            if row_id in row_id_to_row_index
         }
     )
     if missing_row_ids:
-        next_errors.append("knowledge_block_missing_group")
+        next_errors.append("knowledge_row_missing_group")
         error_details.append(
             {
                 "path": f"/units/{batch_unit_id}/answer/groups",
-                "code": "knowledge_block_missing_group",
+                "code": "knowledge_row_missing_group",
                 "message": f"every kept row must appear in exactly one group; missing row ids: {', '.join(missing_row_ids)}",
             }
         )
@@ -1764,7 +1764,7 @@ def validate_knowledge_grouping_task_file(
             row_position_by_unit_id[unit_id] = row_position
     for unit_id, answer in answers_by_unit_id.items():
         unit = units_by_id.get(unit_id) or {}
-        block_index = int(_coerce_dict(unit.get("evidence")).get("block_index") or 0)
+        row_index = int(_coerce_dict(unit.get("evidence")).get("row_index") or 0)
         classification = _coerce_dict(unit.get("classification"))
         classification_category = str(classification.get("category") or "").strip()
         answer_keys = {str(key).strip() for key in answer.keys()}
@@ -1791,21 +1791,21 @@ def validate_knowledge_grouping_task_file(
             )
             unit_failed = True
         if not group_id:
-            next_errors.append("knowledge_block_missing_group")
+            next_errors.append("knowledge_row_missing_group")
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/group_id",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "group_id must be a non-empty string",
                 }
             )
             unit_failed = True
         if not topic_label:
-            next_errors.append("knowledge_block_missing_group")
+            next_errors.append("knowledge_row_missing_group")
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/topic_label",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "topic_label must be a non-empty string",
                 }
             )
@@ -1849,7 +1849,7 @@ def validate_knowledge_grouping_task_file(
                 unit_failed = True
         if unit_failed:
             failed_unit_ids.append(unit_id)
-            unresolved_row_indices.append(block_index)
+            unresolved_row_indices.append(row_index)
             continue
         canonical_story = json.dumps(
             {
@@ -1872,14 +1872,14 @@ def validate_knowledge_grouping_task_file(
             if unit_id not in failed_unit_ids:
                 failed_unit_ids.append(unit_id)
             for conflicted_unit_id in unit_ids_by_group_id[group_id]:
-                conflicted_block_index = int(
+                conflicted_row_index = int(
                     _coerce_dict(
                         _coerce_dict(units_by_id.get(conflicted_unit_id)).get("evidence")
-                    ).get("block_index")
+                    ).get("row_index")
                     or 0
                 )
-                unresolved_row_indices.append(conflicted_block_index)
-            unresolved_row_indices.append(block_index)
+                unresolved_row_indices.append(conflicted_row_index)
+            unresolved_row_indices.append(row_index)
             error_details.append(
                 {
                     "path": f"/units/{unit_id}/answer/group_id",
@@ -1914,14 +1914,14 @@ def validate_knowledge_grouping_task_file(
             for conflicted_unit_id in grouped_unit_ids:
                 if conflicted_unit_id not in failed_unit_ids:
                     failed_unit_ids.append(conflicted_unit_id)
-                conflicted_block_index = int(
+                conflicted_row_index = int(
                     _coerce_dict(
                         _coerce_dict(units_by_id.get(conflicted_unit_id)).get("evidence")
-                    ).get("block_index")
+                    ).get("row_index")
                     or 0
                 )
-                unresolved_row_indices.append(conflicted_block_index)
-                noncontiguous_rows.append(conflicted_block_index)
+                unresolved_row_indices.append(conflicted_row_index)
+                noncontiguous_rows.append(conflicted_row_index)
             error_details.append(
                 {
                     "path": f"/groups/{group_id}",
@@ -2029,10 +2029,10 @@ def combine_knowledge_task_file_outputs(
         if not shard_id:
             continue
         evidence = _coerce_dict(unit_dict.get("evidence"))
-        block_index = int(evidence.get("block_index") or 0)
+        row_index = int(evidence.get("row_index") or 0)
         answer = _coerce_dict(classification_answers_by_unit_id.get(unit_id))
         category = str(answer.get("category") or "other").strip() or "other"
-        shard_rows.setdefault(shard_id, []).append((block_index, answer, unit_id))
+        shard_rows.setdefault(shard_id, []).append((row_index, answer, unit_id))
     grouping_answers = grouping_answers_by_unit_id or {}
     outputs: dict[str, dict[str, Any]] = {}
     grouped_rows_by_shard = _canonicalize_knowledge_groups_by_shard(
@@ -2042,33 +2042,33 @@ def combine_knowledge_task_file_outputs(
     for shard_id, rows in shard_rows.items():
         ordered_rows = sorted(rows, key=lambda row: row[0])
         group_rows = grouped_rows_by_shard.get(shard_id, [])
-        idea_groups = [
+        row_groups = [
             {
                 "group_id": str(group_row.get("group_id") or ""),
                 "topic_label": str(group_row.get("topic_label") or ""),
-                "block_indices": list(group_row.get("block_indices") or []),
+                "row_indices": list(group_row.get("row_indices") or []),
                 "grounding": dict(group_row.get("grounding") or empty_grounding_payload()),
                 "why_no_existing_tag": group_row.get("why_no_existing_tag"),
                 "retrieval_query": group_row.get("retrieval_query"),
             }
             for group_row in group_rows
         ]
-        block_to_grounding = {
-            int(block_index): dict(group_row.get("grounding") or empty_grounding_payload())
+        row_to_grounding = {
+            int(row_index): dict(group_row.get("grounding") or empty_grounding_payload())
             for group_row in group_rows
-            for block_index in (group_row.get("block_indices") or [])
-            if block_index is not None
+            for row_index in (group_row.get("row_indices") or [])
+            if row_index is not None
         }
-        block_decisions: list[dict[str, Any]] = []
-        for block_index, answer, _unit_id in ordered_rows:
+        row_decisions: list[dict[str, Any]] = []
+        for row_index, answer, _unit_id in ordered_rows:
             classification_category = str(answer.get("category") or "other").strip() or "other"
             final_category = "knowledge" if classification_category == "keep_for_review" else "other"
-            block_decisions.append(
+            row_decisions.append(
                 {
-                    "block_index": block_index,
+                    "row_index": row_index,
                     "category": final_category,
                     "grounding": (
-                        dict(block_to_grounding.get(block_index) or empty_grounding_payload())
+                        dict(row_to_grounding.get(row_index) or empty_grounding_payload())
                         if final_category == "knowledge"
                         else empty_grounding_payload()
                     ),
@@ -2076,8 +2076,8 @@ def combine_knowledge_task_file_outputs(
             )
         outputs[shard_id] = {
             "packet_id": shard_id,
-            "block_decisions": block_decisions,
-            "idea_groups": idea_groups,
+            "row_decisions": row_decisions,
+            "row_groups": row_groups,
         }
     return outputs
 
@@ -2100,12 +2100,12 @@ def collect_knowledge_resolution_metadata_by_shard(
         if not unit_id or not shard_id:
             continue
         evidence = _coerce_dict(unit.get("evidence"))
-        block_index = int(evidence.get("block_index") or 0)
+        row_index = int(evidence.get("row_index") or 0)
         classification_answer = _coerce_dict(classification_answers_by_unit_id.get(unit_id))
         classification_category = str(
             classification_answer.get("category") or "other"
         ).strip() or "other"
-        shard_rows.setdefault(shard_id, []).append((block_index, classification_answer, unit_id))
+        shard_rows.setdefault(shard_id, []).append((row_index, classification_answer, unit_id))
         shard_row = metadata_by_shard.setdefault(
             shard_id,
             {
@@ -2135,7 +2135,7 @@ def collect_knowledge_resolution_metadata_by_shard(
                 {
                     "group_id": str(detail.get("group_id") or ""),
                     "topic_label": str(detail.get("topic_label") or ""),
-                    "block_indices": list(detail.get("block_indices") or []),
+                    "row_indices": list(detail.get("row_indices") or []),
                     "grounding": dict(detail.get("grounding") or empty_grounding_payload()),
                     "why_no_existing_tag": detail.get("why_no_existing_tag"),
                     "retrieval_query": detail.get("retrieval_query"),
@@ -2167,7 +2167,7 @@ def _canonicalize_knowledge_groups_by_shard(
         canonical_groups: list[dict[str, Any]] = []
         current_group: dict[str, Any] | None = None
         current_story_key: str | None = None
-        for block_index, answer, unit_id in sorted(rows, key=lambda row: row[0]):
+        for row_index, answer, unit_id in sorted(rows, key=lambda row: row[0]):
             classification_category = str(answer.get("category") or "other").strip() or "other"
             if classification_category != "keep_for_review":
                 continue
@@ -2196,25 +2196,25 @@ def _canonicalize_knowledge_groups_by_shard(
                 current_group = {
                     "group_id": "",
                     "topic_label": topic_label,
-                    "block_indices": [],
+                    "row_indices": [],
                     "grounding": grounding,
                     "why_no_existing_tag": why_no_existing_tag,
                     "retrieval_query": retrieval_query,
                 }
                 canonical_groups.append(current_group)
                 current_story_key = story_key
-            current_group["block_indices"].append(block_index)
+            current_group["row_indices"].append(row_index)
         grouped_rows_by_shard[shard_id] = [
             {
                 **group_row,
                 "group_id": f"g{index:02d}",
-                "block_indices": sorted(
+                "row_indices": sorted(
                     {
-                        int(block_index)
-                        for block_index in (
-                            group_row.get("block_indices") or []
+                        int(row_index)
+                        for row_index in (
+                            group_row.get("row_indices") or []
                         )
-                        if block_index is not None
+                        if row_index is not None
                     }
                 ),
             }

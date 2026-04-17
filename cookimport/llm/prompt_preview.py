@@ -33,7 +33,7 @@ from cookimport.llm.codex_farm_knowledge_jobs import (
     build_knowledge_jobs,
 )
 from cookimport.llm.codex_farm_knowledge_contracts import (
-    knowledge_input_blocks,
+    knowledge_input_rows,
     knowledge_input_bundle_id,
     knowledge_input_packet_ids,
 )
@@ -833,15 +833,15 @@ def _knowledge_preview_row_id(
     input_payload: Mapping[str, Any],
     fallback: str,
 ) -> str:
-    blocks_payload = knowledge_input_blocks(input_payload)
-    if blocks_payload:
-        block_indices = [
-            int(block.get("i"))
-            for block in blocks_payload
-            if isinstance(block, Mapping) and block.get("i") is not None
+    rows_payload = knowledge_input_rows(input_payload)
+    if rows_payload:
+        row_indices = [
+            int(row.get("i"))
+            for row in rows_payload
+            if isinstance(row, Mapping) and row.get("i") is not None
         ]
-        if block_indices:
-            return f"blocks:{block_indices[0]}..{block_indices[-1]}"
+        if row_indices:
+            return f"rows:{row_indices[0]}..{row_indices[-1]}"
     packet_ids = knowledge_input_packet_ids(input_payload)
     if packet_ids:
         return packet_ids[0]
@@ -1311,7 +1311,7 @@ def _preview_work_unit_metrics_for_row(
         return len(_preview_owned_ids_for_row(stage_key=stage_key, row=row)), "recipes"
     if stage_key == "nonrecipe_finalize":
         payload = _coerce_dict(row.get("request_input_payload"))
-        blocks = knowledge_input_blocks(payload)
+        blocks = knowledge_input_rows(payload)
         return (
             sum(len(str(block.get("t", block.get("text")) or "").strip()) for block in blocks),
             "chars",

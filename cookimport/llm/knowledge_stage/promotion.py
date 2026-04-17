@@ -23,8 +23,8 @@ def _build_noop_knowledge_llm_report(
     seed_nonrecipe_span_count: int = 0,
     candidate_nonrecipe_span_count: int = 0,
     packet_count_before_partition: int = 0,
-    candidate_block_count: int = 0,
-    excluded_block_count: int = 0,
+    candidate_row_count: int = 0,
+    excluded_row_count: int = 0,
     skipped_packet_count: int = 0,
     skipped_packet_reason_counts: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
@@ -49,8 +49,8 @@ def _build_noop_knowledge_llm_report(
             "packet_count_before_partition": int(packet_count_before_partition),
             "shards_written": 0,
             "packets_written": 0,
-            "candidate_row_count": int(candidate_block_count),
-            "excluded_row_count": int(excluded_block_count),
+            "candidate_row_count": int(candidate_row_count),
+            "excluded_row_count": int(excluded_row_count),
             "skipped_packet_count": int(skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": 0,
@@ -93,8 +93,8 @@ def _build_noop_knowledge_llm_report(
             "packet_count_before_partition": int(packet_count_before_partition),
             "planned_packet_count": 0,
             "reviewed_packet_count": 0,
-            "candidate_row_count": int(candidate_block_count),
-            "excluded_row_count": int(excluded_block_count),
+            "candidate_row_count": int(candidate_row_count),
+            "excluded_row_count": int(excluded_row_count),
             "skipped_packet_count": int(skipped_packet_count),
             "skipped_packet_reason_counts": dict(
                 sorted((skipped_packet_reason_counts or {}).items())
@@ -139,7 +139,7 @@ def _build_runtime_failed_knowledge_llm_report(
     build_report: Any,
     seed_nonrecipe_span_count: int,
     candidate_nonrecipe_span_count: int,
-    excluded_block_count: int,
+    excluded_row_count: int,
     elapsed_seconds: float,
     error: str,
 ) -> dict[str, Any]:
@@ -160,9 +160,9 @@ def _build_runtime_failed_knowledge_llm_report(
             "shards_written": int(build_report.shards_written),
             "packets_written": int(build_report.packets_written),
             "candidate_row_count": int(
-                getattr(build_report, "candidate_block_count", 0) or 0
+                getattr(build_report, "candidate_row_count", 0) or 0
             ),
-            "excluded_row_count": int(excluded_block_count),
+            "excluded_row_count": int(excluded_row_count),
             "skipped_packet_count": int(build_report.skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": int(build_report.packets_written),
@@ -331,10 +331,10 @@ def _coerce_dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
 
 
-def _collect_block_category_updates(
+def _collect_row_category_updates(
     *,
     outputs: Mapping[str, Any],
-    allowed_block_indices: Mapping[int, str],
+    allowed_row_indices: Mapping[int, str],
 ) -> tuple[
     dict[int, str],
     dict[int, list[str]],
@@ -342,34 +342,34 @@ def _collect_block_category_updates(
     list[int],
 ]:
     normalized_allowed = {
-        int(block_index): str(category or "other")
-        for block_index, category in allowed_block_indices.items()
+        int(row_index): str(category or "other")
+        for row_index, category in allowed_row_indices.items()
     }
-    decisions_by_block: dict[int, list[tuple[str, str]]] = {}
-    ignored_block_indices: list[int] = []
+    decisions_by_row: dict[int, list[tuple[str, str]]] = {}
+    ignored_row_indices: list[int] = []
     for packet_id, output in outputs.items():
-        for decision in output.block_decisions:
-            block_index = int(decision.block_index)
-            if block_index not in normalized_allowed:
-                ignored_block_indices.append(block_index)
+        for decision in output.row_decisions:
+            row_index = int(decision.row_index)
+            if row_index not in normalized_allowed:
+                ignored_row_indices.append(row_index)
                 continue
-            decisions_by_block.setdefault(block_index, []).append(
+            decisions_by_row.setdefault(row_index, []).append(
                 (
                     str(packet_id),
                     str(decision.category),
                 )
             )
 
-    block_category_updates: dict[int, str] = {}
-    applied_packet_ids_by_block: dict[int, list[str]] = {}
+    row_category_updates: dict[int, str] = {}
+    applied_packet_ids_by_row: dict[int, list[str]] = {}
     conflicts: list[dict[str, Any]] = []
-    for block_index, decision_rows in sorted(decisions_by_block.items()):
+    for row_index, decision_rows in sorted(decisions_by_row.items()):
         categories = {category for _, category in decision_rows}
         if len(categories) > 1:
             conflicts.append(
                 {
-                    "block_index": int(block_index),
-                    "seed_category": normalized_allowed.get(block_index),
+                    "row_index": int(row_index),
+                    "seed_category": normalized_allowed.get(row_index),
                     "decisions": [
                         {
                             "packet_id": packet_id,
@@ -381,15 +381,15 @@ def _collect_block_category_updates(
                 }
             )
             continue
-        block_category_updates[block_index] = next(iter(categories))
-        applied_packet_ids_by_block[block_index] = [
+        row_category_updates[row_index] = next(iter(categories))
+        applied_packet_ids_by_row[row_index] = [
             packet_id for packet_id, _ in decision_rows
         ]
     return (
-        block_category_updates,
-        applied_packet_ids_by_block,
+        row_category_updates,
+        applied_packet_ids_by_row,
         conflicts,
-        ignored_block_indices,
+        ignored_row_indices,
     )
 
 
@@ -454,14 +454,14 @@ def load_validated_knowledge_proposal_metadata_by_packet_id(
     return metadata_by_packet_id
 
 
-def _collect_block_grounding_details(
+def _collect_row_grounding_details(
     *,
     outputs: Mapping[str, Any],
-    allowed_block_indices: Mapping[int, str],
+    allowed_row_indices: Mapping[int, str],
     proposal_metadata_by_packet_id: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> tuple[dict[int, dict[str, Any]], dict[str, Any], list[dict[str, Any]]]:
-    normalized_allowed = {int(block_index) for block_index in allowed_block_indices}
-    grounding_by_block: dict[int, dict[str, Any]] = {}
+    normalized_allowed = {int(row_index) for row_index in allowed_row_indices}
+    grounding_by_row: dict[int, dict[str, Any]] = {}
     proposal_rollups: dict[tuple[str, str], dict[str, Any]] = {}
     counts = {
         "kept_for_review_row_count": 0,
@@ -498,9 +498,9 @@ def _collect_block_grounding_details(
             for row in group_details
             if list(_coerce_dict(row.get("grounding")).get("proposed_tags") or [])
         )
-        for decision in getattr(output, "block_decisions", ()) or ():
-            block_index = int(getattr(decision, "block_index", 0) or 0)
-            if block_index not in normalized_allowed:
+        for decision in getattr(output, "row_decisions", ()) or ():
+            row_index = int(getattr(decision, "row_index", 0) or 0)
+            if row_index not in normalized_allowed:
                 continue
             category = str(getattr(decision, "category", "") or "").strip()
             if category != "knowledge":
@@ -512,7 +512,7 @@ def _collect_block_grounding_details(
                 counts["knowledge_rows_grounded_to_existing_tags"] += 1
             if grounding["proposed_tags"]:
                 counts["knowledge_rows_using_proposed_tags"] += 1
-            grounding_by_block[block_index] = {
+            grounding_by_row[row_index] = {
                 "packet_id": str(packet_id),
                 "grounding": grounding,
             }
@@ -529,13 +529,13 @@ def _collect_block_grounding_details(
                         "category_key": proposal_key[1],
                         "occurrence_count": 0,
                         "packet_ids": set(),
-                        "block_indices": [],
+                        "row_indices": [],
                     },
                 )
                 proposal_rollup = proposal_rollups[proposal_key]
                 proposal_rollup["occurrence_count"] += 1
                 proposal_rollup["packet_ids"].add(str(packet_id))
-                proposal_rollup["block_indices"].append(block_index)
+                proposal_rollup["row_indices"].append(row_index)
     proposal_rows = [
         {
             "key": row["key"],
@@ -543,7 +543,7 @@ def _collect_block_grounding_details(
             "category_key": row["category_key"],
             "occurrence_count": int(row["occurrence_count"]),
             "packet_ids": sorted(row["packet_ids"]),
-            "block_indices": sorted(set(int(value) for value in row["block_indices"])),
+            "row_indices": sorted(set(int(value) for value in row["row_indices"])),
         }
         for row in sorted(
             proposal_rollups.values(),
@@ -556,7 +556,7 @@ def _collect_block_grounding_details(
         key=lambda row: (
             str(row.get("group_id") or ""),
             str(row.get("topic_label") or ""),
-            tuple(int(value) for value in (row.get("block_indices") or []) if value is not None),
+            tuple(int(value) for value in (row.get("row_indices") or []) if value is not None),
         ),
     )
-    return grounding_by_block, counts, proposal_rows
+    return grounding_by_row, counts, proposal_rows

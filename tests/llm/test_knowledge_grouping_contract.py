@@ -26,16 +26,16 @@ def _assignment() -> WorkerAssignmentV1:
     )
 
 
-def _shard(*, block_index: int, text: str) -> ShardManifestEntryV1:
+def _shard(*, row_index: int, text: str) -> ShardManifestEntryV1:
     return ShardManifestEntryV1(
         shard_id="book.ks0000.nr",
         owned_ids=("book.ks0000.nr",),
         input_payload={
             "v": "1",
             "bid": "book.ks0000.nr",
-            "b": [{"i": block_index, "id": f"book.ks0000.nr:{block_index}", "t": text}],
+            "b": [{"i": row_index, "id": f"book.ks0000.nr:{row_index}", "t": text}],
         },
-        metadata={"owned_row_indices": [block_index], "owned_row_count": 1},
+        metadata={"owned_row_indices": [row_index], "owned_row_count": 1},
     )
 
 
@@ -107,8 +107,8 @@ def test_grouping_task_file_only_contains_kept_rows() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(block_index=5, text="Balsamic Vinaigrette"),
-            _shard(block_index=6, text="Use low heat and whisk steadily."),
+            _shard(row_index=5, text="Balsamic Vinaigrette"),
+            _shard(row_index=6, text="Use low heat and whisk steadily."),
         ],
     )
 
@@ -132,7 +132,7 @@ def test_grouping_task_file_only_contains_kept_rows() -> None:
 def test_grouping_validator_accepts_existing_tag_group_grounding() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
-        shards=[_shard(block_index=8, text="Use low heat and whisk steadily.")],
+        shards=[_shard(row_index=8, text="Use low heat and whisk steadily.")],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
         assignment_id="worker-001",
@@ -174,8 +174,8 @@ def test_grouping_validator_requires_tag_story_and_group_consistency() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(block_index=11, text="Rest dough before rolling."),
-            _shard(block_index=12, text="Resting relaxes the gluten."),
+            _shard(row_index=11, text="Rest dough before rolling."),
+            _shard(row_index=12, text="Resting relaxes the gluten."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -223,11 +223,11 @@ def test_grouping_answer_id_canonicalization_recovers_repair_subset_collisions()
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(block_index=51, text="Buy whole spices and grind them just before use."),
-            _shard(block_index=52, text="Fresh grinding releases aromatic oils."),
-            _shard(block_index=53, text="Salt improves dessert flavor."),
-            _shard(block_index=54, text="Desserts need a pinch of salt too."),
-            _shard(block_index=55, text="Finish cookie dough with flaky salt."),
+            _shard(row_index=51, text="Buy whole spices and grind them just before use."),
+            _shard(row_index=52, text="Fresh grinding releases aromatic oils."),
+            _shard(row_index=53, text="Salt improves dessert flavor."),
+            _shard(row_index=54, text="Desserts need a pinch of salt too."),
+            _shard(row_index=55, text="Finish cookie dough with flaky salt."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -340,8 +340,8 @@ def test_grouping_structured_response_maps_group_fields_and_reports_missing_rows
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(block_index=21, text="Use gentle heat for eggs."),
-            _shard(block_index=22, text="Rest dough before rolling."),
+            _shard(row_index=21, text="Use gentle heat for eggs."),
+            _shard(row_index=22, text="Rest dough before rolling."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -381,9 +381,9 @@ def test_grouping_validator_rejects_noncontiguous_group_runs() -> None:
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(
         assignment=_assignment(),
         shards=[
-            _shard(block_index=31, text="Use gentle heat for eggs."),
-            _shard(block_index=32, text="Let dough rest before rolling."),
-            _shard(block_index=33, text="Return to gentle heat before serving."),
+            _shard(row_index=31, text="Use gentle heat for eggs."),
+            _shard(row_index=32, text="Let dough rest before rolling."),
+            _shard(row_index=33, text="Return to gentle heat before serving."),
         ],
     )
     grouping_task_file, _ = build_knowledge_grouping_task_file(
@@ -439,7 +439,7 @@ def test_grouping_validator_rejects_noncontiguous_group_runs() -> None:
 
 def test_grouping_batches_stay_partitioned_for_large_kept_sets() -> None:
     shards = [
-        _shard(block_index=index, text=f"Technique note {index}")
+        _shard(row_index=index, text=f"Technique note {index}")
         for index in range(40, 46)
     ]
     classification_task_file, unit_to_shard_id = build_knowledge_classification_task_file(

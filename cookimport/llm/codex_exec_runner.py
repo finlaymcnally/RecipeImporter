@@ -786,9 +786,9 @@ class FakeCodexExecRunner:
         ):
             normalized_rows: list[dict[str, Any]] = []
             for row in output_payload.get("rows") or []:
-                if not isinstance(row, Mapping) or row.get("block_index") is None:
+                if not isinstance(row, Mapping) or row.get("row_index") is None:
                     continue
-                normalized_row = {"block_index": int(row.get("block_index"))}
+                normalized_row = {"row_index": int(row.get("row_index"))}
                 if packet_kind == "pass1":
                     normalized_row["category"] = str(row.get("category") or "").strip()
                 else:
@@ -806,12 +806,12 @@ class FakeCodexExecRunner:
             }
 
         if packet_kind == "pass1":
-            decision_by_block_index = {
-                int(row.get("block_index")): str(row.get("category") or "").strip()
-                for row in (output_payload.get("block_decisions") or [])
-                if isinstance(row, Mapping) and row.get("block_index") is not None
+            decision_by_row_index = {
+                int(row.get("row_index")): str(row.get("category") or "").strip()
+                for row in (output_payload.get("row_decisions") or [])
+                if isinstance(row, Mapping) and row.get("row_index") is not None
             }
-            default_category = "knowledge" if not decision_by_block_index else "other"
+            default_category = "knowledge" if not decision_by_row_index else "other"
             default_category = "keep_for_review" if default_category == "knowledge" else default_category
             return {
                 "v": "1",
@@ -820,20 +820,20 @@ class FakeCodexExecRunner:
                 "shard_id": shard_id,
                 "rows": [
                     {
-                        "block_index": int(row.get("block_index")),
+                        "row_index": int(row.get("row_index")),
                         "category": (
                             "keep_for_review"
                             if (
-                                decision_by_block_index.get(
-                                    int(row.get("block_index")),
+                                decision_by_row_index.get(
+                                    int(row.get("row_index")),
                                     default_category,
                                 )
                                 or default_category
                             )
                             == "knowledge"
                             else (
-                                decision_by_block_index.get(
-                                    int(row.get("block_index")),
+                                decision_by_row_index.get(
+                                    int(row.get("row_index")),
                                     default_category,
                                 )
                                 or default_category
@@ -841,14 +841,14 @@ class FakeCodexExecRunner:
                         ),
                     }
                     for row in rows
-                    if isinstance(row, Mapping) and row.get("block_index") is not None
+                    if isinstance(row, Mapping) and row.get("row_index") is not None
                 ],
             }
 
-        group_by_block_index: dict[int, dict[str, str]] = {}
+        group_by_row_index: dict[int, dict[str, str]] = {}
         fallback_group_key = None
         fallback_topic_label = None
-        for group in output_payload.get("idea_groups") or []:
+        for group in output_payload.get("row_groups") or []:
             if not isinstance(group, Mapping):
                 continue
             group_key = str(group.get("group_id") or group.get("group_key") or "").strip()
@@ -858,12 +858,12 @@ class FakeCodexExecRunner:
             if fallback_group_key is None:
                 fallback_group_key = group_key
                 fallback_topic_label = topic_label
-            for block_index in group.get("block_indices") or []:
+            for row_index in group.get("row_indices") or []:
                 try:
-                    normalized_block_index = int(block_index)
+                    normalized_row_index = int(row_index)
                 except (TypeError, ValueError):
                     continue
-                group_by_block_index[normalized_block_index] = {
+                group_by_row_index[normalized_row_index] = {
                     "group_key": group_key,
                     "topic_label": topic_label,
                 }
@@ -876,22 +876,22 @@ class FakeCodexExecRunner:
             "shard_id": shard_id,
             "rows": [
                 {
-                    "block_index": int(row.get("block_index")),
+                    "row_index": int(row.get("row_index")),
                     "group_id": (
-                        group_by_block_index.get(int(row.get("block_index")), {}).get(
+                        group_by_row_index.get(int(row.get("row_index")), {}).get(
                             "group_key"
                         )
                         or fallback_group_key
                     ),
                     "topic_label": (
-                        group_by_block_index.get(int(row.get("block_index")), {}).get(
+                        group_by_row_index.get(int(row.get("row_index")), {}).get(
                             "topic_label"
                         )
                         or fallback_topic_label
                     ),
                 }
                 for row in rows
-                if isinstance(row, Mapping) and row.get("block_index") is not None
+                if isinstance(row, Mapping) and row.get("row_index") is not None
             ],
         }
 
@@ -1152,12 +1152,12 @@ class FakeCodexExecRunner:
             normalized_output = self._normalize_recipe_task_answer_payload(direct_output)
             return normalized_output or {}
         if stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}:
-            block_index = int(evidence.get("block_index") or 0)
+            row_index = int(evidence.get("row_index") or 0)
             direct_output = self.output_builder(
                 {
                     "stage_key": stage_key,
-                    "block_id": str(evidence.get("block_id") or f"block-{block_index}"),
-                    "block_index": block_index,
+                    "block_id": str(evidence.get("block_id") or f"block-{row_index}"),
+                    "row_index": row_index,
                     "text": str(evidence.get("text") or ""),
                 }
             )
@@ -1192,12 +1192,12 @@ class FakeCodexExecRunner:
                     }
                 )
                 return dict(direct_output) if isinstance(direct_output, Mapping) else {}
-            block_index = int(evidence.get("block_index") or 0)
+            row_index = int(evidence.get("row_index") or 0)
             direct_output = self.output_builder(
                 {
                     "stage_key": stage_key,
-                    "block_id": str(evidence.get("block_id") or f"block-{block_index}"),
-                    "block_index": block_index,
+                    "block_id": str(evidence.get("block_id") or f"block-{row_index}"),
+                    "row_index": row_index,
                     "text": str(evidence.get("text") or ""),
                     "classification_category": str(
                         (classification or {}).get("category") or ""

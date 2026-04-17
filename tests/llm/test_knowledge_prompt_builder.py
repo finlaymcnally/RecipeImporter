@@ -23,7 +23,7 @@ def test_build_knowledge_direct_prompt_uses_inline_json_contract() -> None:
     assert "The raw packet block text is authoritative. Only mechanically true structure is provided." in prompt
     assert "checked-in Cookbook tag catalog" in prompt
     assert "packet adjacency is not semantic proof" in prompt
-    assert "Each owned row is rendered as `rXX | block_index | text`." in prompt
+    assert "Each owned row is rendered as `rXX | row_index | text`." in prompt
     assert "Classify each owned block on its own merits." in prompt
     assert "Do the keep/drop judgment block by block before you think about idea groups." in prompt
     assert "Do not let one useful block launder nearby memoir" in prompt

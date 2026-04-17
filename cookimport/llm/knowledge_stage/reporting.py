@@ -91,7 +91,7 @@ def _build_review_summary(
         "planned_packet_count": planned_packet_count,
         "reviewed_packet_count": max(0, planned_packet_count - unreviewed_packet_count),
         "candidate_row_count": int(
-            getattr(build_report, "candidate_block_count", 0) or 0
+            getattr(build_report, "candidate_row_count", 0) or 0
         ),
         "excluded_row_count": int(
             counts.get("excluded_row_count") or 0
@@ -615,11 +615,11 @@ def _write_knowledge_runtime_summary_artifacts(
         if not isinstance(bundles, Mapping) or not bundles:
             return False
         return all(
-            bool(getattr(bundle, "block_decisions", ()) or ())
-            and not bool(getattr(bundle, "idea_groups", ()) or ())
+            bool(getattr(bundle, "row_decisions", ()) or ())
+            and not bool(getattr(bundle, "row_groups", ()) or ())
             and all(
                 decision.category == "other"
-                for decision in (getattr(bundle, "block_decisions", ()) or ())
+                for decision in (getattr(bundle, "row_decisions", ()) or ())
             )
             for bundle in bundles.values()
         )
@@ -686,7 +686,7 @@ def _write_knowledge_runtime_summary_artifacts(
                 "partially_promoted": bool(promotion_info.get("partial")),
                 "reviewed_with_useful_packets": bool(
                     promoted_bundle is not None
-                    and any(bundle.idea_groups for bundle in promoted_bundle[0].values())
+                    and any(bundle.row_groups for bundle in promoted_bundle[0].values())
                 ),
                 "reviewed_all_other": _promoted_rows_are_all_other(
                     promoted_bundle[0] if promoted_bundle else None

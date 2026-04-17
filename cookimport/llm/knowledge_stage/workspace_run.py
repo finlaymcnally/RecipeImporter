@@ -155,16 +155,16 @@ def _build_knowledge_whole_shard_grouping_validation_feedback(
     validation_errors: Sequence[str],
     validation_metadata: Mapping[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    unit_id_by_block_index: dict[int, str] = {}
+    unit_id_by_row_index: dict[int, str] = {}
     for unit in task_file_payload.get("units") or []:
         if not isinstance(unit, Mapping):
             continue
         unit_id = str(unit.get("unit_id") or "").strip()
         evidence = _coerce_dict(unit.get("evidence"))
-        block_index = evidence.get("block_index")
-        if not unit_id or block_index is None:
+        row_index = evidence.get("row_index")
+        if not unit_id or row_index is None:
             continue
-        unit_id_by_block_index[int(block_index)] = unit_id
+        unit_id_by_row_index[int(row_index)] = unit_id
 
     feedback_by_unit_id: dict[str, dict[str, Any]] = {}
 
@@ -172,7 +172,7 @@ def _build_knowledge_whole_shard_grouping_validation_feedback(
         *,
         unit_id: str,
         error_code: str,
-        block_index: int,
+        row_index: int,
         message: str,
     ) -> None:
         row = feedback_by_unit_id.setdefault(
@@ -188,21 +188,21 @@ def _build_knowledge_whole_shard_grouping_validation_feedback(
         row.setdefault("error_details", []).append(
             {
                 "code": error_code,
-                "block_index": int(block_index),
+                "row_index": int(row_index),
                 "message": message,
             }
         )
 
     for metadata_key, message in _KNOWLEDGE_FINAL_VALIDATION_ROW_METADATA_KEYS:
-        for block_index in validation_metadata.get(metadata_key) or []:
-            unit_id = unit_id_by_block_index.get(int(block_index))
+        for row_index in validation_metadata.get(metadata_key) or []:
+            unit_id = unit_id_by_row_index.get(int(row_index))
             if unit_id is None:
                 continue
             for error_code in validation_errors:
                 _append_feedback(
                     unit_id=unit_id,
                     error_code=str(error_code).strip(),
-                    block_index=int(block_index),
+                    row_index=int(row_index),
                     message=message,
                 )
     return feedback_by_unit_id
@@ -401,7 +401,7 @@ def _knowledge_repair_root_cause_summary(
         {
             key: value
             for key, value in dict(detail).items()
-            if key in {"code", "message", "path", "row_id", "block_index"}
+            if key in {"code", "message", "path", "row_id", "row_index"}
             and value not in (None, "", [], {})
         }
         for detail in (validation_metadata.get("error_details") or [])

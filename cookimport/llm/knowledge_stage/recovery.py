@@ -285,7 +285,7 @@ def _write_knowledge_worker_hint(
         except (TypeError, ValueError):
             continue
     packet_id = str(payload.get("bid") or shard.shard_id).strip() or "[unknown packet]"
-    block_indices = [
+    row_indices = [
         int(block.get("i", 0))
         for block in packet_blocks
         if block.get("i") is not None
@@ -300,8 +300,8 @@ def _write_knowledge_worker_hint(
             (
                 "Owned block range: `"
                 + (
-                    f"{block_indices[0]}..{block_indices[-1]}"
-                    if block_indices
+                    f"{row_indices[0]}..{row_indices[-1]}"
+                    if row_indices
                     else "unknown"
                 )
                 + "`."
@@ -619,8 +619,8 @@ def _preflight_knowledge_shard(
                     "reason_code": "preflight_invalid_shard_payload",
                     "reason_detail": "knowledge shard contains a non-object block payload",
                 }
-            block_index = block.get("i")
-            if block_index is None:
+            row_index = block.get("i")
+            if row_index is None:
                 return {
                     "reason_code": "preflight_invalid_shard_payload",
                     "reason_detail": "knowledge shard contains a block without `i`",
@@ -1334,7 +1334,7 @@ def _classify_knowledge_watchdog_retry_size(
     payload = _coerce_dict(shard.input_payload)
     packet_row_count = max(
         0,
-        int(metadata.get("owned_row_count") or metadata.get("packet_block_count") or len(payload.get("b") or [])),
+        int(metadata.get("owned_row_count") or metadata.get("packet_row_count") or len(payload.get("b") or [])),
     )
     char_count = max(0, int(metadata.get("char_count") or 0))
     oversized = (
@@ -1446,12 +1446,12 @@ def _knowledge_failure_signature(
         return "schema_invalid"
     if errors.intersection(
         {
-            "missing_owned_block_decisions",
-            "unexpected_block_decisions",
-            "block_decision_order_mismatch",
-            "knowledge_block_missing_group",
-            "knowledge_block_group_conflict",
-            "group_contains_other_block",
+            "missing_owned_row_decisions",
+            "unexpected_row_decisions",
+            "row_decision_order_mismatch",
+            "knowledge_row_missing_group",
+            "knowledge_row_group_conflict",
+            "group_contains_other_row",
             "unknown_grounding_tag_key",
             "unknown_grounding_category_key",
             "invalid_proposed_tag_key",
@@ -1517,9 +1517,9 @@ def _build_knowledge_watchdog_example(
 ) -> dict[str, Any] | None:
     if not isinstance(payload, Mapping):
         return None
-    block_decisions = payload.get("d")
-    idea_groups = payload.get("g")
-    if not isinstance(block_decisions, list) or not isinstance(idea_groups, list):
+    row_decisions = payload.get("d")
+    row_groups = payload.get("g")
+    if not isinstance(row_decisions, list) or not isinstance(row_groups, list):
         return None
     return {
         "shard_id": shard.shard_id,
@@ -1529,12 +1529,12 @@ def _build_knowledge_watchdog_example(
             "bid": str(payload.get("bid") or shard.shard_id),
             "d": [
                 dict(row_payload)
-                for row_payload in block_decisions[:8]
+                for row_payload in row_decisions[:8]
                 if isinstance(row_payload, Mapping)
             ],
             "g": [
                 dict(row_payload)
-                for row_payload in idea_groups[:3]
+                for row_payload in row_groups[:3]
                 if isinstance(row_payload, Mapping)
             ],
         },
@@ -1578,15 +1578,15 @@ def _should_retry_knowledge_shard_split(
     errors = {str(error) for error in validation_errors}
     if not errors.intersection(
         {
-            "missing_owned_block_decisions",
-            "unexpected_block_decisions",
+            "missing_owned_row_decisions",
+            "unexpected_row_decisions",
             "response_json_invalid",
             "response_not_json_object",
         }
     ):
         return False
     returned_decision_count = int(validation_metadata.get("result_row_decision_count") or 0)
-    if "missing_owned_block_decisions" in errors and returned_decision_count < owned_row_count:
+    if "missing_owned_row_decisions" in errors and returned_decision_count < owned_row_count:
         return True
     return _is_pathological_knowledge_response_text(
         str(response_text or ""),
@@ -1686,7 +1686,7 @@ def _subset_knowledge_shard_metadata(
         if value is None:
             continue
         subset[key] = value
-    for key in ("packet_block_indices_by_id", "packet_char_count_by_id"):
+    for key in ("packet_row_indices_by_id", "packet_char_count_by_id"):
         raw_mapping = source.get(key)
         if not isinstance(raw_mapping, Mapping):
             continue
@@ -1716,12 +1716,12 @@ def _should_attempt_knowledge_repair(
         "response_json_invalid",
         "response_not_json_object",
         "schema_invalid",
-        "missing_owned_block_decisions",
-        "unexpected_block_decisions",
-        "block_decision_order_mismatch",
-        "knowledge_block_missing_group",
-        "knowledge_block_group_conflict",
-        "group_contains_other_block",
+        "missing_owned_row_decisions",
+        "unexpected_row_decisions",
+        "row_decision_order_mismatch",
+        "knowledge_row_missing_group",
+        "knowledge_row_group_conflict",
+        "group_contains_other_row",
         "unknown_grounding_tag_key",
         "unknown_grounding_category_key",
         "invalid_proposed_tag_key",
@@ -1943,8 +1943,8 @@ def _build_knowledge_repair_prompt(
 ) -> str:
     owned_ids = ", ".join(str(packet_id) for packet_id in shard.owned_ids)
     missing_indices = ", ".join(
-        str(block_index)
-        for block_index in (validation_metadata.get("missing_owned_row_indices") or [])
+        str(row_index)
+        for row_index in (validation_metadata.get("missing_owned_row_indices") or [])
     )
     authoritative_input = json.dumps(
         _coerce_dict(shard.input_payload),
@@ -2008,8 +2008,8 @@ def _build_knowledge_snippet_repair_prompt(
         f"- `bid` must be `{shard.shard_id}`.\n"
         "- Return one packet result covering the owned block surface exactly once.\n"
         f"- Owned packet ids: {owned_ids}\n"
-        "- Preserve every existing `block_decisions`, `idea_groups[*].block_indices`, and evidence pointer.\n"
-        "- Rewrite only `idea_groups[*].snippets[*].body`.\n"
+        "- Preserve every existing `row_decisions`, `row_groups[*].row_indices`, and evidence pointer.\n"
+        "- Rewrite only `row_groups[*].snippets[*].body`.\n"
         "- Each rewritten snippet body must be a short grounded extraction, not copied evidence prose.\n"
         "- Do not add new snippets, drop snippets, or change evidence quotes.\n\n"
         f"Validator errors: {json.dumps(list(validation_errors), sort_keys=True)}\n\n"

@@ -39,14 +39,14 @@ def test_evaluate_source_rows_falls_back_to_row_index_when_row_ids_drift(tmp_pat
             {
                 "row_id": "pred:r0",
                 "atomic_index": 0,
-                "block_index": 10,
+                "row_index": 10,
                 "label": "RECIPE_TITLE",
                 "text": "Bright Slaw",
             },
             {
                 "row_id": "pred:r1",
                 "atomic_index": 1,
-                "block_index": 11,
+                "row_index": 11,
                 "label": "INGREDIENT_LINE",
                 "text": "1 cabbage",
             },
@@ -98,14 +98,14 @@ def test_evaluate_source_rows_prefers_row_index_when_row_id_collides_with_wrong_
             {
                 "row_id": "gold:stale",
                 "atomic_index": 1,
-                "block_index": 728,
+                "row_index": 728,
                 "label": "KNOWLEDGE",
                 "text": "Olive oil is produced seasonally.",
             },
             {
                 "row_id": "pred:new",
                 "atomic_index": 0,
-                "block_index": 1692,
+                "row_index": 1692,
                 "label": "OTHER",
                 "reason_tags": ["nonrecipe_authority:preserved_exclude"],
                 "text": "Think about making a grilled cheese sandwich.",
@@ -123,6 +123,7 @@ def test_evaluate_source_rows_prefers_row_index_when_row_id_collides_with_wrong_
     report = result["report"]
     assert report["overall_line_accuracy"] == 1.0
     assert report["counts"]["direct_row_id_match_rows"] == 0
+    assert report["counts"]["text_sequence_match_rows"] == 0
     assert report["counts"]["row_index_fallback_match_rows"] == 2
     assert report["counts"]["row_identity_conflict_rows"] == 1
     aligned_rows = [
@@ -164,7 +165,7 @@ def test_evaluate_source_rows_overlays_nonrecipe_authority_labels(tmp_path: Path
             {
                 "row_id": "gold:r0",
                 "atomic_index": 0,
-                "block_index": 999,
+                "row_index": 999,
                 "label": "NONRECIPE_CANDIDATE",
                 "text": "Salt dissolves quickly.",
             }
@@ -220,7 +221,7 @@ def test_evaluate_source_rows_accepts_multi_label_gold_rows(tmp_path: Path) -> N
                 "row_id": "gold:r0",
                 "atomic_index": 0,
                 "row_index": 0,
-                "block_index": 275,
+                "row_index": 275,
                 "label": "OTHER",
                 "text": "SALT AND FLAVOR",
             }
@@ -267,7 +268,7 @@ def test_evaluate_source_rows_preserves_row_level_nonrecipe_exclude_over_block_a
             {
                 "row_id": "gold:r0",
                 "atomic_index": 0,
-                "block_index": 999,
+                "row_index": 999,
                 "label": "OTHER",
                 "reason_tags": ["nonrecipe_authority:preserved_exclude"],
                 "text": "Think about making a grilled cheese sandwich.",
@@ -330,14 +331,14 @@ def test_evaluate_source_rows_prefers_row_level_nonrecipe_authority_over_block_s
             {
                 "row_id": "gold:r0",
                 "atomic_index": 10,
-                "block_index": 999,
+                "row_index": 999,
                 "label": "NONRECIPE_CANDIDATE",
                 "text": "Think about making a grilled cheese sandwich.",
             },
             {
                 "row_id": "gold:r1",
                 "atomic_index": 11,
-                "block_index": 999,
+                "row_index": 999,
                 "label": "NONRECIPE_CANDIDATE",
                 "text": "Slow, even heat melts the cheese before the bread burns.",
             },
@@ -365,3 +366,96 @@ def test_evaluate_source_rows_prefers_row_level_nonrecipe_authority_over_block_s
     report = result["report"]
     assert report["overall_line_accuracy"] == 1.0
     assert report["counts"]["authority_override_rows"] == 2
+
+
+def test_evaluate_source_rows_uses_text_sequence_alignment_when_row_ids_and_indices_drift(
+    tmp_path: Path,
+) -> None:
+    gold_export_root = tmp_path / "gold"
+    _write_jsonl(
+        gold_export_root / "row_gold_labels.jsonl",
+        [
+            {
+                "row_id": "gold:r0",
+                "row_index": 0,
+                "labels": ["OTHER"],
+                "text": "Intro note",
+            },
+            {
+                "row_id": "gold:r1",
+                "row_index": 1,
+                "labels": ["RECIPE_TITLE"],
+                "text": "Bright Slaw",
+            },
+            {
+                "row_id": "gold:r2",
+                "row_index": 2,
+                "labels": ["INGREDIENT_LINE"],
+                "text": "1 cabbage",
+            },
+            {
+                "row_id": "gold:r3",
+                "row_index": 3,
+                "labels": ["INSTRUCTION_LINE"],
+                "text": "Toss gently",
+            },
+        ],
+    )
+
+    eval_root = tmp_path / "eval"
+    line_role_dir = eval_root / "line-role-pipeline"
+    stage_predictions_json = line_role_dir / "semantic_row_predictions.json"
+    _write_json(stage_predictions_json, {"stage": "fixture"})
+    _write_jsonl(
+        line_role_dir / "row_label_predictions.jsonl",
+        [
+            {
+                "row_id": "pred:extra",
+                "atomic_index": 200,
+                "row_index": 900,
+                "label": "OTHER",
+                "text": "Copyright page",
+            },
+            {
+                "row_id": "pred:new0",
+                "atomic_index": 201,
+                "row_index": 901,
+                "label": "OTHER",
+                "text": "Intro note",
+            },
+            {
+                "row_id": "pred:new1",
+                "atomic_index": 202,
+                "row_index": 902,
+                "label": "RECIPE_TITLE",
+                "text": "Bright Slaw",
+            },
+            {
+                "row_id": "pred:new2",
+                "atomic_index": 203,
+                "row_index": 903,
+                "label": "INGREDIENT_LINE",
+                "text": "1 cabbage",
+            },
+            {
+                "row_id": "pred:new3",
+                "atomic_index": 204,
+                "row_index": 904,
+                "label": "INSTRUCTION_LINE",
+                "text": "Toss gently",
+            },
+        ],
+    )
+
+    result = evaluate_source_rows(
+        gold_export_root=gold_export_root,
+        stage_predictions_json=stage_predictions_json,
+        extracted_blocks_json=tmp_path / "unused.json",
+        out_dir=eval_root / "source-rows-eval",
+    )
+
+    report = result["report"]
+    assert report["overall_line_accuracy"] == 1.0
+    assert report["counts"]["direct_row_id_match_rows"] == 0
+    assert report["counts"]["row_index_fallback_match_rows"] == 0
+    assert report["counts"]["text_sequence_match_rows"] == 4

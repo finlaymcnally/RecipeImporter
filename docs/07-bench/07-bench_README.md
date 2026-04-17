@@ -29,7 +29,7 @@ Current owner note for large benchmark helpers:
 
 Current scoring mode:
 
-- `source-rows`: compare authoritative row predictions against `row_gold_labels.jsonl` by shared ordered row identity. Current scorer behavior is: use `row_index` whenever `row_id` and `row_index` disagree, because `row_id` can drift or collide when source block indices change across source-row rebuilds; only trust direct `row_id` matches when they are consistent with the current row payload, and overlay `09_nonrecipe_authority.json` when the benchmark manifest exposes a processed-output run dir so final nonrecipe authority still wins over intermediate route labels.
+- `source-rows`: compare authoritative row predictions against `row_gold_labels.jsonl` by shared ordered row identity. Current scorer behavior is: treat prediction `atomic_index` as the semantic row index when it exists, use ordered text-sequence alignment as the rescue path when both `row_id` and semantic row indices drift after a source-row rebuild, only trust direct `row_id` matches when they are consistent with the current row payload, and overlay `09_nonrecipe_authority.json` when the benchmark manifest exposes a processed-output run dir so final nonrecipe authority still wins over intermediate route labels. Prediction provenance should come from `source_block_index` when available; if a row-native prediction payload still carries a second `row_index` beside `atomic_index`, that field is provenance/layout, not the scored semantic row id.
 
 Current benchmark handoff model:
 
@@ -256,6 +256,7 @@ Row gold authority note:
 - `exports/freeform_span_labels.jsonl` is still the entry artifact selected by benchmark discovery because it identifies the gold export bundle, but source-row scoring does not score that raw freeform file directly
 - `exports/row_gold_labels.jsonl` is the active benchmark authority
 - row-gold provenance in that artifact is `source_block_index`; benchmark readers should not look for semantic `block_index` there
+- if a pulled gold export was built against an older `source_rows` version, source-row eval should still align against the current prediction rows by ordered text before falling back to blunt row-index matching; stale row ids plus stale row indices must not grade later recipe rows against unrelated nearby prose
 - canonical export files may still exist as compatibility/archive outputs for older tooling, but they are no longer the active scorer inputs
 - benchmark run manifests should describe `source-rows` runs as evaluating a selected Label Studio gold export with row-gold scoring, not as scoring the raw freeform file directly
 

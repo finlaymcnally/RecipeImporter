@@ -8,9 +8,9 @@ from typing import Any, Callable, Mapping
 
 from .codex_farm_runner import CodexFarmPipelineRunResult
 from .codex_farm_knowledge_contracts import (
-    knowledge_input_block_index,
-    knowledge_input_block_text,
-    knowledge_input_blocks,
+    knowledge_input_row_index,
+    knowledge_input_row_text,
+    knowledge_input_rows,
     knowledge_input_bundle_id,
 )
 from .recipe_tagging_guide import build_recipe_tagging_guide, recipe_tagging_guide_categories
@@ -123,24 +123,24 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             return _default_structured_knowledge_grouping_output(payload)
         if (
             stage_key in {"nonrecipe_finalize", "nonrecipe_classify"}
-            and payload.get("block_index") is not None
+            and payload.get("row_index") is not None
         ):
             return _default_knowledge_classification_task_output(payload)
-        if stage_key == "knowledge_group" and payload.get("block_index") is not None:
+        if stage_key == "knowledge_group" and payload.get("row_index") is not None:
             return _default_knowledge_grouping_task_output(payload)
-        blocks = knowledge_input_blocks(payload)
+        blocks = knowledge_input_rows(payload)
         group_grounding = _default_fake_knowledge_grounding(
             " ".join(
-                str(knowledge_input_block_text(block) or "")
+                str(knowledge_input_row_text(block) or "")
                 for block in blocks
                 if isinstance(block, dict)
             )
         )
-        idea_group = {
+        row_group = {
             "group_id": "g01",
             "topic_label": "Fake knowledge group",
-            "block_indices": [
-                int(knowledge_input_block_index(block) or 0)
+            "row_indices": [
+                int(knowledge_input_row_index(block) or 0)
                 for block in blocks
                 if isinstance(block, dict)
             ],
@@ -149,24 +149,24 @@ def _default_output(pipeline_id: str, payload: dict[str, Any] | str) -> dict[str
             "retrieval_query": None,
         }
         if group_grounding.get("proposed_tags"):
-            idea_group["why_no_existing_tag"] = (
+            row_group["why_no_existing_tag"] = (
                 "No existing tag captures this exact concept."
             )
-            idea_group["retrieval_query"] = "fake knowledge concept cooking"
+            row_group["retrieval_query"] = "fake knowledge concept cooking"
         return {
             "packet_id": knowledge_input_bundle_id(payload),
-            "block_decisions": [
+            "row_decisions": [
                 {
-                    "block_index": int(knowledge_input_block_index(block) or 0),
+                    "row_index": int(knowledge_input_row_index(block) or 0),
                     "category": "knowledge",
                     "grounding": _default_fake_knowledge_grounding(
-                        str(knowledge_input_block_text(block) or "")
+                        str(knowledge_input_row_text(block) or "")
                     ),
                 }
                 for block in blocks
                 if isinstance(block, dict)
             ],
-            "idea_groups": [idea_group],
+            "row_groups": [row_group],
         }
     if pipeline_id == "line-role.canonical.v1":
         if isinstance(payload, dict) and (

@@ -54,9 +54,9 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
         output_builders={
             "recipe.knowledge.packet.v1": lambda shard_payload: {
                 "packet_id": shard_payload["bid"],
-                "block_decisions": [
+                "row_decisions": [
                     {
-                        "block_index": 4,
+                        "row_index": 4,
                         "category": "knowledge",
                         "grounding": {
                             "tag_keys": ["emulsify"],
@@ -65,11 +65,11 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
                         },
                     }
                 ],
-                "idea_groups": [
+                "row_groups": [
                     {
                         "group_id": "g01",
                         "topic_label": "bad",
-                        "block_indices": [4, 99],
+                        "row_indices": [4, 99],
                         "grounding": {
                             "tag_keys": ["emulsify"],
                             "category_keys": ["techniques"],
@@ -122,11 +122,11 @@ def test_knowledge_phase_workers_reject_off_surface_group_outputs(tmp_path: Path
         {
             "reason": "proposal_validation_failed",
             "shard_id": "book.ks0000.nr",
-            "validation_errors": ["group_contains_other_block"],
+            "validation_errors": ["group_contains_other_row"],
             "worker_id": "worker-001",
         }
     ]
-    assert proposal["validation_errors"] == ["group_contains_other_block"]
+    assert proposal["validation_errors"] == ["group_contains_other_row"]
 
 
 def test_knowledge_phase_workers_accept_valid_shard_outputs(tmp_path: Path) -> None:

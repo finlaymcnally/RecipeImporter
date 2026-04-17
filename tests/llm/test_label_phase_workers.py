@@ -38,7 +38,7 @@ def _candidate(atomic_index: int, *, text: str | None = None) -> AtomicLineCandi
     return AtomicLineCandidate(
         recipe_id="recipe:0",
         block_id=f"block:{atomic_index}",
-        block_index=atomic_index,
+        row_index=atomic_index,
         atomic_index=atomic_index,
         text=text or f"Ambiguous line {atomic_index}",
         within_recipe_span=True,

@@ -35,11 +35,11 @@ def write_knowledge_artifacts(
     snippet_records: list[dict[str, Any]] = []
     for packet_id in sorted(outputs):
         output = outputs[packet_id]
-        decisions_by_block_index = {
-            int(decision.block_index): decision
-            for decision in (output.block_decisions or [])
+        decisions_by_row_index = {
+            int(decision.row_index): decision
+            for decision in (output.row_decisions or [])
         }
-        for group_index, group in enumerate(output.idea_groups, start=1):
+        for group_index, group in enumerate(output.row_groups, start=1):
             knowledge_group_id = f"{packet_id}.{group.group_id}"
             shared_grounding = {
                 "tag_keys": [
@@ -67,36 +67,36 @@ def write_knowledge_artifacts(
                 "packet_id": packet_id,
                 "group_id": group.group_id,
                 "topic_label": group.topic_label,
-                "block_indices": list(group.block_indices),
+                "row_indices": list(group.row_indices),
                 "shared_grounding": shared_grounding,
                 "why_no_existing_tag": str(group.why_no_existing_tag or "").strip() or None,
                 "retrieval_query": str(group.retrieval_query or "").strip() or None,
-                "grounded_blocks": [],
+                "grounded_rows": [],
                 "snippets": [],
             }
-            if not record["block_indices"]:
+            if not record["row_indices"]:
                 raise ValueError(
-                    f"Knowledge idea group {knowledge_group_id} had no block indices."
+                    f"Knowledge row group {knowledge_group_id} had no row indices."
                 )
             missing_row_indices = [
-                int(block_index)
-                for block_index in record["block_indices"]
-                if int(block_index) not in full_blocks_by_index
+                int(row_index)
+                for row_index in record["row_indices"]
+                if int(row_index) not in full_blocks_by_index
             ]
             if missing_row_indices:
                 raise ValueError(
-                    "Knowledge idea group "
-                    f"{knowledge_group_id} referenced missing block index "
+                    "Knowledge row group "
+                    f"{knowledge_group_id} referenced missing row index "
                     f"{missing_row_indices[0]}."
                 )
-            for block_index in record["block_indices"]:
-                decision = decisions_by_block_index.get(int(block_index))
+            for row_index in record["row_indices"]:
+                decision = decisions_by_row_index.get(int(row_index))
                 if decision is None:
                     continue
                 grounding = getattr(decision, "grounding", None)
-                record["grounded_blocks"].append(
+                record["grounded_rows"].append(
                     {
-                        "block_index": int(block_index),
+                        "row_index": int(row_index),
                         "grounding": {
                             "tag_keys": [
                                 str(value).strip()
@@ -163,14 +163,14 @@ def _render_preview_md(
         topic_label = str(record.get("topic_label") or f"Knowledge Group {ordinal}").strip()
         knowledge_group_id = str(record.get("knowledge_group_id") or "")
         packet_id = str(record.get("packet_id") or "")
-        block_indices = [int(value) for value in (record.get("block_indices") or [])]
+        row_indices = [int(value) for value in (record.get("row_indices") or [])]
         lines.append(f"## {topic_label}")
         lines.append("")
         lines.append(f"- knowledge_group_id: `{knowledge_group_id}`")
         lines.append(f"- packet_id: `{packet_id}`")
-        if block_indices:
+        if row_indices:
             lines.append(
-                f"- block_indices: `{block_indices[0]}..{block_indices[-1]}` ({len(block_indices)} blocks)"
+                f"- row_indices: `{row_indices[0]}..{row_indices[-1]}` ({len(row_indices)} rows)"
             )
         shared_grounding = dict(record.get("shared_grounding") or {})
         tag_keys = ", ".join(str(value) for value in (shared_grounding.get("tag_keys") or []))
@@ -193,16 +193,16 @@ def _render_preview_md(
         lines.append("")
 
         lines.append("Source context:")
-        for block_index in block_indices:
-            block = full_blocks_by_index.get(int(block_index)) or {}
+        for row_index in row_indices:
+            block = full_blocks_by_index.get(int(row_index)) or {}
             text = str(block.get("text") or "").strip()
             text_display = text if len(text) <= 600 else text[:597] + "..."
-            lines.append(f"- block {block_index}: {text_display}")
+            lines.append(f"- row {row_index}: {text_display}")
             grounding_row = next(
                 (
                     row
-                    for row in (record.get("grounded_blocks") or [])
-                    if int(row.get("block_index") or -1) == int(block_index)
+                    for row in (record.get("grounded_rows") or [])
+                    if int(row.get("row_index") or -1) == int(row_index)
                 ),
                 None,
             )

@@ -18,8 +18,8 @@ from cookimport.llm.shard_prompt_targets import (
 from cookimport.llm.shard_survivability import default_stage_survivability_budget
 
 from .codex_farm_knowledge_contracts import (
-    KnowledgePacketBlockV1,
-    KnowledgePacketContextBlockV1,
+    KnowledgePacketRowV1,
+    KnowledgePacketContextRowV1,
     KnowledgePacketContextPayloadV1,
     KnowledgePacketGuardrailsPayloadV1,
     KnowledgePacketJobInputV1,
@@ -36,7 +36,7 @@ class KnowledgeJobBuildReport:
     requested_shard_count: int
     shards_written: int
     packets_written: int
-    candidate_block_count: int
+    candidate_row_count: int
     packet_ids: list[str]
     planning_warnings: list[str]
     shard_entries: list[ShardManifestEntryV1]
@@ -49,7 +49,7 @@ class KnowledgeJobBuildReport:
 @dataclass(frozen=True, slots=True)
 class _PreparedKnowledgePacket:
     packet_id: str
-    blocks: list[KnowledgePacketBlockV1]
+    rows: list[KnowledgePacketRowV1]
     absolute_indices: list[int]
     char_count: int
     has_table_content: bool
@@ -156,8 +156,8 @@ def build_knowledge_jobs(
         if not absolute_indices:
             continue
         shard_id = f"{workbook_slug}.ks{shard_index:04d}.nr"
-        blocks = [
-            _to_knowledge_packet_block(
+        rows = [
+            _to_knowledge_packet_row(
                 full_blocks_by_index.get(index) or {},
                 fallback_index=index,
                 table_hint=table_hints_by_index.get(index),
@@ -167,11 +167,11 @@ def build_knowledge_jobs(
         prepared_packets.append(
             _PreparedKnowledgePacket(
                 packet_id=shard_id,
-                blocks=blocks,
+                rows=rows,
                 absolute_indices=absolute_indices,
-                char_count=sum(len(str(block.text or "").strip()) for block in blocks),
-                has_table_content=any(block.table_hint is not None for block in blocks),
-                has_heading=any(block.heading_level is not None for block in blocks),
+                char_count=sum(len(str(row.text or "").strip()) for row in rows),
+                has_table_content=any(row.table_hint is not None for row in rows),
+                has_heading=any(row.heading_level is not None for row in rows),
                 source_span_ids=tuple(
                     dict.fromkeys(
                         span_id
@@ -265,7 +265,7 @@ def build_knowledge_jobs(
         requested_shard_count=requested_shard_count,
         shards_written=len(shard_entries),
         packets_written=len(written_packets),
-        candidate_block_count=len(
+        candidate_row_count=len(
             {
                 index
                 for packet in written_packets
@@ -496,7 +496,7 @@ def _build_packet_job_payload(
     packet_end_index = max(packet.absolute_indices) + 1
     before_indices = range(max(0, packet_start_index - context_blocks), packet_start_index)
     after_indices = range(packet_end_index, packet_end_index + max(0, int(context_blocks)))
-    context_recipe_block_indices = sorted(
+    context_recipe_row_indices = sorted(
         idx
         for idx in [*before_indices, *after_indices]
         if _row_or_source_block_is_recipe_owned(
@@ -505,8 +505,8 @@ def _build_packet_job_payload(
             owned_recipe_row_indices=owned_recipe_row_indices,
         )
     )
-    blocks_before = [
-        _to_knowledge_context_block(
+    rows_before = [
+        _to_knowledge_context_row(
             full_blocks_by_index[idx],
             fallback_index=idx,
         )
@@ -518,8 +518,8 @@ def _build_packet_job_payload(
             owned_recipe_row_indices=owned_recipe_row_indices,
         )
     ]
-    blocks_after = [
-        _to_knowledge_context_block(
+    rows_after = [
+        _to_knowledge_context_row(
             full_blocks_by_index[idx],
             fallback_index=idx,
         )
@@ -532,34 +532,34 @@ def _build_packet_job_payload(
         )
     ]
     context_payload = KnowledgePacketContextPayloadV1(
-        blocks_before=blocks_before,
-        blocks_after=blocks_after,
+        rows_before=rows_before,
+        rows_after=rows_after,
     )
     guardrails_payload = KnowledgePacketGuardrailsPayloadV1(
-        context_recipe_block_indices=context_recipe_block_indices,
+        context_recipe_row_indices=context_recipe_row_indices,
     )
     return KnowledgePacketJobInputV1(
         packet_id=packet.packet_id,
-        blocks=packet.blocks,
+        rows=packet.rows,
         context=(
             context_payload
-            if context_payload.blocks_before or context_payload.blocks_after
+            if context_payload.rows_before or context_payload.rows_after
             else None
         ),
         guardrails=(
             guardrails_payload
-            if guardrails_payload.context_recipe_block_indices
+            if guardrails_payload.context_recipe_row_indices
             else None
         ),
     )
 
-def _to_knowledge_packet_block(
-    block: Mapping[str, Any],
+def _to_knowledge_packet_row(
+    row: Mapping[str, Any],
     *,
     fallback_index: int,
     table_hint: KnowledgeTableHintV1 | None = None,
-) -> KnowledgePacketBlockV1:
-    index = _coerce_int(block.get("index"))
+) -> KnowledgePacketRowV1:
+    index = _coerce_int(row.get("index"))
     if index is None:
         index = int(fallback_index)
     compact_table_hint = None
@@ -569,26 +569,26 @@ def _to_knowledge_packet_block(
             "c": table_hint.caption,
             "r": table_hint.row_index_in_table,
         }
-    return KnowledgePacketBlockV1(
+    return KnowledgePacketRowV1(
         i=index,
-        t=str(block.get("text") or ""),
-        hl=_resolve_heading_level(block),
+        t=str(row.get("text") or ""),
+        hl=_resolve_heading_level(row),
         th=compact_table_hint,
     )
 
 
-def _to_knowledge_context_block(
-    block: Mapping[str, Any],
+def _to_knowledge_context_row(
+    row: Mapping[str, Any],
     *,
     fallback_index: int,
-) -> KnowledgePacketContextBlockV1:
-    index = _coerce_int(block.get("index"))
+) -> KnowledgePacketContextRowV1:
+    index = _coerce_int(row.get("index"))
     if index is None:
         index = int(fallback_index)
-    return KnowledgePacketContextBlockV1(
+    return KnowledgePacketContextRowV1(
         i=index,
-        t=str(block.get("text") or ""),
-        hl=_resolve_heading_level(block),
+        t=str(row.get("text") or ""),
+        hl=_resolve_heading_level(row),
     )
 
 

@@ -176,16 +176,16 @@ def test_knowledge_orchestrator_writes_final_outputs_from_fixed_assignments(
     assert task_file["answer_schema"]["editable_pointer_pattern"] == "/units/*/answer"
     assert task_file["answer_schema"]["example_answers"][0]["groups"][0]["group_id"] == "g01"
     assert first_output["packet_id"] == "book.ks0000.nr"
-    assert [row["block_index"] for row in first_output["block_decisions"]] == [0, 2]
-    assert all(row["category"] == "knowledge" for row in first_output["block_decisions"])
+    assert [row["row_index"] for row in first_output["row_decisions"]] == [0, 2]
+    assert all(row["category"] == "knowledge" for row in first_output["row_decisions"])
     assert all(
         row["grounding"]["tag_keys"] or row["grounding"]["proposed_tags"]
-        for row in first_output["block_decisions"]
+        for row in first_output["row_decisions"]
     )
-    first_grounding = first_output["block_decisions"][0]["grounding"]
-    first_group = first_output["idea_groups"][0]
+    first_grounding = first_output["row_decisions"][0]["grounding"]
+    first_group = first_output["row_groups"][0]
     assert first_group["group_id"] == "g01"
-    assert first_group["block_indices"] == [0, 2]
+    assert first_group["row_indices"] == [0, 2]
     assert first_group["grounding"] == {
         "tag_keys": first_grounding["tag_keys"],
         "category_keys": first_grounding["category_keys"],
@@ -268,12 +268,12 @@ def test_knowledge_orchestrator_runs_grouping_for_kept_knowledge_rows(
     )
     telemetry = json.loads((phase_dir / "telemetry.json").read_text(encoding="utf-8"))
 
-    idea_group = output_payload["idea_groups"][0]
-    assert idea_group["block_indices"] == [0]
+    idea_group = output_payload["row_groups"][0]
+    assert idea_group["row_indices"] == [0]
     assert idea_group["group_id"] == "g01"
     assert idea_group["topic_label"]
-    assert idea_group["grounding"] == output_payload["block_decisions"][0]["grounding"]
-    if output_payload["block_decisions"][0]["grounding"]["proposed_tags"]:
+    assert idea_group["grounding"] == output_payload["row_decisions"][0]["grounding"]
+    if output_payload["row_decisions"][0]["grounding"]["proposed_tags"]:
         assert idea_group["why_no_existing_tag"]
         assert idea_group["retrieval_query"]
     else:
@@ -506,7 +506,7 @@ def test_knowledge_orchestrator_classification_missing_rows_repair_only_targets_
     assert runner.classification_repair_call_count == 1
     assert proposal["payload"] is not None
     assert repair_packet["repair_validation_summary"]["validation_errors"] == [
-        "knowledge_block_missing_decision",
+        "knowledge_row_missing_decision",
         "knowledge_missing_response_rows",
     ]
     assert repair_packet["repair_validation_summary"]["missing_row_ids"] == ["r03"]
@@ -668,7 +668,7 @@ def test_knowledge_orchestrator_grouping_repairs_preserve_first_root_cause_summa
         first_repair_packet["repair_root_cause_summary"]["message"]
     )
     assert second_repair_packet["repair_validation_summary"]["validation_errors"] == [
-        "knowledge_block_missing_group"
+        "knowledge_row_missing_group"
     ]
     assert "unknown_grounding_category_key" in second_repair_packet[
         "repair_root_cause_summary"
@@ -678,16 +678,16 @@ def test_knowledge_orchestrator_grouping_repairs_preserve_first_root_cause_summa
             "start_row_id": "r01",
             "end_row_id": "r01",
             "row_ids": ["r01"],
-            "validation_errors": ["knowledge_block_missing_group"],
+            "validation_errors": ["knowledge_row_missing_group"],
             "error_details": [
                 {
                     "path": "/units/knowledge::0/answer/group_id",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "group_id must be a non-empty string",
                 },
                 {
                     "path": "/units/knowledge::0/answer/topic_label",
-                    "code": "knowledge_block_missing_group",
+                    "code": "knowledge_row_missing_group",
                     "message": "topic_label must be a non-empty string",
                 }
             ],
@@ -1072,14 +1072,14 @@ class _MultiRepairClassificationInlineRunner(FakeCodexExecRunner):
         if stage_key == "nonrecipe_classify" and packet_kind == "classification_initial":
             return _packet_result_from_base(
                 base_result,
-                response_text='{"rows":[{"block_index":0,"category":"knowledge"',
+                response_text='{"rows":[{"row_index":0,"category":"knowledge"',
             )
         if stage_key == "nonrecipe_classify" and packet_kind == "classification_repair":
             self.classification_repair_call_count += 1
             if self.classification_repair_call_count == 1:
                 return _packet_result_from_base(
                     base_result,
-                    response_text='{"rows":[{"block_index":0,"category":"knowledge"',
+                    response_text='{"rows":[{"row_index":0,"category":"knowledge"',
                 )
             return _packet_result_from_base(
                 base_result,

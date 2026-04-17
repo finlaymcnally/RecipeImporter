@@ -225,7 +225,7 @@ def _run_synthetic_knowledge_replay_fixture(tmp_path: Path):
     )
     _write_json(
         knowledge_root / "workers" / "worker-001" / "out" / "book.ks0000.nr.json",
-        {"packet_id": "book.ks0000.nr", "block_decisions": [], "idea_groups": []},
+        {"packet_id": "book.ks0000.nr", "row_decisions": [], "row_groups": []},
     )
 
     _write_json(
@@ -439,7 +439,7 @@ def test_replay_knowledge_runtime_matches_large_generated_fixture(tmp_path: Path
     for task_id in output_task_ids:
         _write_json(
             knowledge_root / "workers" / _worker_id_for_task(task_id, worker_assignments) / "out" / f"{task_id}.json",
-            {"packet_id": task_id, "block_decisions": [], "idea_groups": []},
+            {"packet_id": task_id, "row_decisions": [], "row_groups": []},
         )
     for task_id in repair_failed_task_ids:
         _write_json(

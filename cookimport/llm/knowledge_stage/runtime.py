@@ -72,8 +72,8 @@ from .stage_plan import build_knowledge_stage_phase_plan
 from .promotion import (
     _build_noop_knowledge_llm_report,
     _build_runtime_failed_knowledge_llm_report,
-    _collect_block_category_updates,
-    _collect_block_grounding_details,
+    _collect_row_category_updates,
+    _collect_row_grounding_details,
     _extract_full_blocks,
     _non_empty,
     _prepare_full_blocks,
@@ -144,8 +144,8 @@ def run_codex_farm_nonrecipe_finalize(
     candidate_spans = list(routing.candidate_nonrecipe_spans)
     seed_nonrecipe_span_count = len(all_nonrecipe_spans)
     candidate_nonrecipe_span_count = len(candidate_spans)
-    candidate_block_count = len(routing.candidate_row_indices)
-    excluded_block_count = len(routing.excluded_row_indices)
+    candidate_row_count = len(routing.candidate_row_indices)
+    excluded_row_count = len(routing.excluded_row_indices)
     if not all_nonrecipe_spans:
         llm_report = _build_noop_knowledge_llm_report(
             run_settings=run_settings,
@@ -158,8 +158,8 @@ def run_codex_farm_nonrecipe_finalize(
             stage_status="no_nonrecipe_spans",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
             candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
-            candidate_block_count=candidate_block_count,
-            excluded_block_count=excluded_block_count,
+            candidate_row_count=candidate_row_count,
+            excluded_row_count=excluded_row_count,
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeFinalizeResult(
@@ -181,8 +181,8 @@ def run_codex_farm_nonrecipe_finalize(
             stage_status="no_candidate_nonrecipe_spans",
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
             candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
-            candidate_block_count=candidate_block_count,
-            excluded_block_count=excluded_block_count,
+            candidate_row_count=candidate_row_count,
+            excluded_row_count=excluded_row_count,
         )
         _write_json(llm_report, manifest_path)
         return CodexFarmNonrecipeFinalizeResult(
@@ -262,8 +262,8 @@ def run_codex_farm_nonrecipe_finalize(
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
             candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
             packet_count_before_partition=build_report.packet_count_before_partition,
-            candidate_block_count=candidate_block_count,
-            excluded_block_count=excluded_block_count,
+            candidate_row_count=candidate_row_count,
+            excluded_row_count=excluded_row_count,
             skipped_packet_count=build_report.skipped_packet_count,
             skipped_packet_reason_counts=dict(build_report.skipped_packet_reason_counts),
         )
@@ -396,7 +396,7 @@ def run_codex_farm_nonrecipe_finalize(
             build_report=build_report,
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
             candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
-            excluded_block_count=excluded_block_count,
+            excluded_row_count=excluded_row_count,
             elapsed_seconds=elapsed_seconds,
             error=str(exc),
         )
@@ -425,24 +425,24 @@ def run_codex_farm_nonrecipe_finalize(
         )
         missing_packet_ids = sorted(set(build_report.packet_ids) - set(outputs))
         (
-            block_category_updates,
-            applied_packet_ids_by_block,
+            row_category_updates,
+            applied_packet_ids_by_row,
             conflicts,
-            ignored_block_indices,
-        ) = _collect_block_category_updates(
+            ignored_row_indices,
+        ) = _collect_row_category_updates(
             outputs=outputs,
-            allowed_block_indices={
+            allowed_row_indices={
                 int(block_index): "candidate"
                 for block_index in routing.candidate_row_indices
             },
         )
         (
-            grounding_by_block,
+            grounding_by_row,
             grounding_counts,
             proposal_rows,
-        ) = _collect_block_grounding_details(
+        ) = _collect_row_grounding_details(
             outputs=outputs,
-            allowed_block_indices={
+            allowed_row_indices={
                 int(block_index): "candidate"
                 for block_index in routing.candidate_row_indices
             },
@@ -453,12 +453,12 @@ def run_codex_farm_nonrecipe_finalize(
         refined_stage_result = refine_nonrecipe_stage_result(
             stage_result=nonrecipe_stage_result,
             full_blocks=full_blocks_payload,
-            block_category_updates=block_category_updates,
-            grounding_by_block=grounding_by_block,
+            block_category_updates=row_category_updates,
+            grounding_by_block=grounding_by_row,
             grounding_summary=grounding_counts,
-            applied_packet_ids_by_block=applied_packet_ids_by_block,
+            applied_packet_ids_by_block=applied_packet_ids_by_row,
             conflicts=conflicts,
-            ignored_block_indices=ignored_block_indices,
+            ignored_block_indices=ignored_row_indices,
         )
 
         write_report = write_knowledge_artifacts(
@@ -489,7 +489,7 @@ def run_codex_farm_nonrecipe_finalize(
             promotion_report=promotion_report,
             build_report=build_report,
         )
-        review_rollup["excluded_row_count"] = excluded_block_count
+        review_rollup["excluded_row_count"] = excluded_row_count
         authority_mode = _derive_knowledge_authority_mode(
             refined_stage_result=refined_stage_result,
             review_rollup=review_rollup,
@@ -542,14 +542,14 @@ def run_codex_farm_nonrecipe_finalize(
                 "packet_count_before_partition": build_report.packet_count_before_partition,
                 "shards_written": build_report.shards_written,
                 "packets_written": build_report.packets_written,
-                "candidate_row_count": candidate_block_count,
-                "excluded_row_count": excluded_block_count,
+                "candidate_row_count": candidate_row_count,
+                "excluded_row_count": excluded_row_count,
                 "skipped_packet_count": build_report.skipped_packet_count,
                 "outputs_parsed": len(outputs),
                 "packets_missing": len(missing_packet_ids),
                 "useful_packets_promoted": useful_chunk_count,
                 "snippets_written": write_report.snippets_written,
-                "decisions_applied": len(block_category_updates),
+                "decisions_applied": len(row_category_updates),
                 "changed_rows": int(
                     refined_stage_result.refinement_report.get("changed_row_count") or 0
                 ),
@@ -719,7 +719,7 @@ def run_codex_farm_nonrecipe_finalize(
             build_report=build_report,
             seed_nonrecipe_span_count=seed_nonrecipe_span_count,
             candidate_nonrecipe_span_count=candidate_nonrecipe_span_count,
-            excluded_block_count=excluded_block_count,
+            excluded_row_count=excluded_row_count,
             elapsed_seconds=elapsed_seconds,
             error=f"post_validation_finalize_failed: {exc}",
         )

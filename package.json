@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "docs:list": "tsx docs/docs-list.ts",
+    "docs:list": "TMPDIR=/tmp TEMP=/tmp TMP=/tmp tsx docs/docs-list.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

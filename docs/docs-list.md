@@ -7,6 +7,7 @@ read_when:
 # Docs list script
 
 The docs list script (`docs/docs-list.ts`) prints a summary of every markdown file under `docs/`, skipping hidden entries plus `archive/` and `research/`. Run it with `npm run docs:list` or `./bin/docs-list`.
+The npm script now forces `TMPDIR=/tmp`, `TEMP=/tmp`, and `TMP=/tmp` so WSL shells do not inherit the Windows temp root that makes `tsx` IPC fail with `ENOTSUP`.
 
 Do not run `docs:list` directly in the shell. In this repo `docs:list` is an npm script name declared in `package.json`, not a standalone executable on `PATH`.
 
