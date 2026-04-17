@@ -155,10 +155,10 @@ def _preview_sanitized_nonrecipe_block_labels(
     block_labels: Sequence[AuthoritativeBlockLabel],
     recipe_ownership_result: RecipeOwnershipResult,
 ) -> list[AuthoritativeBlockLabel]:
-    recipe_block_indices = set(recipe_ownership_result.owned_row_indices)
+    recipe_row_indices = set(recipe_ownership_result.owned_row_indices)
     sanitized: list[AuthoritativeBlockLabel] = []
     for block_label in block_labels:
-        if int(block_label.source_block_index) in recipe_block_indices:
+        if int(block_label.source_block_index) in recipe_row_indices:
             sanitized.append(block_label)
             continue
         _, warning = normalize_nonrecipe_route_label(block_label.final_label)
@@ -1053,12 +1053,16 @@ def _build_line_role_candidates_from_labeled_lines(
     )
     output: list[AtomicLineCandidate] = []
     for position, row in enumerate(ordered_rows):
-        block_index = int(row.get("source_block_index", row.get("block_index", 0)))
+        source_block_index = _coerce_int(row.get("source_block_index"))
+        if source_block_index is None:
+            raise ValueError(
+                "Prompt preview labeled-line rows must provide source_block_index."
+            )
         output.append(
             AtomicLineCandidate(
                 recipe_id=None,
-                block_id=str(row.get("source_block_id") or f"block:{block_index}"),
-                block_index=block_index,
+                block_id=str(row.get("source_block_id") or f"block:{source_block_index}"),
+                block_index=source_block_index,
                 atomic_index=int(row.get("atomic_index", position)),
                 text=str(row.get("text") or ""),
                 within_recipe_span=None,

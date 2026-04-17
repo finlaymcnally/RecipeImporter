@@ -13,7 +13,10 @@ from cookimport.llm.prompt_budget import (
     build_prompt_preview_budget_summary,
     write_prompt_preview_budget_summary,
 )
-from cookimport.llm.prompt_preview import write_prompt_preview_for_existing_run
+from cookimport.llm.prompt_preview import (
+    _build_line_role_candidates_from_labeled_lines,
+    write_prompt_preview_for_existing_run,
+)
 from cookimport.staging.nonrecipe_stage import NonRecipeSpan, NonRecipeStageResult
 from tests.nonrecipe_stage_helpers import (
     make_authority_result,
@@ -968,6 +971,18 @@ def test_prompt_preview_rebuilds_knowledge_and_line_role_prompts(tmp_path: Path)
     assert (
         out_dir / "line-role-pipeline" / "debug_in" / "line_role_input_0001.json"
     ).read_text(encoding="utf-8") == line_role_row["debug_input_text"]
+
+
+def test_prompt_preview_labeled_lines_require_source_block_index() -> None:
+    with pytest.raises(ValueError, match="source_block_index"):
+        _build_line_role_candidates_from_labeled_lines(
+            labeled_line_rows=[
+                {
+                    "atomic_index": 0,
+                    "text": "Ambiguous title-ish line",
+                }
+            ]
+        )
 
 
 def test_prompt_preview_writes_artifacts_and_budget_summary(tmp_path: Path) -> None:
