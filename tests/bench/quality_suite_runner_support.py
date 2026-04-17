@@ -117,15 +117,21 @@ def _run_quality_suite_failure_fixture(
         "cookimport.cli._build_all_method_target_variants",
         lambda **_kwargs: [],
     )
+    monkeypatch.setattr(
+        "cookimport.bench.qualitysuite.runtime._resolve_quality_experiment_executor_mode",
+        lambda **_kwargs: ("thread", "forced-by-test"),
+    )
 
     observed_cache_roots: list[Path] = []
     observed_prediction_reuse_roots: list[Path] = []
+    observed_golden_roots: list[Path] = []
 
     def _fake_run_all_method_multi_source(**kwargs):
         observed_cache_roots.append(Path(kwargs["canonical_alignment_cache_root"]))
         observed_prediction_reuse_roots.append(
             Path(kwargs["prediction_reuse_cache_root"])
         )
+        observed_golden_roots.append(Path(kwargs["golden_root"]))
         root_output_dir = Path(kwargs["root_output_dir"])
         root_output_dir.mkdir(parents=True, exist_ok=True)
         if root_output_dir.name == "broken":
@@ -250,6 +256,7 @@ def _run_quality_suite_failure_fixture(
         "progress_messages": progress_messages,
         "observed_cache_roots": observed_cache_roots,
         "observed_prediction_reuse_roots": observed_prediction_reuse_roots,
+        "observed_golden_roots": observed_golden_roots,
     }
 
 
@@ -283,6 +290,10 @@ def _run_quality_suite_resume_fixture(
     monkeypatch.setattr(
         "cookimport.cli._build_all_method_target_variants",
         lambda **_kwargs: [],
+    )
+    monkeypatch.setattr(
+        "cookimport.bench.qualitysuite.runtime._resolve_quality_experiment_executor_mode",
+        lambda **_kwargs: ("thread", "forced-by-test"),
     )
 
     attempts: dict[str, int] = {"baseline": 0, "candidate": 0}

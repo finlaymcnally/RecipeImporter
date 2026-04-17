@@ -20,6 +20,7 @@ def test_run_quality_suite_writes_artifacts_and_cache_roots(
     progress_messages = fixture["progress_messages"]
     observed_cache_roots = fixture["observed_cache_roots"]
     observed_prediction_reuse_roots = fixture["observed_prediction_reuse_roots"]
+    observed_golden_roots = fixture["observed_golden_roots"]
     assert isinstance(run_root, Path)
 
     assert progress_messages
@@ -44,6 +45,8 @@ def test_run_quality_suite_writes_artifacts_and_cache_roots(
     assert observed_prediction_reuse_roots[0] == (
         tmp_path / ".cache" / "prediction_reuse"
     )
+    assert observed_golden_roots
+    assert observed_golden_roots[0] == (tmp_path / "gold")
 
 
 def test_run_quality_suite_continues_after_failure_and_summarizes_results(
@@ -95,7 +98,7 @@ def test_run_quality_suite_require_process_workers_fails_fast(
     _write_json(base_run_settings_file, {"workers": 2})
 
     monkeypatch.setattr(
-        "cookimport.bench.qualitysuite.environment._resolve_quality_experiment_executor_mode",
+        "cookimport.bench.qualitysuite.runtime._resolve_quality_experiment_executor_mode",
         lambda **_kwargs: ("thread", "forced-by-test"),
     )
     monkeypatch.setattr(

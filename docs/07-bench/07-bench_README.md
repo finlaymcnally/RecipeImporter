@@ -91,6 +91,7 @@ Important current constraints:
 - `bench speed-run --include-codex-farm` is still allowed, but it requires `--speedsuite-codex-farm-confirmation I_HAVE_EXPLICIT_USER_CONFIRMATION` and is blocked in agent-run shells.
 - `bench quality-run` and `bench speed-run` both support crash-safe resume via `--resume-run-dir`.
 - `cookimport/bench/qualitysuite/runtime.py` and `cookimport/bench/qualitysuite/worker_cli.py` own the active QualitySuite run/worker surface.
+- QualitySuite's runtime wrapper must forward the suite `gold_root` all the way into the deterministic multi-source benchmark runner; the focused regression tests in `tests/bench/test_quality_suite_runner.py` cover that wiring plus the cache-root passthrough.
 - `bench quality-run` emits `agent_compare_control/` by default. `bench quality-compare` does the same for comparisons.
 - `bench quality-discover` prefers curated CUTDOWN ids first:
   - `saltfatacidheatcutdown`
