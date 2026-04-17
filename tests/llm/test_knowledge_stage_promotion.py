@@ -202,7 +202,7 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
         allowed_block_indices={10: "candidate", 11: "candidate", 12: "candidate"},
         proposal_metadata_by_packet_id={
             "book.ks0000.nr": {
-                "kept_for_review_block_count": 2,
+                "kept_for_review_row_count": 2,
                 "group_resolution_details": [
                     {
                         "group_id": "g01",
@@ -237,15 +237,15 @@ def test_grounding_detail_rollup_uses_group_oriented_counts() -> None:
         },
     )
 
-    assert counts["kept_for_review_block_count"] == 2
-    assert counts["kept_knowledge_block_count"] == 2
-    assert counts["retrieval_gate_rejected_block_count"] == 1
+    assert counts["kept_for_review_row_count"] == 2
+    assert counts["kept_knowledge_row_count"] == 2
+    assert counts["retrieval_gate_rejected_row_count"] == 1
     assert counts["knowledge_group_count"] == 2
     assert counts["knowledge_group_split_count"] == 1
     assert counts["knowledge_groups_using_existing_tags"] == 1
     assert counts["knowledge_groups_using_proposed_tags"] == 1
-    assert counts["knowledge_blocks_grounded_to_existing_tags"] == 1
-    assert counts["knowledge_blocks_using_proposed_tags"] == 1
+    assert counts["knowledge_rows_grounded_to_existing_tags"] == 1
+    assert counts["knowledge_rows_using_proposed_tags"] == 1
     assert len(counts["group_resolution_details"]) == 2
     assert proposal_rows == [
         {

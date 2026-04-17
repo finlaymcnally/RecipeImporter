@@ -489,7 +489,7 @@ def run_codex_farm_nonrecipe_finalize(
             promotion_report=promotion_report,
             build_report=build_report,
         )
-        review_rollup["excluded_block_count"] = excluded_block_count
+        review_rollup["excluded_row_count"] = excluded_block_count
         authority_mode = _derive_knowledge_authority_mode(
             refined_stage_result=refined_stage_result,
             review_rollup=review_rollup,
@@ -507,7 +507,7 @@ def run_codex_farm_nonrecipe_finalize(
             ],
             "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
             "unreviewed_packet_count": review_rollup["unreviewed_packet_count"],
-            "unreviewed_block_count": review_rollup["unreviewed_block_count"],
+            "unreviewed_row_count": review_rollup["unreviewed_row_count"],
         }
         refined_stage_result = replace(
             refined_stage_result,
@@ -542,25 +542,25 @@ def run_codex_farm_nonrecipe_finalize(
                 "packet_count_before_partition": build_report.packet_count_before_partition,
                 "shards_written": build_report.shards_written,
                 "packets_written": build_report.packets_written,
-                "candidate_block_count": candidate_block_count,
-                "excluded_block_count": excluded_block_count,
+                "candidate_row_count": candidate_block_count,
+                "excluded_row_count": excluded_block_count,
                 "skipped_packet_count": build_report.skipped_packet_count,
                 "outputs_parsed": len(outputs),
                 "packets_missing": len(missing_packet_ids),
                 "useful_packets_promoted": useful_chunk_count,
                 "snippets_written": write_report.snippets_written,
                 "decisions_applied": len(block_category_updates),
-                "changed_blocks": int(
-                    refined_stage_result.refinement_report.get("changed_block_count") or 0
+                "changed_rows": int(
+                    refined_stage_result.refinement_report.get("changed_row_count") or 0
                 ),
-                "kept_knowledge_block_count": int(
-                    grounding_counts.get("kept_knowledge_block_count") or 0
+                "kept_knowledge_row_count": int(
+                    grounding_counts.get("kept_knowledge_row_count") or 0
                 ),
-                "retrieval_gate_rejected_block_count": int(
-                    grounding_counts.get("retrieval_gate_rejected_block_count") or 0
+                "retrieval_gate_rejected_row_count": int(
+                    grounding_counts.get("retrieval_gate_rejected_row_count") or 0
                 ),
-                "kept_for_review_block_count": int(
-                    grounding_counts.get("kept_for_review_block_count") or 0
+                "kept_for_review_row_count": int(
+                    grounding_counts.get("kept_for_review_row_count") or 0
                 ),
                 "knowledge_group_count": int(
                     grounding_counts.get("knowledge_group_count") or 0
@@ -574,11 +574,11 @@ def run_codex_farm_nonrecipe_finalize(
                 "knowledge_groups_using_proposed_tags": int(
                     grounding_counts.get("knowledge_groups_using_proposed_tags") or 0
                 ),
-                "knowledge_blocks_grounded_to_existing_tags": int(
-                    grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
+                "knowledge_rows_grounded_to_existing_tags": int(
+                    grounding_counts.get("knowledge_rows_grounded_to_existing_tags") or 0
                 ),
-                "knowledge_blocks_using_proposed_tags": int(
-                    grounding_counts.get("knowledge_blocks_using_proposed_tags") or 0
+                "knowledge_rows_using_proposed_tags": int(
+                    grounding_counts.get("knowledge_rows_using_proposed_tags") or 0
                 ),
                 "tag_proposal_count": int(grounding_counts.get("tag_proposal_count") or 0),
                 "worker_count": (
@@ -600,7 +600,7 @@ def run_codex_farm_nonrecipe_finalize(
                 "reviewed_shards_all_other": review_rollup["reviewed_shards_all_other"],
                 "unreviewed_shard_count": review_rollup["unreviewed_shard_count"],
                 "unreviewed_packet_count": review_rollup["unreviewed_packet_count"],
-                "unreviewed_block_count": review_rollup["unreviewed_block_count"],
+                "unreviewed_row_count": review_rollup["unreviewed_row_count"],
             },
             "timing": {"total_seconds": elapsed_seconds},
             "paths": {

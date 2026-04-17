@@ -1208,8 +1208,8 @@ def write_nonrecipe_authority_artifact(
             "authoritative_other_spans": len(authority.authoritative_other_spans),
             "final_authority_rows": len(authority.authoritative_row_indices),
             **_knowledge_counts_for_row_map(authority.authoritative_row_category_by_index),
-            "kept_for_review_block_count": int(
-                grounding_counts.get("kept_for_review_block_count") or 0
+            "kept_for_review_row_count": int(
+                grounding_counts.get("kept_for_review_row_count") or 0
             ),
             "knowledge_group_count": int(
                 grounding_counts.get("knowledge_group_count") or 0
@@ -1223,11 +1223,11 @@ def write_nonrecipe_authority_artifact(
             "knowledge_groups_using_proposed_tags": int(
                 grounding_counts.get("knowledge_groups_using_proposed_tags") or 0
             ),
-            "knowledge_blocks_grounded_to_existing_tags": int(
-                grounding_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
+            "knowledge_rows_grounded_to_existing_tags": int(
+                grounding_counts.get("knowledge_rows_grounded_to_existing_tags") or 0
             ),
-            "knowledge_blocks_using_proposed_tags": int(
-                grounding_counts.get("knowledge_blocks_using_proposed_tags") or 0
+            "knowledge_rows_using_proposed_tags": int(
+                grounding_counts.get("knowledge_rows_using_proposed_tags") or 0
             ),
             "tag_proposal_count": int(grounding_counts.get("tag_proposal_count") or 0),
             "warnings": len(stage_result.routing.warnings),
@@ -1344,7 +1344,7 @@ def write_nonrecipe_finalize_status_artifact(
             "skipped_packet_count": int(counts.get("skipped_packet_count") or 0),
             "snippets_written": int(counts.get("snippets_written") or 0),
             "decisions_applied": int(counts.get("decisions_applied") or 0),
-            "changed_rows": int(counts.get("changed_rows") or counts.get("changed_blocks") or 0),
+            "changed_rows": int(counts.get("changed_rows") or 0),
         },
         "pipeline": str((llm_report or {}).get("pipeline") or "off"),
         "enabled": bool((llm_report or {}).get("enabled")),

@@ -882,12 +882,12 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         else {}
     )
     grounding_counts = {
-        "kept_knowledge_block_count": int(manifest_counts.get("kept_knowledge_block_count") or 0),
-        "retrieval_gate_rejected_block_count": int(
-            manifest_counts.get("retrieval_gate_rejected_block_count") or 0
+        "kept_knowledge_row_count": int(manifest_counts.get("kept_knowledge_row_count") or 0),
+        "retrieval_gate_rejected_row_count": int(
+            manifest_counts.get("retrieval_gate_rejected_row_count") or 0
         ),
-        "kept_for_review_block_count": int(
-            manifest_counts.get("kept_for_review_block_count") or 0
+        "kept_for_review_row_count": int(
+            manifest_counts.get("kept_for_review_row_count") or 0
         ),
         "knowledge_group_count": int(
             manifest_counts.get("knowledge_group_count") or 0
@@ -901,11 +901,11 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
         "knowledge_groups_using_proposed_tags": int(
             manifest_counts.get("knowledge_groups_using_proposed_tags") or 0
         ),
-        "knowledge_blocks_grounded_to_existing_tags": int(
-            manifest_counts.get("knowledge_blocks_grounded_to_existing_tags") or 0
+        "knowledge_rows_grounded_to_existing_tags": int(
+            manifest_counts.get("knowledge_rows_grounded_to_existing_tags") or 0
         ),
-        "knowledge_blocks_using_proposed_tags": int(
-            manifest_counts.get("knowledge_blocks_using_proposed_tags") or 0
+        "knowledge_rows_using_proposed_tags": int(
+            manifest_counts.get("knowledge_rows_using_proposed_tags") or 0
         ),
         "tag_proposal_count": int(manifest_counts.get("tag_proposal_count") or 0),
         "group_resolution_details": list(
@@ -1010,7 +1010,7 @@ def build_knowledge_stage_summary(stage_root: Path) -> dict[str, Any]:
             ),
             "unreviewed_shard_count": salvage_counts.get("unreviewed_shard_count"),
             "unreviewed_packet_count": salvage_counts.get("unreviewed_packet_count"),
-            "unreviewed_block_count": salvage_counts.get("unreviewed_block_count"),
+            "unreviewed_row_count": salvage_counts.get("unreviewed_row_count"),
             "failed_followup_count": failed_followup_total,
             "pre_kill_failure_count": _count_nested_positive_values(pre_kill_failure_counts),
         },

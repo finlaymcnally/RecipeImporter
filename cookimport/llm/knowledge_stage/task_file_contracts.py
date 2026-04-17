@@ -2109,7 +2109,7 @@ def collect_knowledge_resolution_metadata_by_shard(
         shard_row = metadata_by_shard.setdefault(
             shard_id,
             {
-                "kept_for_review_block_count": 0,
+                "kept_for_review_row_count": 0,
                 "knowledge_group_count": 0,
                 "knowledge_group_split_count": 0,
                 "knowledge_groups_using_existing_tags": 0,
@@ -2120,7 +2120,7 @@ def collect_knowledge_resolution_metadata_by_shard(
         )
         if classification_category != "keep_for_review":
             continue
-        shard_row["kept_for_review_block_count"] += 1
+        shard_row["kept_for_review_row_count"] += 1
     grouped_rows_by_shard = _canonicalize_knowledge_groups_by_shard(
         shard_rows=shard_rows,
         grouping_answers=grouping_answers,

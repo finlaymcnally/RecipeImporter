@@ -49,15 +49,15 @@ def _build_noop_knowledge_llm_report(
             "packet_count_before_partition": int(packet_count_before_partition),
             "shards_written": 0,
             "packets_written": 0,
-            "candidate_block_count": int(candidate_block_count),
-            "excluded_block_count": int(excluded_block_count),
+            "candidate_row_count": int(candidate_block_count),
+            "excluded_row_count": int(excluded_block_count),
             "skipped_packet_count": int(skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": 0,
             "useful_packets_promoted": 0,
             "snippets_written": 0,
             "decisions_applied": 0,
-            "changed_blocks": 0,
+            "changed_rows": 0,
             "worker_count": 0,
             "validated_shards": 0,
             "invalid_shards": 0,
@@ -69,7 +69,7 @@ def _build_noop_knowledge_llm_report(
             "reviewed_shards_all_other": 0,
             "unreviewed_shard_count": 0,
             "unreviewed_packet_count": 0,
-            "unreviewed_block_count": 0,
+            "unreviewed_row_count": 0,
         },
         "timing": {"total_seconds": 0.0},
         "paths": {
@@ -93,8 +93,8 @@ def _build_noop_knowledge_llm_report(
             "packet_count_before_partition": int(packet_count_before_partition),
             "planned_packet_count": 0,
             "reviewed_packet_count": 0,
-            "candidate_block_count": int(candidate_block_count),
-            "excluded_block_count": int(excluded_block_count),
+            "candidate_row_count": int(candidate_block_count),
+            "excluded_row_count": int(excluded_block_count),
             "skipped_packet_count": int(skipped_packet_count),
             "skipped_packet_reason_counts": dict(
                 sorted((skipped_packet_reason_counts or {}).items())
@@ -111,7 +111,7 @@ def _build_noop_knowledge_llm_report(
             "reviewed_shards_all_other": 0,
             "unreviewed_shard_count": 0,
             "unreviewed_packet_count": 0,
-            "unreviewed_block_count": 0,
+            "unreviewed_row_count": 0,
             "promoted_useful_packet_count": 0,
             "promoted_snippet_count": 0,
         },
@@ -159,17 +159,17 @@ def _build_runtime_failed_knowledge_llm_report(
             "packet_count_before_partition": int(build_report.packet_count_before_partition),
             "shards_written": int(build_report.shards_written),
             "packets_written": int(build_report.packets_written),
-            "candidate_block_count": int(
+            "candidate_row_count": int(
                 getattr(build_report, "candidate_block_count", 0) or 0
             ),
-            "excluded_block_count": int(excluded_block_count),
+            "excluded_row_count": int(excluded_block_count),
             "skipped_packet_count": int(build_report.skipped_packet_count),
             "outputs_parsed": 0,
             "packets_missing": int(build_report.packets_written),
             "useful_packets_promoted": 0,
             "snippets_written": 0,
             "decisions_applied": 0,
-            "changed_blocks": 0,
+            "changed_rows": 0,
             "worker_count": 0,
             "validated_shards": 0,
             "invalid_shards": 0,
@@ -181,7 +181,7 @@ def _build_runtime_failed_knowledge_llm_report(
             "reviewed_shards_all_other": 0,
             "unreviewed_shard_count": int(build_report.shards_written),
             "unreviewed_packet_count": int(build_report.packets_written),
-            "unreviewed_block_count": 0,
+            "unreviewed_row_count": 0,
         },
         "timing": {"total_seconds": elapsed_seconds},
         "paths": {
@@ -215,8 +215,8 @@ def _build_runtime_failed_knowledge_llm_report(
                 "meaningfully_reviewed_shard_count": 0,
                 "unreviewed_shard_count": int(build_report.shards_written),
                 "unreviewed_packet_count": int(build_report.packets_written),
-                "unreviewed_block_count": 0,
-                "excluded_block_count": 0,
+                "unreviewed_row_count": 0,
+                "excluded_row_count": 0,
             },
             promoted_useful_packet_count=0,
             promoted_snippet_count=0,
@@ -464,11 +464,11 @@ def _collect_block_grounding_details(
     grounding_by_block: dict[int, dict[str, Any]] = {}
     proposal_rollups: dict[tuple[str, str], dict[str, Any]] = {}
     counts = {
-        "kept_for_review_block_count": 0,
-        "kept_knowledge_block_count": 0,
-        "retrieval_gate_rejected_block_count": 0,
-        "knowledge_blocks_grounded_to_existing_tags": 0,
-        "knowledge_blocks_using_proposed_tags": 0,
+        "kept_for_review_row_count": 0,
+        "kept_knowledge_row_count": 0,
+        "retrieval_gate_rejected_row_count": 0,
+        "knowledge_rows_grounded_to_existing_tags": 0,
+        "knowledge_rows_using_proposed_tags": 0,
         "knowledge_group_count": 0,
         "knowledge_group_split_count": 0,
         "knowledge_groups_using_existing_tags": 0,
@@ -477,8 +477,8 @@ def _collect_block_grounding_details(
     }
     for packet_id, output in outputs.items():
         packet_metadata = _coerce_dict((proposal_metadata_by_packet_id or {}).get(packet_id))
-        counts["kept_for_review_block_count"] += int(
-            packet_metadata.get("kept_for_review_block_count") or 0
+        counts["kept_for_review_row_count"] += int(
+            packet_metadata.get("kept_for_review_row_count") or 0
         )
         group_details = [
             dict(row)
@@ -504,14 +504,14 @@ def _collect_block_grounding_details(
                 continue
             category = str(getattr(decision, "category", "") or "").strip()
             if category != "knowledge":
-                counts["retrieval_gate_rejected_block_count"] += 1
+                counts["retrieval_gate_rejected_row_count"] += 1
                 continue
-            counts["kept_knowledge_block_count"] += 1
+            counts["kept_knowledge_row_count"] += 1
             grounding = _serialize_decision_grounding(decision)
             if grounding["tag_keys"]:
-                counts["knowledge_blocks_grounded_to_existing_tags"] += 1
+                counts["knowledge_rows_grounded_to_existing_tags"] += 1
             if grounding["proposed_tags"]:
-                counts["knowledge_blocks_using_proposed_tags"] += 1
+                counts["knowledge_rows_using_proposed_tags"] += 1
             grounding_by_block[block_index] = {
                 "packet_id": str(packet_id),
                 "grounding": grounding,

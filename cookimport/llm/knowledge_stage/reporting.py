@@ -90,11 +90,11 @@ def _build_review_summary(
         ),
         "planned_packet_count": planned_packet_count,
         "reviewed_packet_count": max(0, planned_packet_count - unreviewed_packet_count),
-        "candidate_block_count": int(
+        "candidate_row_count": int(
             getattr(build_report, "candidate_block_count", 0) or 0
         ),
-        "excluded_block_count": int(
-            counts.get("excluded_block_count") or 0
+        "excluded_row_count": int(
+            counts.get("excluded_row_count") or 0
         ),
         "skipped_packet_count": int(
             getattr(build_report, "skipped_packet_count", 0) or 0
@@ -120,7 +120,7 @@ def _build_review_summary(
         "reviewed_shards_all_other": int(counts.get("reviewed_shards_all_other") or 0),
         "unreviewed_shard_count": int(counts.get("unreviewed_shard_count") or 0),
         "unreviewed_packet_count": unreviewed_packet_count,
-        "unreviewed_block_count": int(counts.get("unreviewed_block_count") or 0),
+        "unreviewed_row_count": int(counts.get("unreviewed_row_count") or 0),
         "promoted_useful_packet_count": int(promoted_useful_packet_count),
         "promoted_snippet_count": int(promoted_snippet_count),
     }
@@ -151,7 +151,7 @@ def _build_nonrecipe_finalize_rollup(
             else 0
         )
     )
-    unreviewed_block_count = int(report.get("unreviewed_block_count") or 0)
+    unreviewed_row_count = int(report.get("unreviewed_row_count") or 0)
     return {
         "validated_shard_count": validated_shard_count,
         "invalid_shard_count": invalid_shard_count,
@@ -167,7 +167,7 @@ def _build_nonrecipe_finalize_rollup(
             wholly_unpromoted_invalid_shard_count + no_final_output_shard_count
         ),
         "unreviewed_packet_count": unreviewed_packet_count,
-        "unreviewed_block_count": unreviewed_block_count,
+        "unreviewed_row_count": unreviewed_row_count,
     }
 
 
@@ -189,7 +189,7 @@ def _derive_knowledge_authority_mode(
     refined_stage_result: NonRecipeStageResult,
     review_rollup: Mapping[str, Any],
 ) -> str:
-    if int(refined_stage_result.refinement_report.get("changed_block_count") or 0) > 0:
+    if int(refined_stage_result.refinement_report.get("changed_row_count") or 0) > 0:
         return "knowledge_refined_final"
     finalize_status = _derive_nonrecipe_finalize_status(review_rollup)
     if finalize_status == "unreviewed":
@@ -745,7 +745,7 @@ def _write_knowledge_runtime_summary_artifacts(
             _unreviewed_packet_count_for_proposal(row["proposal"], row["promotion_info"])
             for row in proposal_promotion_rows
         ),
-        "unreviewed_block_count": sum(
+        "unreviewed_row_count": sum(
             _unreviewed_row_count_for_proposal(row["proposal"], row["promotion_info"])
             for row in proposal_promotion_rows
         ),

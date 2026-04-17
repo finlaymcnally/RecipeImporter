@@ -1250,15 +1250,15 @@ def _build_knowledge_stage_rollup_fixture(tmp_path: Path) -> dict[str, object]:
             {
                 "pipeline_id": "recipe.knowledge.compact.v1",
                 "counts": {
-                    "kept_for_review_block_count": 2,
-                    "kept_knowledge_block_count": 2,
-                    "retrieval_gate_rejected_block_count": 1,
+                    "kept_for_review_row_count": 2,
+                    "kept_knowledge_row_count": 2,
+                    "retrieval_gate_rejected_row_count": 1,
                     "knowledge_group_count": 2,
                     "knowledge_group_split_count": 1,
                     "knowledge_groups_using_existing_tags": 1,
                     "knowledge_groups_using_proposed_tags": 1,
-                    "knowledge_blocks_grounded_to_existing_tags": 1,
-                    "knowledge_blocks_using_proposed_tags": 1,
+                    "knowledge_rows_grounded_to_existing_tags": 1,
+                    "knowledge_rows_using_proposed_tags": 1,
                     "tag_proposal_count": 1,
                 },
                 "grounding_counts": {
@@ -1508,15 +1508,15 @@ def test_summarize_knowledge_stage_artifacts_reports_packet_and_worker_rollups(
         "protocol_overhead_share": 0.3333,
     }
     assert summary["grounding_counts"] == {
-        "kept_for_review_block_count": 2,
-        "kept_knowledge_block_count": 2,
-        "retrieval_gate_rejected_block_count": 1,
+        "kept_for_review_row_count": 2,
+        "kept_knowledge_row_count": 2,
+        "retrieval_gate_rejected_row_count": 1,
         "knowledge_group_count": 2,
         "knowledge_group_split_count": 1,
         "knowledge_groups_using_existing_tags": 1,
         "knowledge_groups_using_proposed_tags": 1,
-        "knowledge_blocks_grounded_to_existing_tags": 1,
-        "knowledge_blocks_using_proposed_tags": 1,
+        "knowledge_rows_grounded_to_existing_tags": 1,
+        "knowledge_rows_using_proposed_tags": 1,
         "tag_proposal_count": 1,
         "group_resolution_details": [
             {
