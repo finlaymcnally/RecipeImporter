@@ -141,13 +141,13 @@ def evaluate_source_rows(
             pred_label = "OTHER"
         is_correct = pred_label in set(gold_labels)
         row_index = _coerce_int(gold_row.get("row_index"))
-        block_index = _coerce_int(gold_row.get("block_index"))
+        source_block_index = _coerce_int(gold_row.get("source_block_index"))
         text = str(gold_row.get("text") or (prediction or {}).get("text") or "")
         payload = {
             "row_id": row_id,
             "row_index": row_index,
             "line_index": row_index,
-            "block_index": block_index,
+            "source_block_index": source_block_index,
             "line_text": text,
             "gold_label": primary_gold,
             "gold_labels": gold_labels,

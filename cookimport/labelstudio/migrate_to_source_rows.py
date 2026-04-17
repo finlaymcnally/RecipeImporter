@@ -92,7 +92,7 @@ def migrate_freeform_export_to_row_gold(
             payload = {
                 "row_id": str(row.row_id),
                 "row_index": int(row.row_index),
-                "block_index": int(row.block_index),
+                "source_block_index": int(row.block_index),
                 "row_ordinal": int(row.row_ordinal),
                 "text": str(row.text),
                 "source_hash": str(row.source_hash),

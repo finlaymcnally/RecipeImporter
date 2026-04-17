@@ -541,10 +541,10 @@ def test_build_all_method_eval_signature_is_stable_for_same_payload(tmp_path: Pa
                 example_index=0,
                 prediction={
                     "schema_kind": "semantic-row.v1",
-                    "block_index": 0,
+                    "row_index": 0,
                     "pred_label": "RECIPE_TITLE",
-                    "block_text": "Title",
-                    "block_features": {},
+                    "row_text": "Title",
+                    "row_features": {},
                 },
                 predict_meta={
                     "source_file": str(source_file),
@@ -589,10 +589,10 @@ def test_build_all_method_eval_signature_changes_when_inputs_change(tmp_path: Pa
                 example_index=0,
                 prediction={
                     "schema_kind": "semantic-row.v1",
-                    "block_index": 0,
+                    "row_index": 0,
                     "pred_label": "RECIPE_TITLE",
-                    "block_text": "Title A",
-                    "block_features": {},
+                    "row_text": "Title A",
+                    "row_features": {},
                 },
                 predict_meta={"source_file": str(source_file), "source_hash": "hash-1"},
             )
@@ -606,10 +606,10 @@ def test_build_all_method_eval_signature_changes_when_inputs_change(tmp_path: Pa
                 example_index=0,
                 prediction={
                     "schema_kind": "semantic-row.v1",
-                    "block_index": 0,
+                    "row_index": 0,
                     "pred_label": "RECIPE_TITLE",
-                    "block_text": "Title B",
-                    "block_features": {},
+                    "row_text": "Title B",
+                    "row_features": {},
                 },
                 predict_meta={"source_file": str(source_file), "source_hash": "hash-1"},
             )

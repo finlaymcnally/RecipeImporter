@@ -146,7 +146,7 @@ def test_evaluate_source_rows_overlays_nonrecipe_authority_labels(tmp_path: Path
             {
                 "row_id": "gold:r0",
                 "row_index": 0,
-                "block_index": 999,
+                "source_block_index": 999,
                 "labels": ["KNOWLEDGE"],
                 "text": "Salt dissolves quickly.",
             }
@@ -202,7 +202,7 @@ def test_evaluate_source_rows_accepts_multi_label_gold_rows(tmp_path: Path) -> N
             {
                 "row_id": "gold:r0",
                 "row_index": 0,
-                "block_index": 275,
+                "source_block_index": 275,
                 "labels": ["KNOWLEDGE", "OTHER"],
                 "text": "SALT AND FLAVOR",
             }
@@ -249,7 +249,7 @@ def test_evaluate_source_rows_preserves_row_level_nonrecipe_exclude_over_block_a
             {
                 "row_id": "gold:r0",
                 "row_index": 0,
-                "block_index": 999,
+                "source_block_index": 999,
                 "labels": ["OTHER"],
                 "text": "Think about making a grilled cheese sandwich.",
             }
@@ -305,14 +305,14 @@ def test_evaluate_source_rows_prefers_row_level_nonrecipe_authority_over_block_s
             {
                 "row_id": "gold:r0",
                 "row_index": 10,
-                "block_index": 999,
+                "source_block_index": 999,
                 "labels": ["OTHER"],
                 "text": "Think about making a grilled cheese sandwich.",
             },
             {
                 "row_id": "gold:r1",
                 "row_index": 11,
-                "block_index": 999,
+                "source_block_index": 999,
                 "labels": ["KNOWLEDGE"],
                 "text": "Slow, even heat melts the cheese before the bread burns.",
             },

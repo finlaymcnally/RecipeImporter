@@ -50,10 +50,10 @@ def test_bench_artifacts_rebuilds_prediction_bundle_with_string_timing_metrics(
         example_id="labelstudio-benchmark:test:block:0",
         example_index=0,
         prediction={
-            "block_index": "0",
+            "row_index": "0",
             "pred_label": "OTHER",
-            "block_text": "Toast the spices.",
-            "block_features": {"heading_level": "2"},
+            "row_text": "Toast the spices.",
+            "row_features": {"heading_level": "2"},
         },
         predict_meta={
             "source_file": str(tmp_path / "book.epub"),

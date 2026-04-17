@@ -93,10 +93,10 @@ def _run_global_queue_interleaving_fixture(
                     example_index=0,
                     prediction={
                         "schema_kind": "semantic-row.v1",
-                        "block_index": 0,
+                        "row_index": 0,
                         "pred_label": "RECIPE_TITLE",
-                        "block_text": f"{source_file.name}:{variant.slug}",
-                        "block_features": {},
+                        "row_text": f"{source_file.name}:{variant.slug}",
+                        "row_features": {},
                     },
                     predict_meta={
                         "source_file": str(source_file),
@@ -319,10 +319,10 @@ def _run_global_queue_smart_tail_fixture(
                     example_index=0,
                     prediction={
                         "schema_kind": "semantic-row.v1",
-                        "block_index": 0,
+                        "row_index": 0,
                         "pred_label": "RECIPE_TITLE",
-                        "block_text": f"{source_file_local.name}:{config_index}",
-                        "block_features": {},
+                        "row_text": f"{source_file_local.name}:{config_index}",
+                        "row_features": {},
                     },
                     predict_meta={
                         "source_file": str(source_file_local),
@@ -499,10 +499,10 @@ def test_run_all_method_benchmark_global_queue_non_epub_eval_uses_default_extrac
                     example_index=0,
                     prediction={
                         "schema_kind": "semantic-row.v1",
-                        "block_index": 0,
+                        "row_index": 0,
                         "pred_label": "RECIPE_TITLE",
-                        "block_text": f"{source_file_local.name}:{config_index}",
-                        "block_features": {},
+                        "row_text": f"{source_file_local.name}:{config_index}",
+                        "row_features": {},
                     },
                     predict_meta={
                         "source_file": str(source_file_local),

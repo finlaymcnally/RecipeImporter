@@ -36,7 +36,7 @@ def test_row_seed_package_uses_non_overlapping_focus_rows(tmp_path) -> None:
             {
                 "row_id": row.row_id,
                 "row_index": row.row_index,
-                "block_index": row.block_index,
+                "source_block_index": row.block_index,
                 "row_ordinal": row.row_ordinal,
                 "text": row.text,
                 "source_hash": row.source_hash,

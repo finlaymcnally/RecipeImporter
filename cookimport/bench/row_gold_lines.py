@@ -33,7 +33,7 @@ def load_row_gold_line_labels(
                 "line_index": int(line_index),
                 "text": str(row.get("text") or ""),
                 "row_id": str(row.get("row_id") or ""),
-                "block_index": _coerce_int(row.get("block_index")),
+                "source_block_index": _coerce_int(row.get("source_block_index")),
             }
         )
         labels_by_line[int(line_index)] = labels

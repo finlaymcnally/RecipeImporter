@@ -107,7 +107,7 @@ def derive_row_gold_bundle(
         row_payload = {
             "row_id": row_id,
             "row_index": entry.get("row_index"),
-            "block_index": entry.get("source_block_index"),
+            "source_block_index": entry.get("source_block_index"),
             "row_ordinal": entry.get("row_ordinal"),
             "text": entry.get("text"),
             "source_hash": entry.get("source_hash"),

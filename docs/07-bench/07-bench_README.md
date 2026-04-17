@@ -255,6 +255,7 @@ Row gold authority note:
 
 - `exports/freeform_span_labels.jsonl` is still the entry artifact selected by benchmark discovery because it identifies the gold export bundle, but source-row scoring does not score that raw freeform file directly
 - `exports/row_gold_labels.jsonl` is the active benchmark authority
+- row-gold provenance in that artifact is `source_block_index`; benchmark readers should not look for semantic `block_index` there
 - canonical export files may still exist as compatibility/archive outputs for older tooling, but they are no longer the active scorer inputs
 - benchmark run manifests should describe `source-rows` runs as evaluating a selected Label Studio gold export with row-gold scoring, not as scoring the raw freeform file directly
 

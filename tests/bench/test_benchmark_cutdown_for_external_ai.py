@@ -37,6 +37,7 @@ def test_row_gold_line_loader_reads_labels_by_line(
 
     lines, labels_by_line = load_row_gold_line_labels(row_gold_path)
     assert [line["text"] for line in lines] == ["Dish Title", "1 cup flour"]
+    assert [line["source_block_index"] for line in lines] == [None, None]
     assert labels_by_line == {
         0: ["RECIPE_TITLE"],
         1: ["INGREDIENT_LINE"],

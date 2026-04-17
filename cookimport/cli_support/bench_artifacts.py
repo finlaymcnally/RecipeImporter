@@ -741,12 +741,10 @@ def _prediction_record_stage_row(
     schema_kind = str(record.prediction.get("schema_kind") or "").strip()
     if schema_kind and schema_kind != _BENCHMARK_PREDICTION_RECORD_STAGE_KIND:
         return None
-    if "row_index" not in record.prediction and "block_index" not in record.prediction:
+    if "row_index" not in record.prediction:
         return None
 
-    row_index = _coerce_int(
-        record.prediction.get("row_index", record.prediction.get("block_index"))
-    )
+    row_index = _coerce_int(record.prediction.get("row_index"))
     if row_index is None or row_index < 0:
         raise ValueError(
             f"Prediction record {record.example_id} has invalid row_index."

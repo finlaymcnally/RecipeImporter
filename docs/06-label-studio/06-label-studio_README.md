@@ -230,6 +230,7 @@ Thinking effort uses `--codex-thinking-effort` (alias `--codex-reasoning-effort`
 Row-authoritative benchmark note:
 - `freeform_span_labels.jsonl` remains the raw archive of what the annotator drew in Label Studio.
 - `row_gold_labels.jsonl` is the benchmark-authoritative gold. It is exhaustive for task focus rows: explicit annotated span labels win, and any focus row left unlabeled in Label Studio exports as `OTHER`. Benchmarks and row prediction diagnostics should trace one `row_id` end-to-end through scoring and mismatch reports.
+- Row-gold provenance now writes `source_block_index` when source-block tracing is needed; do not reintroduce semantic `block_index` on this row-native artifact.
 - `data.source_map.rows` is the authoritative task mapping for new freeform tasks.
 - New exports do not write `block_gold_labels.jsonl`.
 - Older pulled exports can be batch-migrated in place with `python scripts/migrate_pulled_labelstudio_gold_to_source_rows.py`. That script writes `exports/source_rows.jsonl`, migrated row gold files, `exports/row_seed_tasks.jsonl`, and updates the export summary/manifest to point at the new row-native artifacts.

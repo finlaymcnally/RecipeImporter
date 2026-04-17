@@ -175,11 +175,11 @@ def test_labelstudio_export_writes_row_gold_artifacts(
     assert row_gold_conflicts_path.read_text(encoding="utf-8") == ""
     assert len(row_gold_rows) == 2
     assert row_gold_rows[0]["row_index"] == 0
-    assert row_gold_rows[0]["block_index"] == 0
+    assert row_gold_rows[0]["source_block_index"] == 0
     assert row_gold_rows[0]["labels"] == ["RECIPE_TITLE"]
     assert row_gold_rows[0]["text"] == "Simple Soup"
     assert row_gold_rows[1]["row_index"] == 1
-    assert row_gold_rows[1]["block_index"] == 1
+    assert row_gold_rows[1]["source_block_index"] == 1
     assert row_gold_rows[1]["labels"] == ["OTHER"]
     assert row_gold_rows[1]["text"] == "1 cup stock"
 
